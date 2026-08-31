@@ -1,0 +1,29 @@
+[package]
+name = "luvia-host"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "Apache-2.0"
+description = "Owner-local SSH companion that pairs devices and bridges UHP over a forced command"
+authors = ["AsahiArt"]
+publish = false
+
+[[bin]]
+name = "luvia-host"
+path = "src/main.rs"
+
+[lib]
+name = "luvia_host"
+path = "src/lib.rs"
+
+[dependencies]
+base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
+getrandom = "0.3"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

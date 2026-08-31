@@ -1,0 +1,7 @@
+[bindings.kotlin]
+package_name = "tech.asahiart.luvia.transport"
+cdylib_name = "luvia_transport"
+
+[bindings.swift]
+module_name = "LuviaTransport"
+cdylib_name = "luvia_transport"
