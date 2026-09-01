@@ -2,7 +2,7 @@
 name = "luvia-transport"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.98"
 license = "Apache-2.0"
 authors = ["AsahiArt"]
 description = "Pinned SSH transport for Luvia host bridge sessions"

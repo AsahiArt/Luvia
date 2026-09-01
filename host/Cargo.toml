@@ -2,7 +2,8 @@
 name = "luvia-host"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.98"
+
 license = "Apache-2.0"
 description = "Owner-local SSH companion that pairs devices and bridges UHP over a forced command"
 authors = ["AsahiArt"]
@@ -24,6 +25,9 @@ libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+qrcode = { version = "0.14", default-features = false }
+
+
 
 [dev-dependencies]
 tempfile = "3"
