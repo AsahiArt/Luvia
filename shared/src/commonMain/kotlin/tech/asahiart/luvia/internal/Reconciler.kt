@@ -1,11 +1,15 @@
 package tech.asahiart.luvia.internal
 
+import tech.asahiart.luvia.BusEvent
 import tech.asahiart.luvia.ResyncReason
 import tech.asahiart.luvia.SessionEvent
 import tech.asahiart.luvia.SessionSnapshot
 
 internal sealed class ReconcileAction {
-    data class ApplyEvent(val event: SessionEvent) : ReconcileAction()
+    data class ApplyEvent(
+        val event: SessionEvent,
+        val bus: BusEvent,
+    ) : ReconcileAction()
 
     data class ApplySnapshot(val snapshot: SessionSnapshot) : ReconcileAction()
 
@@ -89,22 +93,13 @@ internal class SubscribeSnapshotReconciler {
         if (event.sequence <= previous) {
             return emptyList()
         }
-        if (requiresFreshSnapshot(event.name) && event.sequence > fence) {
-            lastApplied = event.sequence
-            return listOf(ReconcileAction.Resync(ResyncReason.Gap))
-        }
         lastApplied = event.sequence
-        return listOf(ReconcileAction.ApplyEvent(toSessionEvent(event)))
+        return listOf(ReconcileAction.ApplyEvent(toSessionEvent(event), parseBusEvent(event)))
     }
 }
 
 internal fun isOverflow(event: UhpEvent): Boolean =
-    event.name == "events.resync_required" ||
-        event.name == "terminal.resync_required" ||
-        event.data.optionalString("reason") == "subscriber_overflow"
-
-internal fun requiresFreshSnapshot(name: String): Boolean =
-    name == "terminal.created" || name == "terminal.moved" || name == "terminal.exited"
+    event.name == "events.resync_required" || event.name == "terminal.resync_required"
 
 internal fun toSessionEvent(event: UhpEvent): SessionEvent =
     SessionEvent(

@@ -1,4 +1,6 @@
 import gobley.gradle.GobleyHost
+import gobley.gradle.cargo.dsl.android
+import gobley.gradle.cargo.dsl.appleMobile
 import gobley.gradle.cargo.dsl.jvm
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -14,8 +16,20 @@ plugins {
 
 cargo {
     packageDirectory = rootProject.layout.projectDirectory.dir("transport")
+    // Gobley plans a Cargo build per Kotlin target; these blocks only configure them.
+    // UniFFI bindgen still uses the host library (`uniffi.generateFromLibrary.build`).
     builds.jvm {
         embedRustLibrary = (rustTarget == GobleyHost.current.rustTarget)
+    }
+    builds.android {
+        embedRustLibrary = true
+    }
+    builds.appleMobile {
+        variants {
+            buildTaskProvider.configure {
+                additionalEnvironment.put("IPHONEOS_DEPLOYMENT_TARGET", "17.0")
+            }
+        }
     }
 }
 
@@ -48,7 +62,7 @@ kotlin {
         commonMain.dependencies {
             implementation(libs.androidx.datastore.core)
             implementation(libs.androidx.datastore.core.okio)
-            implementation(libs.kotlinx.coroutines.core)
+            api(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.okio)
         }
@@ -66,7 +80,7 @@ android {
     defaultConfig {
         minSdk = libs.versions.android.minSdk.get().toInt()
         ndk {
-            abiFilters += "arm64-v8a"
+            abiFilters += listOf("arm64-v8a", "x86_64")
         }
     }
     compileOptions {

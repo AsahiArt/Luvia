@@ -46,6 +46,10 @@ internal data class UhpRequest(
 internal data class UhpError(
     val code: String,
     val message: String,
+    val expected: Long? = null,
+    val actual: Long? = null,
+    val sequence: Long? = null,
+    val retryable: Boolean? = null,
 )
 
 internal sealed class UhpResponse {
@@ -117,9 +121,17 @@ internal fun decodeUhpResponse(text: String, expectedId: String? = null): UhpRes
         UhpResponse.Success(id, obj.getValue("result"))
     } else {
         val error = obj.objectField("error")
-        val code = error.string("code")
-        val message = error.string("message")
-        UhpResponse.Failure(id, UhpError(code, message))
+        UhpResponse.Failure(
+            id,
+            UhpError(
+                code = error.string("code"),
+                message = error.string("message"),
+                expected = error.optionalStrictLong("expected"),
+                actual = error.optionalStrictLong("actual"),
+                sequence = error.optionalStrictLong("sequence"),
+                retryable = error.optionalBoolean("retryable"),
+            ),
+        )
     }
 }
 
@@ -213,7 +225,8 @@ internal fun JsonObject.strictLong(key: String): Long {
 }
 
 internal fun JsonObject.optionalStrictLong(key: String): Long? {
-    if (key !in this) return null
+    val value = this[key] ?: return null
+    if (value is JsonNull) return null
     return strictLong(key)
 }
 
@@ -236,3 +249,67 @@ internal fun JsonObject.stringList(key: String): List<String> {
 
 internal fun JsonElement.asObject(): JsonObject =
     this as? JsonObject ?: throw CodecException(CodecException.Kind.Schema, "expected object result")
+internal fun JsonObject.optionalBoolean(key: String): Boolean? {
+    val value = this[key] ?: return null
+    if (value is JsonNull) return null
+    val primitive = value as? JsonPrimitive ?: return null
+    if (primitive.isString) return null
+    return primitive.content.toBooleanStrictOrNull()
+}
+
+internal fun JsonObject.optionalDouble(key: String): Double? {
+    val value = this[key] ?: return null
+    if (value is JsonNull) return null
+    val primitive = value as? JsonPrimitive ?: return null
+    if (primitive.isString) return null
+    return primitive.content.toDoubleOrNull()
+}
+
+internal fun JsonObject.optionalWireString(key: String): String? {
+    val value = this[key] ?: return null
+    if (value is JsonNull) return null
+    val primitive = value as? JsonPrimitive ?: return null
+    return primitive.content
+}
+
+internal fun JsonObject.optionalStringList(key: String): List<String> {
+    val value = this[key] ?: return emptyList()
+    if (value is JsonNull) return emptyList()
+    val array = value as? kotlinx.serialization.json.JsonArray ?: return emptyList()
+    return array.mapNotNull { el ->
+        val primitive = el as? JsonPrimitive ?: return@mapNotNull null
+        if (!primitive.isString) return@mapNotNull null
+        primitive.content
+    }
+}
+
+internal fun JsonObject.optionalObjectList(key: String): List<JsonObject> {
+    val value = this[key] ?: return emptyList()
+    if (value is JsonNull) return emptyList()
+    val array = value as? kotlinx.serialization.json.JsonArray ?: return emptyList()
+    return array.mapNotNull { it as? JsonObject }
+}
+
+internal fun JsonObject.booleanOrFalse(key: String): Boolean = optionalBoolean(key) ?: false
+
+internal fun UhpError.toFailure(): tech.asahiart.luvia.Failure =
+    when (code) {
+        "revision_conflict" ->
+            tech.asahiart.luvia.Failure.RevisionConflict(
+                expected = expected ?: 0L,
+                actual = actual ?: 0L,
+                message = message,
+            )
+        "forbidden" -> tech.asahiart.luvia.Failure.Forbidden(message)
+        "not_found" -> tech.asahiart.luvia.Failure.NotFound(message)
+        "invalid_params" -> tech.asahiart.luvia.Failure.InvalidParams(message, sequence)
+        "invalid_request" -> tech.asahiart.luvia.Failure.InvalidRequest(message)
+        "stale_server" -> tech.asahiart.luvia.Failure.StaleServer(message)
+        "stale_route" -> tech.asahiart.luvia.Failure.StaleRoute(message)
+        "terminal_gone" -> tech.asahiart.luvia.Failure.TerminalGone(message)
+        "resync_required" -> tech.asahiart.luvia.Failure.ResyncRequired(message, sequence)
+        "control_conflict" -> tech.asahiart.luvia.Failure.ControlConflict(message)
+        "frame_too_large" -> tech.asahiart.luvia.Failure.FrameTooLarge(message)
+        "server_busy" -> tech.asahiart.luvia.Failure.ServerBusy(message, retryable ?: true)
+        else -> tech.asahiart.luvia.Failure.Remote(code, message)
+    }

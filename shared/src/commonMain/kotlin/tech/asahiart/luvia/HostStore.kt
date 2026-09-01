@@ -14,6 +14,10 @@ public interface HostStore {
     public suspend fun remove(id: String)
 
     public suspend fun rememberTopology(hostId: String, topology: CachedTopology)
+
+    public suspend fun setLastConnectedAddress(hostId: String, address: String)
+
+    public suspend fun updateStatus(hostId: String, status: HostStatus, atEpochMs: Long)
 }
 
 public fun HostStore(filePath: String): HostStore = DataStoreHostStore(filePath, scope = null)

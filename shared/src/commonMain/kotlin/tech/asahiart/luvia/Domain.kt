@@ -7,6 +7,11 @@ public enum class HostStatus {
     Stale,
 }
 
+public enum class HostRole {
+    Observer,
+    Controller,
+}
+
 public enum class ConnectionFreshness {
     Live,
     Stale,
@@ -74,12 +79,14 @@ public enum class TerminalKey {
 public data class HostProfile(
     public val id: String,
     public val alias: String,
-    public val address: String,
+    public val addresses: List<String>,
     public val sshPort: Int,
-    public val username: String?,
-    public val hostKeySha256: String? = null,
+    public val username: String,
+    public val hostKeyFingerprints: List<String>,
+    public val role: HostRole,
     public val lastStatus: HostStatus,
     public val lastUpdatedEpochMs: Long,
+    public val lastConnectedAddress: String?,
     public val topology: CachedTopology?,
 )
 
@@ -122,6 +129,8 @@ public data class WorkspaceSummary(
     public val pinned: Boolean,
     public val active: Boolean,
     public val tabCount: Int,
+    public val branch: String? = null,
+    public val cwd: String? = null,
 )
 
 public data class PaneSummary(
@@ -129,12 +138,31 @@ public data class PaneSummary(
     public val terminalId: String?,
     public val kind: String,
     public val focused: Boolean,
+    public val cwd: String? = null,
+    public val contentRevision: Long? = null,
+    public val agentAuthority: String? = null,
+    public val agentSession: String? = null,
+    public val rootProcessPid: Long? = null,
+    public val rootProcessStartMarker: String? = null,
 )
 
 public data class AgentSummary(
     public val paneId: String,
     public val name: String?,
     public val status: AgentStatus,
+    public val agent: String? = null,
+    public val authority: String? = null,
+    public val stateSource: String? = null,
+    public val session: String? = null,
+    public val focused: Boolean = false,
+    public val workspace: String? = null,
+    public val workspaceName: String? = null,
+    public val tab: String? = null,
+    public val cwd: String? = null,
+    public val branch: String? = null,
+    public val project: String? = null,
+    public val repo: String? = null,
+    public val worktree: Boolean? = null,
 )
 
 public data class TaskSummary(

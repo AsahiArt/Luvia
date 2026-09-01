@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -11,6 +12,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import tech.asahiart.luvia.BusEvent
 import tech.asahiart.luvia.Capabilities
 import tech.asahiart.luvia.ConnectionFreshness
 import tech.asahiart.luvia.DiscoveredSession
@@ -18,6 +20,7 @@ import tech.asahiart.luvia.Failure
 import tech.asahiart.luvia.LuviaSession
 import tech.asahiart.luvia.Outcome
 import tech.asahiart.luvia.ResyncReason
+import tech.asahiart.luvia.SessionEvent
 import tech.asahiart.luvia.SessionSnapshot
 import tech.asahiart.luvia.SessionUpdate
 import tech.asahiart.luvia.TerminalControl
@@ -34,6 +37,19 @@ internal class OpenStream(
         framer.close()
         channel.close()
     }
+}
+
+internal sealed class LiveUpdate {
+    class Snapshot(val snapshot: SessionSnapshot) : LiveUpdate()
+
+    class Event(
+        val sessionEvent: SessionEvent,
+        val bus: BusEvent,
+    ) : LiveUpdate()
+
+    class Resyncing(val reason: ResyncReason) : LiveUpdate()
+
+    class Failed(val failure: Failure) : LiveUpdate()
 }
 
 internal class SessionEngine(
@@ -113,57 +129,104 @@ internal class SessionEngine(
         return unaryInternal(method, params, mutation, session, gate = true, map)
     }
 
-    fun events(): Flow<SessionUpdate> = flow {
+    fun events(): Flow<SessionUpdate> =
+        liveUpdates().map { update ->
+            when (update) {
+                is LiveUpdate.Snapshot -> SessionUpdate.Snapshot(update.snapshot)
+                is LiveUpdate.Event -> SessionUpdate.Event(update.sessionEvent)
+                is LiveUpdate.Resyncing -> SessionUpdate.Resyncing(update.reason)
+                is LiveUpdate.Failed -> SessionUpdate.Failed(update.failure)
+            }
+        }
+
+    fun liveUpdates(): Flow<LiveUpdate> = flow {
+        var afterSequence: Long? = null
         while (currentCoroutineContext().isActive && !closed) {
             val recon = SubscribeSnapshotReconciler()
-            val stream = when (val opened = openStream(Methods.EVENTS_SUBSCRIBE, JsonObject(emptyMap()))) {
-                is Outcome.Ok -> opened.value
+            val snapshot = when (val outcome = snapshot()) {
+                is Outcome.Ok -> outcome.value
                 is Outcome.Err -> {
-                    emit(SessionUpdate.Failed(opened.failure))
+                    emit(LiveUpdate.Failed(outcome.failure))
                     return@flow
                 }
             }
-            try {
-                val snapshot = when (val outcome = snapshot()) {
-                    is Outcome.Ok -> outcome.value
-                    is Outcome.Err -> {
-                        emit(SessionUpdate.Failed(outcome.failure))
-                        return@flow
+            afterSequence = snapshot.eventSequence
+            val stream = when (val opened = openStream(Methods.EVENTS_SUBSCRIBE, subscribeParams(afterSequence))) {
+                is Outcome.Ok -> opened.value
+                is Outcome.Err -> {
+                    var resyncOnOpen: ResyncReason? = null
+                    for (action in recon.onSnapshot(snapshot)) {
+                        when (action) {
+                            is ReconcileAction.ApplySnapshot -> emit(LiveUpdate.Snapshot(action.snapshot))
+                            is ReconcileAction.ApplyEvent ->
+                                emit(LiveUpdate.Event(action.event, action.bus))
+                            is ReconcileAction.Resync -> resyncOnOpen = action.reason
+                        }
+                    }
+                    when (val failure = opened.failure) {
+                        is Failure.ResyncRequired,
+                        is Failure.InvalidParams,
+                        -> {
+                            connectionFreshness = ConnectionFreshness.Stale
+                            emit(LiveUpdate.Resyncing(resyncOnOpen ?: ResyncReason.Overflow))
+                            afterSequence = null
+                            continue
+                        }
+                        else -> {
+                            emit(LiveUpdate.Failed(failure))
+                            return@flow
+                        }
                     }
                 }
+            }
+            try {
                 var resync: ResyncReason? = null
                 for (action in recon.onSnapshot(snapshot)) {
                     when (action) {
-                        is ReconcileAction.ApplySnapshot -> emit(SessionUpdate.Snapshot(action.snapshot))
-                        is ReconcileAction.ApplyEvent -> emit(SessionUpdate.Event(action.event))
+                        is ReconcileAction.ApplySnapshot -> emit(LiveUpdate.Snapshot(action.snapshot))
+                        is ReconcileAction.ApplyEvent ->
+                            emit(LiveUpdate.Event(action.event, action.bus))
                         is ReconcileAction.Resync -> resync = action.reason
                     }
                 }
+                if (resync != null) {
+                    connectionFreshness = ConnectionFreshness.Stale
+                    emit(LiveUpdate.Resyncing(resync))
+                    afterSequence = null
+                    continue
+                }
                 while (resync == null && currentCoroutineContext().isActive && !closed) {
-                    for (action in recon.onEvent(decodeUhpEvent(stream.framer.readFrame()))) {
+                    val event = decodeUhpEvent(stream.framer.readFrame())
+                    afterSequence = event.sequence
+                    for (action in recon.onEvent(event)) {
                         when (action) {
-                            is ReconcileAction.ApplySnapshot -> emit(SessionUpdate.Snapshot(action.snapshot))
-                            is ReconcileAction.ApplyEvent -> emit(SessionUpdate.Event(action.event))
+                            is ReconcileAction.ApplySnapshot -> emit(LiveUpdate.Snapshot(action.snapshot))
+                            is ReconcileAction.ApplyEvent ->
+                                emit(LiveUpdate.Event(action.event, action.bus))
                             is ReconcileAction.Resync -> resync = action.reason
                         }
                     }
                 }
                 if (resync != null) {
                     connectionFreshness = ConnectionFreshness.Stale
-                    emit(SessionUpdate.Resyncing(resync!!))
+                    emit(LiveUpdate.Resyncing(resync))
+                    if (resync == ResyncReason.Overflow) {
+                        afterSequence = null
+                    }
                 } else {
                     return@flow
                 }
             } catch (e: FrameException) {
                 if (e.kind == FrameException.Kind.Eof) {
                     connectionFreshness = ConnectionFreshness.Stale
-                    emit(SessionUpdate.Resyncing(ResyncReason.Eof))
+                    emit(LiveUpdate.Resyncing(ResyncReason.Eof))
+                    afterSequence = null
                 } else {
-                    emit(SessionUpdate.Failed(e.toFailure(Methods.EVENTS_SUBSCRIBE, false, true)))
+                    emit(LiveUpdate.Failed(e.toFailure(Methods.EVENTS_SUBSCRIBE, false, true)))
                     return@flow
                 }
             } catch (e: CodecException) {
-                emit(SessionUpdate.Failed(e.toFailure(Methods.EVENTS_SUBSCRIBE, false, true)))
+                emit(LiveUpdate.Failed(e.toFailure(Methods.EVENTS_SUBSCRIBE, false, true)))
                 return@flow
             } finally {
                 stream.close()
@@ -275,7 +338,7 @@ internal class SessionEngine(
                 is UhpResponse.Success -> ok(OpenStream(framer, channel))
                 is UhpResponse.Failure -> {
                     framer.close()
-                    fail(Failure.Remote(response.error.code, response.error.message))
+                    fail(response.error.toFailure())
                 }
             }
         } catch (e: CancellationException) {
@@ -309,7 +372,7 @@ internal class SessionEngine(
                 written = true
                 when (val response = decodeUhpResponse(framer.readFrame(), id)) {
                     is UhpResponse.Success -> ok(map(response.result))
-                    is UhpResponse.Failure -> fail(response.error.toRemote())
+                    is UhpResponse.Failure -> fail(response.error.toFailure())
                 }
             }
         } catch (e: CancellationException) {
@@ -360,7 +423,7 @@ internal class SessionEngine(
     }
 }
 
-private fun UhpError.toRemote(): Failure = Failure.Remote(code, message)
+private fun UhpError.toRemote(): Failure = toFailure()
 
 internal fun Exception.toFailure(method: String?, mutation: Boolean, written: Boolean): Failure {
     if (written && mutation && method != null) {
