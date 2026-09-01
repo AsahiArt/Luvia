@@ -1,90 +1,221 @@
 import SwiftUI
+import UIKit
 import LuviaShared
 
 struct PairHostView: View {
+    var model: AppModel
     @Environment(\.dismiss) private var dismiss
-    var onPaired: (HostViewState, String) -> Void
 
-    @State private var host = ""
-    @State private var port = 22
-    @State private var user = ""
-    @State private var fingerprint = ""
-    @State private var publicKey = ""
-    @State private var privateKey = ""
+    private enum Step {
+        case identity
+        case command
+        case code
+    }
+
+    @State private var step: Step = .identity
+    @State private var deviceLabel = UIDevice.current.name
+    @State private var role: HostRole = .controller
+    @State private var draft: PairingDraft?
     @State private var errorMessage: String?
+    @State private var isScanning = false
+    @State private var showPaste = false
+    @State private var pasteCode = ""
+    @State private var isCompleting = false
+    @State private var didCopy = false
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Host") {
-                    TextField("MagicDNS name or IP", text: $host)
-                        .textContentType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    TextField("SSH user", text: $user)
-                        .textContentType(.username)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    Stepper("Port \(port)", value: $port, in: 1...65535)
-                    TextField("Host key SHA256", text: $fingerprint)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                }
-                Section("Device key") {
-                    if publicKey.isEmpty {
-                        Button("Generate device key") { generateKey() }
-                    } else {
-                        Text(publicKey)
-                            .font(.system(.footnote, design: .monospaced))
-                            .textSelection(.enabled)
-                    }
-                }
-                Section {
-                    Label("On the host run `luvia-host pair --name \"iPhone\" --role controller` and paste this public key.", systemImage: "lock.shield")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage).foregroundStyle(.red)
-                    }
+            Group {
+                switch step {
+                case .identity:
+                    identityForm
+                case .command:
+                    commandForm
+                case .code:
+                    codeForm
                 }
             }
-            .navigationTitle("Pair Host")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
-                        .disabled(host.isEmpty || user.isEmpty || publicKey.isEmpty || fingerprint.isEmpty)
+            }
+        }
+    }
+
+    private var title: String {
+        switch step {
+        case .identity: "Add Host"
+        case .command: "Run on Host"
+        case .code: "Scan Pairing Code"
+        }
+    }
+
+    private var identityForm: some View {
+        Form {
+            Section {
+                TextField("Device label", text: $deviceLabel)
+                    .textInputAutocapitalization(.words)
+                Picker("Role", selection: $role) {
+                    Text("Observer").tag(HostRole.observer)
+                    Text("Controller").tag(HostRole.controller)
+                }
+                .pickerStyle(.segmented)
+            } footer: {
+                Text("Observer can watch sessions. Controller can type in terminals.")
+            }
+            if let errorMessage {
+                Section {
+                    Text(errorMessage).foregroundStyle(.red)
                 }
             }
-            .onAppear { if publicKey.isEmpty { generateKey() } }
+            Section {
+                Button("Continue") { startPairing() }
+                    .disabled(deviceLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
         }
     }
 
-    private func generateKey() {
-        switch onEnum(of: DeviceKeys.shared.generate()) {
-        case .ok(let ok):
-            guard let key = ok.value else { return }
-            publicKey = key.identity.authorizedKeys
-            privateKey = key.privateKeyOpenssh
+    @ViewBuilder
+    private var commandForm: some View {
+        if let draft {
+            Form {
+                Section {
+                    Text("Run this command on the host machine, then scan the QR it prints.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Section("Command") {
+                    Text(draft.command)
+                        .font(.system(.footnote, design: .monospaced))
+                        .textSelection(.enabled)
+                    Button {
+                        UIPasteboard.general.string = draft.command
+                        didCopy = true
+                    } label: {
+                        Label(didCopy ? "Copied" : "Copy command", systemImage: didCopy ? "checkmark" : "doc.on.doc")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                Section("Public key") {
+                    Text(draft.authorizedKeysLine)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                    Text(draft.deviceKeyFingerprint)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                Section {
+                    Button("I ran the command") {
+                        errorMessage = nil
+                        showPaste = false
+                        step = .code
+                    }
+                }
+            }
+        }
+    }
+
+    private var codeForm: some View {
+        Form {
+            Section {
+                Text("Scan the QR printed by luvia-host, or paste the luvia1: line.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            if !showPaste {
+                Section {
+                    Button("Scan QR code") { isScanning = true }
+                        .buttonStyle(.borderedProminent)
+                    Button("Paste code instead") {
+                        showPaste = true
+                    }
+                }
+            } else {
+                Section("Pairing code") {
+                    TextField("luvia1:…", text: $pasteCode, axis: .vertical)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.system(.footnote, design: .monospaced))
+                    Button("Pair") {
+                        _Concurrency.Task { await submit(pasteCode) }
+                    }
+                    .disabled(pasteCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCompleting)
+                }
+            }
+            if let errorMessage {
+                Section {
+                    Text(errorMessage).foregroundStyle(.red)
+                    Button("Scan again") { isScanning = true }
+                }
+            }
+            if isCompleting {
+                Section {
+                    ProgressView("Pairing…")
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $isScanning) {
+            NavigationStack {
+                QRScannerView(
+                    onCode: { code in
+                        isScanning = false
+                        _Concurrency.Task { await submit(code) }
+                    },
+                    onUnavailable: {
+                        isScanning = false
+                        showPaste = true
+                        errorMessage = "Camera access is unavailable. Paste the luvia1: pairing code instead."
+                    }
+                )
+                .ignoresSafeArea()
+                .navigationTitle("Scan QR")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close") { isScanning = false }
+                    }
+                    ToolbarItem(placement: .bottomBar) {
+                        Button("Paste code instead") {
+                            isScanning = false
+                            showPaste = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func startPairing() {
+        let label = deviceLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch model.beginPairing(deviceLabel: label, role: role) {
+        case .success(let next):
+            draft = next
+            didCopy = false
             errorMessage = nil
-        case .err(let err):
-            errorMessage = String(describing: err.failure)
+            step = .command
+        case .failure(let error):
+            errorMessage = error.message
         }
     }
 
-    private func save() {
-        let state = HostViewState(
-            name: host.split(separator: ".").first.map(String.init) ?? host,
-            address: host,
-            sessionName: nil,
-            connection: .offline
-        )
-        onPaired(state, privateKey)
-        dismiss()
+    private func submit(_ raw: String) async {
+        guard let draft else { return }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isCompleting = true
+        errorMessage = nil
+        let result = await model.completePairing(draft: draft, rawCode: trimmed)
+        isCompleting = false
+        switch result {
+        case .success:
+            dismiss()
+        case .failure(let error):
+            errorMessage = error.message
+        }
     }
 }

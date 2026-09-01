@@ -6,6 +6,8 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Luvia connects to Luvus hosts that you add.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Luvia uses the camera to scan the pairing QR code printed by luvia-host.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 </dict>

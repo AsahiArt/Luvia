@@ -1,5 +1,5 @@
 import SwiftUI
-import LuviaShared
+
 
 struct ContentView: View {
     @State private var model = AppModel()
@@ -11,11 +11,21 @@ struct ContentView: View {
             HostSidebarView(
                 hosts: model.hosts,
                 selection: $model.selectedHostID,
-                addHost: { model.isPairingPresented = true }
+                addHost: { model.isPairingPresented = true },
+                onUnpair: { id in _Concurrency.Task { await model.unpair(id) } }
             )
         } detail: {
             if let host = model.selectedHost {
-                HostDetailView(host: host, section: $model.selectedSection)
+                HostDetailView(
+                    host: host,
+                    section: $model.selectedSection,
+                    terminalText: model.terminalText,
+                    terminalStatus: model.terminalStatus,
+                    onConnect: { model.connect(host.id) },
+                    onDisconnect: { model.disconnect(host.id) },
+                    onRefresh: { _Concurrency.Task { await model.refresh(host.id) } },
+                    onSendTerminal: { text in _Concurrency.Task { await model.sendTerminal(text) } }
+                )
             } else {
                 ContentUnavailableView(
                     "Select a Host",
@@ -24,10 +34,14 @@ struct ContentView: View {
                 )
             }
         }
+        .onChange(of: model.selectedSection) { _, _ in
+            model.handleSectionChange()
+        }
+        .onChange(of: model.selectedHostID) { _, _ in
+            model.handleSectionChange()
+        }
         .sheet(isPresented: $model.isPairingPresented) {
-            PairHostView { host, privateKey in
-                model.addPairedHost(host, privateKey: privateKey)
-            }
+            PairHostView(model: model)
         }
     }
 }

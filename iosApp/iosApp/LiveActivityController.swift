@@ -4,6 +4,8 @@ import Foundation
 @MainActor
 final class LiveActivityController {
     private var activity: Activity<LuviaActivityAttributes>?
+    var isActive: Bool { activity != nil }
+
 
     func start(
         hostName: String,
@@ -19,8 +21,18 @@ final class LiveActivityController {
         )
     }
 
-    func update(_ state: LuviaActivityAttributes.ContentState) async {
-        await activity?.update(ActivityContent(state: state, staleDate: Date().addingTimeInterval(30)))
+    /// An alert turns a silent refresh into a Lock Screen banner, an expanded
+    /// Dynamic Island presentation, and a wrist alert. ActivityKit grants no
+    /// background runtime, so this only reaches the user when the app already has
+    /// execution time.
+    func update(
+        _ state: LuviaActivityAttributes.ContentState,
+        alert: AlertConfiguration? = nil
+    ) async {
+        await activity?.update(
+            ActivityContent(state: state, staleDate: Date().addingTimeInterval(30)),
+            alertConfiguration: alert
+        )
     }
 
     func markStale(_ state: LuviaActivityAttributes.ContentState) async {
