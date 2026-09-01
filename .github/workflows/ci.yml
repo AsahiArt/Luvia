@@ -64,6 +64,13 @@ jobs:
           api=26
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${prebuilt}/aarch64-linux-android${api}-clang"
           export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="${prebuilt}/x86_64-linux-android${api}-clang"
+          # ring compiles C via the cc crate, which probes for a bare
+          # <target>-clang. The NDK only ships API-suffixed drivers, so
+          # without CC_/AR_ the build script dies before any Rust compiles.
+          export CC_aarch64_linux_android="${prebuilt}/aarch64-linux-android${api}-clang"
+          export CC_x86_64_linux_android="${prebuilt}/x86_64-linux-android${api}-clang"
+          export AR_aarch64_linux_android="${prebuilt}/llvm-ar"
+          export AR_x86_64_linux_android="${prebuilt}/llvm-ar"
           cargo check -p luvia-transport --target aarch64-linux-android
           cargo check -p luvia-transport --target x86_64-linux-android
       - name: Assemble debug and unit tests
