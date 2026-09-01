@@ -107,6 +107,23 @@ iOS: `iosArm64` (device) and `iosSimulatorArm64` (Apple Silicon simulator). Ther
 
 `org.jetbrains.compose.material3` is pinned at **1.11.0-alpha07** in `gradle/libs.versions.toml`. That is the Material3 artifact published alongside Compose Multiplatform 1.11.1. The latest *stable* Material3 on Maven Central is 1.9.0, which is a different generation than Compose 1.11.x. The app only uses ordinary Material3 widgets (`Scaffold`, `PrimaryTabRow`, `CenterAlignedTopAppBar`, buttons, fields); those exist on 1.9.0, but dropping to 1.9.0 would desynchronize the Compose catalog. The alpha is therefore a deliberate alignment choice, not an accident.
 
+## Notification surfaces
+
+Luvia has no push server. There is no APNs/FCM path, no relay, and no credential beyond the device SSH key — the phone speaks only to your host. Both notification surfaces are therefore driven by the running app and update only while it has execution time.
+
+| Surface | Shows | Alerts |
+|---------|-------|--------|
+| iOS Live Activity (Lock Screen, Dynamic Island) | Link state and agent counts | Banner and sound when the blocked-agent count rises |
+| Android ongoing notification | Same counts plus link freshness | None; the channel is `IMPORTANCE_LOW` and the notification is `setOnlyAlertOnce` |
+
+Treat both as a **status glance, not a pager**. For Beta that means:
+
+- iOS publishes a 30-second `staleDate`. Once the app is suspended and events stop arriving, the activity falls back to its stale presentation and stays there. No further alert is delivered until you foreground the app.
+- The Android notification is posted from the composition and dismissed when it leaves. If the process is killed, the notification goes with it.
+- Nothing wakes the phone for an agent prompt that arrives while the app is fully suspended.
+
+Each surface is confined to one class per platform (`LiveActivityController`, `StatusNotificationController`), so a push path can be added later without touching the shared client.
+
 ## Security model
 
 **Trusted**
