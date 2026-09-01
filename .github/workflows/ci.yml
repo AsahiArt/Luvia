@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.0
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Check and test workspace
+        run: |
+          cargo fmt --all --check
+          cargo check --workspace --all-targets
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace --all-targets
+      - name: Cross-check iOS transport
+        if: runner.os == 'macOS'
+        run: |
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+          cargo check -p luvia-transport --target aarch64-apple-ios
+          cargo check -p luvia-transport --target aarch64-apple-ios-sim
+
+  android:
+    name: android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.0
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r29
+          link-to-sdk: true
+      - uses: Swatinem/rust-cache@v2
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Cross-check Android transport
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          prebuilt="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          api=26
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${prebuilt}/aarch64-linux-android${api}-clang"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="${prebuilt}/x86_64-linux-android${api}-clang"
+          cargo check -p luvia-transport --target aarch64-linux-android
+          cargo check -p luvia-transport --target x86_64-linux-android
+      - name: Assemble debug and unit tests
+        run: ./gradlew :androidApp:assembleDebug :shared:jvmTest :shared:testDebugUnitTest --stacktrace
+      # Runs R8 with proguard-rules.pro. Shrinking breaks reflective
+      # kotlinx.serialization and UniFFI/JNA lookups only in release, so the
+      # debug assemble above cannot catch it.
+      - name: Assemble release (R8)
+        run: ./gradlew :androidApp:assembleRelease --stacktrace
+
+  ios:
+    name: ios
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98.0
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: Swatinem/rust-cache@v2
+      - uses: gradle/actions/setup-gradle@v4
+      # Per-target compiles can pass while commonMain is broken, because okio
+      # and friends only declare some members in platform source sets. The
+      # metadata compilation is what catches that, and no other job runs it.
+      - name: Compile common metadata and device target
+        run: ./gradlew :shared:compileCommonMainKotlinMetadata :shared:compileKotlinIosArm64 --stacktrace
+      - name: Shared tests on all targets
+        run: ./gradlew :shared:allTests --stacktrace
+      - name: Link shared framework for the simulator
+        run: ./gradlew :shared:linkDebugFrameworkIosSimulatorArm64 --stacktrace
+      - name: Build iOS app for the simulator
+        run: |
+          xcodebuild \
+            -project iosApp/iosApp.xcodeproj \
+            -target iosApp \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build

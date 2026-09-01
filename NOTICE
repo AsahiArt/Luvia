@@ -4,3 +4,51 @@ Copyright 2026 AsahiArt
 This product includes the Luvus Universal Harness Protocol 1.0 schemas and
 fixtures from https://github.com/RizRiyz/luvus, licensed under the Apache
 License, Version 2.0.
+
+This product also includes third-party Rust crates linked into the shipped
+binaries (`luvia-host` and `luvia-transport`). Licences below were read from
+the crate's own Cargo.toml or LICENSE on the version pinned in Cargo.lock,
+except where noted.
+
+  russh 0.63.1
+    Apache License, Version 2.0
+    https://github.com/warp-tech/russh
+    (license = "Apache-2.0" in russh/Cargo.toml at tag v0.63.1)
+    SSH client used by luvia-transport. Built with features `ring` and `rsa`
+    (not the crate default, which enables aws-lc-rs).
+
+  ring 0.17.14
+    ISC-style licence for original *ring* code, plus Apache-2.0 (and some
+    ISC) for BoringSSL-derived files, plus Apache-2.0 OR MIT for vendored
+    once_cell polyfill. See the crate LICENSE, LICENSE-other-bits, and
+    LICENSE-BoringSSL.
+    https://github.com/briansmith/ring
+
+  tokio 1.53.1
+    MIT
+    (license = "MIT" in tokio Cargo.toml.orig)
+
+  uniffi 0.29.5 (and uniffi_* workspace crates at the same version)
+    Mozilla Public License 2.0
+    (license = "MPL-2.0" in uniffi Cargo.toml.orig)
+
+  clap 4.6.6
+    MIT OR Apache-2.0
+    (workspace.package.license in clap v4.6.6)
+
+  subtle 2.6.1
+    BSD-3-Clause
+    (license = "BSD-3-Clause" in subtle Cargo.toml.orig)
+
+  zeroize 1.9.0
+    Apache-2.0 OR MIT
+    (stated in the crate README / docs.rs page for 1.9.0)
+
+Direct dependencies of the workspace crates also include, among others,
+serde, serde_json, sha2, base64, bytes, data-encoding, getrandom, libc,
+and thiserror. Those crates typically dual-license MIT OR Apache-2.0;
+this NOTICE does not restate an unverified SPDX for each of them. The
+complete graph and versions are in Cargo.lock.
+
+Gobley (dev.gobley.cargo / dev.gobley.uniffi) is a build-time Gradle
+plugin (Mozilla Public License 2.0) and is not linked into the apps.
