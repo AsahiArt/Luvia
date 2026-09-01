@@ -15,3 +15,5 @@ DerivedData/
 .cxx/
 captures/
 .luvia/
+__pycache__/
+*.pyc
