@@ -25,6 +25,7 @@ private fun HostListPreview() {
                     workingAgents = 2,
                     blockedAgents = 1,
                     completedAgents = 5,
+                    connected = true,
                 ),
                 HostUiModel(
                     id = "laptop",
@@ -32,6 +33,7 @@ private fun HostListPreview() {
                     address = "192.168.1.24",
                     sessionName = null,
                     connection = ConnectionBadge.Stale,
+                    errorMessage = "Host key changed",
                 ),
             ),
             selectedHostId = "studio",
@@ -56,6 +58,7 @@ private fun HostDetailPreview() {
                 blockedAgents = 1,
                 completedAgents = 5,
                 activeTask = "Implement the authenticated UHP bridge",
+                connected = true,
             ),
             section = HostSection.Overview,
             onSection = {},
@@ -65,3 +68,40 @@ private fun HostDetailPreview() {
         )
     }
 }
+
+@Preview(name = "Pairing command", showBackground = true)
+@Composable
+private fun PairCommandPreview() {
+    MaterialTheme {
+        PairHostPane(
+            command = "luvia-host pair --name 'Pixel 9' --role controller --key 'ssh-ed25519 AAAA...'",
+            authorizedKeysLine = "ssh-ed25519 AAAA...",
+            fingerprint = "SHA256:abcdefghijklmnopqrstuvwxyz0123456789ABCDE",
+            errorMessage = null,
+            completing = false,
+            onBegin = { _, _ -> },
+            onCopyCommand = {},
+            onComplete = {},
+            onCancel = {},
+        )
+    }
+}
+
+@Preview(name = "Pairing label", showBackground = true)
+@Composable
+private fun PairLabelPreview() {
+    MaterialTheme {
+        PairHostPane(
+            command = null,
+            authorizedKeysLine = null,
+            fingerprint = null,
+            errorMessage = null,
+            completing = false,
+            onBegin = { _, _ -> },
+            onCopyCommand = {},
+            onComplete = {},
+            onCancel = {},
+        )
+    }
+}
+

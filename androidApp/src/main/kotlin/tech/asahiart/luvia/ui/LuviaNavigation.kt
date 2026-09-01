@@ -1,5 +1,7 @@
 package tech.asahiart.luvia.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -11,12 +13,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
@@ -24,6 +28,8 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import kotlinx.serialization.Serializable
+import tech.asahiart.luvia.HostRole
+import tech.asahiart.luvia.PairingUiState
 
 @Serializable
 private data object HostsRoute : NavKey
@@ -41,9 +47,18 @@ private data object PairHostRoute : NavKey
 fun LuviaNavigation(
     hosts: List<HostUiModel>,
     terminalForHost: (String) -> TerminalUiModel?,
-    onPairHost: (host: String, user: String, port: Int, fingerprint: String) -> Unit,
+    pairing: PairingUiState,
+    onBeginPairing: (String, HostRole) -> Unit,
+    onCompletePairing: (raw: String, onSuccess: () -> Unit) -> Unit,
+    onCancelPairing: () -> Unit,
+    onConnect: (String) -> Unit,
+    onDisconnect: (String) -> Unit,
+    onRefresh: (String) -> Unit,
+    onRefreshAll: () -> Unit,
+    onUnpair: (String) -> Unit,
     onRequestControl: (String) -> Unit,
     onSendTerminalText: (String, String) -> Unit,
+    onTerminalShown: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     MaterialTheme {
@@ -63,6 +78,9 @@ fun LuviaNavigation(
                             backStack.removeAll { it is PairHostRoute }
                             backStack.add(PairHostRoute)
                         },
+                        onConnect = onConnect,
+                        onDisconnect = onDisconnect,
+                        onRefreshAll = onRefreshAll,
                         modifier = Modifier.width(320.dp).fillMaxHeight(),
                     )
                     VerticalDivider()
@@ -71,9 +89,18 @@ fun LuviaNavigation(
                             backStack = backStack,
                             hosts = hosts,
                             terminalForHost = terminalForHost,
-                            onPairHost = onPairHost,
+                            pairing = pairing,
+                            onBeginPairing = onBeginPairing,
+                            onCompletePairing = onCompletePairing,
+                            onCancelPairing = onCancelPairing,
+                            onConnect = onConnect,
+                            onDisconnect = onDisconnect,
+                            onRefresh = onRefresh,
+                            onRefreshAll = onRefreshAll,
+                            onUnpair = onUnpair,
                             onRequestControl = onRequestControl,
                             onSendTerminalText = onSendTerminalText,
+                            onTerminalShown = onTerminalShown,
                             showList = false,
                         )
                     }
@@ -83,9 +110,18 @@ fun LuviaNavigation(
                     backStack = backStack,
                     hosts = hosts,
                     terminalForHost = terminalForHost,
-                    onPairHost = onPairHost,
+                    pairing = pairing,
+                    onBeginPairing = onBeginPairing,
+                    onCompletePairing = onCompletePairing,
+                    onCancelPairing = onCancelPairing,
+                    onConnect = onConnect,
+                    onDisconnect = onDisconnect,
+                    onRefresh = onRefresh,
+                    onRefreshAll = onRefreshAll,
+                    onUnpair = onUnpair,
                     onRequestControl = onRequestControl,
                     onSendTerminalText = onSendTerminalText,
+                    onTerminalShown = onTerminalShown,
                     showList = true,
                 )
             }
@@ -98,11 +134,21 @@ private fun DetailNav(
     backStack: NavBackStack<NavKey>,
     hosts: List<HostUiModel>,
     terminalForHost: (String) -> TerminalUiModel?,
-    onPairHost: (host: String, user: String, port: Int, fingerprint: String) -> Unit,
+    pairing: PairingUiState,
+    onBeginPairing: (String, HostRole) -> Unit,
+    onCompletePairing: (raw: String, onSuccess: () -> Unit) -> Unit,
+    onCancelPairing: () -> Unit,
+    onConnect: (String) -> Unit,
+    onDisconnect: (String) -> Unit,
+    onRefresh: (String) -> Unit,
+    onRefreshAll: () -> Unit,
+    onUnpair: (String) -> Unit,
     onRequestControl: (String) -> Unit,
     onSendTerminalText: (String, String) -> Unit,
+    onTerminalShown: (String) -> Unit,
     showList: Boolean,
 ) {
+    val context = LocalContext.current
     NavDisplay(
         modifier = Modifier.fillMaxSize(),
         backStack = backStack,
@@ -121,6 +167,9 @@ private fun DetailNav(
                             backStack.removeAll { it is PairHostRoute }
                             backStack.add(PairHostRoute)
                         },
+                        onConnect = onConnect,
+                        onDisconnect = onDisconnect,
+                        onRefreshAll = onRefreshAll,
                     )
                 } else {
                     EmptySelectionPane("Select a host", "Choose a paired host to inspect its sessions.")
@@ -132,6 +181,9 @@ private fun DetailNav(
                     EmptySelectionPane("Host unavailable", "The saved host was removed.")
                 } else {
                     var section by remember(route.id) { mutableStateOf(HostSection.Overview) }
+                    LaunchedEffect(route.id, section) {
+                        if (section == HostSection.Terminal) onTerminalShown(route.id)
+                    }
                     HostDetailPane(
                         host = host,
                         section = section,
@@ -147,10 +199,18 @@ private fun DetailNav(
                         terminal = terminalForHost(route.id),
                         onRequestControl = { onRequestControl(route.id) },
                         onSendText = { text -> onSendTerminalText(route.id, text) },
+                        onConnect = { onConnect(route.id) },
+                        onDisconnect = { onDisconnect(route.id) },
+                        onRefresh = { onRefresh(route.id) },
+                        onUnpair = {
+                            backStack.removeAll { it is HostRoute && it.id == route.id || it is TerminalRoute && it.hostId == route.id }
+                            onUnpair(route.id)
+                        },
                     )
                 }
             }
             entry<TerminalRoute> { route ->
+                LaunchedEffect(route.hostId) { onTerminalShown(route.hostId) }
                 val terminal = terminalForHost(route.hostId)
                 if (terminal == null) {
                     EmptySelectionPane("Terminal unavailable", "Select a live pane to observe or request control.")
@@ -163,27 +223,26 @@ private fun DetailNav(
                 }
             }
             entry<PairHostRoute> {
-                var host by remember { mutableStateOf("") }
-                var user by remember { mutableStateOf("") }
-                var port by remember { mutableStateOf("22") }
-                var fingerprint by remember { mutableStateOf("") }
                 PairHostPane(
-                    host = host,
-                    user = user,
-                    port = port,
-                    fingerprint = fingerprint,
-                    publicKey = "",
-                    onHostChange = { host = it },
-                    onUserChange = { user = it },
-                    onPortChange = { port = it.filter(Char::isDigit).take(5) },
-                    onFingerprintChange = { fingerprint = it },
-                    onContinue = {
-                        val parsedPort = port.toIntOrNull()
-                        if (host.isNotBlank() && user.isNotBlank() && fingerprint.isNotBlank() && parsedPort != null) {
-                            onPairHost(host.trim(), user.trim(), parsedPort, fingerprint.trim())
+                    command = pairing.draft?.command,
+                    authorizedKeysLine = pairing.draft?.authorizedKeysLine,
+                    fingerprint = pairing.draft?.deviceKeyFingerprint,
+                    errorMessage = pairing.errorMessage,
+                    completing = pairing.completing,
+                    onBegin = onBeginPairing,
+                    onCopyCommand = { command ->
+                        context.getSystemService(ClipboardManager::class.java)
+                            ?.setPrimaryClip(ClipData.newPlainText("luvia pair command", command))
+                    },
+                    onComplete = { raw ->
+                        onCompletePairing(raw) {
+                            backStack.removeAll { it is PairHostRoute }
                         }
                     },
-                    onCancel = { backStack.removeLastOrNull() },
+                    onCancel = {
+                        onCancelPairing()
+                        backStack.removeLastOrNull()
+                    },
                 )
             }
         },

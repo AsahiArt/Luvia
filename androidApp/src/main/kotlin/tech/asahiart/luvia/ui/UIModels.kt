@@ -14,6 +14,9 @@ data class HostUiModel(
     val completedAgents: Int = 0,
     val activeTask: String? = null,
     val updatedAt: String? = null,
+    val errorMessage: String? = null,
+    val isObserver: Boolean = false,
+    val connected: Boolean = false,
 )
 
 enum class ConnectionBadge { Live, Connecting, Stale, Offline }
@@ -26,6 +29,7 @@ data class TerminalUiModel(
     val isAnsi: Boolean,
     val isTruncated: Boolean,
     val control: TerminalControl,
+    val canControl: Boolean = true,
 )
 
 enum class TerminalControl { Observing, Requesting, Controlling, Conflict }
