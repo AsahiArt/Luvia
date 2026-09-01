@@ -58,7 +58,10 @@ pub fn validate_device_name(name: &str) -> Result<()> {
             "device name must be 1 to 64 bytes",
         ));
     }
-    if name.chars().any(|ch| ch.is_control() || ch == '\n' || ch == '\r') {
+    if name
+        .chars()
+        .any(|ch| ch.is_control() || ch == '\n' || ch == '\r')
+    {
         return Err(Error::new(
             "invalid_name",
             "device name must not contain control characters",
@@ -74,7 +77,10 @@ pub fn validate_device_id(id: &str) -> Result<()> {
             "device id must be 32 lowercase hex characters",
         ));
     }
-    if !id.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')) {
+    if !id
+        .bytes()
+        .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
         return Err(Error::new(
             "invalid_device",
             "device id must be 32 lowercase hex characters",
@@ -150,12 +156,22 @@ pub fn pair_device(
             return Err(Error::new(
                 "duplicate_key",
                 format!(
-                    "public key is already paired as device {} ({})",
-                    grant.id, grant.name
+                    "public key is already paired as device {} ({}); run `luvia-host pair-code {}` to reprint the QR, or pick another --name",
+                    grant.id, grant.name, grant.id
+                ),
+            ));
+        }
+        if grant.name == name {
+            return Err(Error::new(
+                "duplicate_name",
+                format!(
+                    "device name {name} is already paired as {}; run `luvia-host pair-code {}` to reprint the QR, or pick another --name",
+                    grant.id, grant.id
                 ),
             ));
         }
     }
+
     let id = new_device_id()?;
     let created_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -200,14 +216,57 @@ mod tests {
     use base64::Engine;
 
     fn sample_key(comment: &str) -> PublicKey {
+        sample_key_fill(comment, 7)
+    }
+
+    fn sample_key_fill(comment: &str, fill: u8) -> PublicKey {
         let mut body = Vec::new();
         let algo = b"ssh-ed25519";
         body.extend_from_slice(&(algo.len() as u32).to_be_bytes());
         body.extend_from_slice(algo);
         body.extend_from_slice(&32u32.to_be_bytes());
-        body.extend_from_slice(&[7u8; 32]);
+        body.extend_from_slice(&[fill; 32]);
         parse_openssh_public_key(&format!("ssh-ed25519 {} {comment}", STANDARD.encode(body)))
             .unwrap()
+    }
+    #[test]
+    fn duplicate_key_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("ssh")).unwrap();
+        let paths = test_paths(dir.path());
+        let exe = Path::new("/usr/local/bin/luvia-host");
+        pair_device(&paths, "one", Role::Observer, &sample_key("one"), exe).unwrap();
+        let err = pair_device(&paths, "two", Role::Observer, &sample_key("two"), exe).unwrap_err();
+        assert_eq!(err.code, "duplicate_key");
+        assert!(err.message.contains("pair-code"));
+    }
+
+    #[test]
+    fn duplicate_name_points_at_pair_code() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("ssh")).unwrap();
+        let paths = test_paths(dir.path());
+        let exe = Path::new("/usr/local/bin/luvia-host");
+        let grant = pair_device(
+            &paths,
+            "iPhone",
+            Role::Controller,
+            &sample_key_fill("one", 1),
+            exe,
+        )
+        .unwrap();
+        let err = pair_device(
+            &paths,
+            "iPhone",
+            Role::Controller,
+            &sample_key_fill("two", 2),
+            exe,
+        )
+        .unwrap_err();
+        assert_eq!(err.code, "duplicate_name");
+        assert!(err.message.contains(&grant.id));
+        assert!(err.message.contains("pair-code"));
+        assert!(err.message.contains("pick another --name"));
     }
 
     fn test_paths(root: &Path) -> Paths {
@@ -224,14 +283,8 @@ mod tests {
         fs::create_dir_all(dir.path().join("ssh")).unwrap();
         let paths = test_paths(dir.path());
         let exe = Path::new("/usr/local/bin/luvia-host");
-        let grant = pair_device(
-            &paths,
-            "phone",
-            Role::Controller,
-            &sample_key("phone"),
-            exe,
-        )
-        .unwrap();
+        let grant =
+            pair_device(&paths, "phone", Role::Controller, &sample_key("phone"), exe).unwrap();
         let listed = list_grants(&paths).unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, grant.id);
@@ -242,16 +295,5 @@ mod tests {
         assert!(list_grants(&paths).unwrap().is_empty());
         let keys = paths::read_nofollow_to_string(&paths.authorized_keys).unwrap();
         assert!(!keys.contains(&grant.id));
-    }
-
-    #[test]
-    fn duplicate_key_is_rejected() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(dir.path().join("ssh")).unwrap();
-        let paths = test_paths(dir.path());
-        let exe = Path::new("/usr/local/bin/luvia-host");
-        pair_device(&paths, "one", Role::Observer, &sample_key("one"), exe).unwrap();
-        let err = pair_device(&paths, "two", Role::Observer, &sample_key("two"), exe).unwrap_err();
-        assert_eq!(err.code, "duplicate_key");
     }
 }

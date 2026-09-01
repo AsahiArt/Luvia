@@ -41,11 +41,7 @@ impl Paths {
         Ok(Self::from_parts(config_dir, authorized_keys, luvus_home))
     }
 
-    pub fn from_parts(
-        config_dir: PathBuf,
-        authorized_keys: PathBuf,
-        luvus_home: PathBuf,
-    ) -> Self {
+    pub fn from_parts(config_dir: PathBuf, authorized_keys: PathBuf, luvus_home: PathBuf) -> Self {
         let devices_dir = config_dir.join(DEVICES_DIR);
         let lock_path = config_dir.join(HOST_LOCK);
         Self {
@@ -112,7 +108,10 @@ pub fn ensure_private_dir(path: &Path) -> Result<()> {
             if meta.uid() != current_euid() {
                 return Err(Error::new(
                     "unsafe_path",
-                    format!("directory is not owned by the current user: {}", path.display()),
+                    format!(
+                        "directory is not owned by the current user: {}",
+                        path.display()
+                    ),
                 ));
             }
             let mut permissions = meta.permissions();
@@ -123,18 +122,27 @@ pub fn ensure_private_dir(path: &Path) -> Result<()> {
             Ok(())
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+            if let Some(parent) = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+            {
                 if parent.exists() {
                     reject_symlink(parent, "directory parent")?;
                 }
             }
-            fs::DirBuilder::new().mode(0o700).recursive(true).create(path)?;
+            fs::DirBuilder::new()
+                .mode(0o700)
+                .recursive(true)
+                .create(path)?;
             reject_symlink(path, "directory")?;
             let meta = lstat(path)?;
             if meta.uid() != current_euid() {
                 return Err(Error::new(
                     "unsafe_path",
-                    format!("created directory is not owned by the current user: {}", path.display()),
+                    format!(
+                        "created directory is not owned by the current user: {}",
+                        path.display()
+                    ),
                 ));
             }
             let mut permissions = meta.permissions();
@@ -155,10 +163,16 @@ pub fn open_nofollow_read(path: &Path) -> io::Result<File> {
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let Some(parent) = path.parent() else {
-        return Err(Error::new("unsafe_path", "refusing a path without a parent"));
+        return Err(Error::new(
+            "unsafe_path",
+            "refusing a path without a parent",
+        ));
     };
     if parent.as_os_str().is_empty() {
-        return Err(Error::new("unsafe_path", "refusing a path without a parent"));
+        return Err(Error::new(
+            "unsafe_path",
+            "refusing a path without a parent",
+        ));
     }
     reject_symlink(parent, "parent directory")?;
     reject_symlink(path, "file")?;
@@ -237,7 +251,6 @@ impl Drop for LockFile {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

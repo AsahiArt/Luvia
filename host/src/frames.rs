@@ -10,6 +10,7 @@ pub enum FrameError {
     Eof,
     MissingLf,
     TooLarge,
+    Timeout,
     Io,
 }
 
@@ -17,13 +18,15 @@ impl FrameError {
     pub fn into_error(self, kind: &str) -> Error {
         match self {
             FrameError::Eof => Error::new("eof", format!("{kind} ended before a frame")),
-            FrameError::MissingLf => {
-                Error::new("missing_lf", format!("{kind} ended before a terminating LF"))
-            }
+            FrameError::MissingLf => Error::new(
+                "missing_lf",
+                format!("{kind} ended before a terminating LF"),
+            ),
             FrameError::TooLarge => Error::new(
                 "frame_too_large",
                 format!("{kind} exceeded the 1 MiB LF frame limit"),
             ),
+            FrameError::Timeout => Error::new("idle_timeout", format!("{kind} idle timeout")),
             FrameError::Io => Error::new("io", format!("failed to read {kind}")),
         }
     }
@@ -33,7 +36,14 @@ impl FrameError {
 pub fn read_frame(reader: &mut impl BufRead) -> std::result::Result<Vec<u8>, FrameError> {
     let mut frame = Vec::new();
     loop {
-        let available = reader.fill_buf().map_err(|_| FrameError::Io)?;
+        let available = reader.fill_buf().map_err(|error| {
+            if error.kind() == io::ErrorKind::TimedOut || error.kind() == io::ErrorKind::WouldBlock
+            {
+                FrameError::Timeout
+            } else {
+                FrameError::Io
+            }
+        })?;
         if available.is_empty() {
             return Err(if frame.is_empty() {
                 FrameError::Eof

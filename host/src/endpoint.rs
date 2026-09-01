@@ -66,9 +66,9 @@ pub fn validate_unix_endpoint(path: &Path) -> Result<Evidence> {
         ));
     }
 
-    let parent = path.parent().ok_or_else(|| {
-        Error::new("unsafe_endpoint", "endpoint has no parent directory")
-    })?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::new("unsafe_endpoint", "endpoint has no parent directory"))?;
     let parent_meta = fs::symlink_metadata(parent)?;
     if parent_meta.file_type().is_symlink() || !parent_meta.file_type().is_dir() {
         return Err(Error::new(
@@ -129,10 +129,7 @@ pub fn validate_unix_endpoint(path: &Path) -> Result<Evidence> {
 pub fn validate_unchanged(path: &Path, expected: Evidence) -> Result<Evidence> {
     let current = validate_unix_endpoint(path)?;
     if current != expected {
-        return Err(Error::new(
-            "unsafe_endpoint",
-            "endpoint was replaced",
-        ));
+        return Err(Error::new("unsafe_endpoint", "endpoint was replaced"));
     }
     Ok(current)
 }

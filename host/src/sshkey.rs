@@ -49,7 +49,10 @@ pub fn parse_openssh_public_key(input: &str) -> Result<PublicKey> {
     }
     let mut lines = input.lines();
     let Some(line) = lines.next() else {
-        return Err(Error::new("invalid_key", "stdin did not contain a public key"));
+        return Err(Error::new(
+            "invalid_key",
+            "stdin did not contain a public key",
+        ));
     };
     if line.trim().is_empty() {
         return Err(Error::new("invalid_key", "public key line is empty"));
@@ -76,7 +79,10 @@ pub fn parse_openssh_public_key(input: &str) -> Result<PublicKey> {
         .next()
         .ok_or_else(|| Error::new("invalid_key", "public key is missing a base64 blob"))?;
     if STANDARD.decode(blob.as_bytes()).is_err() {
-        return Err(Error::new("invalid_key", "public key blob is not valid base64"));
+        return Err(Error::new(
+            "invalid_key",
+            "public key blob is not valid base64",
+        ));
     }
     let comment = parts.collect::<Vec<_>>().join(" ");
     Ok(PublicKey {

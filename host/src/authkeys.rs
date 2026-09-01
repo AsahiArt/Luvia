@@ -47,10 +47,13 @@ pub fn forced_command(exe: &Path, device_id: &str) -> Result<String> {
             "forced command must use an absolute luvia-host path",
         ));
     }
-    let displayed = exe.to_str().ok_or_else(|| {
-        Error::new("unsafe_path", "luvia-host path is not valid UTF-8")
-    })?;
-    if displayed.bytes().any(|byte| matches!(byte, b'\n' | b'\r' | 0)) {
+    let displayed = exe
+        .to_str()
+        .ok_or_else(|| Error::new("unsafe_path", "luvia-host path is not valid UTF-8"))?;
+    if displayed
+        .bytes()
+        .any(|byte| matches!(byte, b'\n' | b'\r' | 0))
+    {
         return Err(Error::new(
             "unsafe_path",
             "luvia-host path contains control characters",
@@ -77,14 +80,12 @@ fn parse_key_material(line: &str) -> Option<(&str, &str)> {
         return None;
     }
     let tokens: Vec<&str> = line.split_whitespace().collect();
-    let start = tokens
-        .iter()
-        .position(|token| {
-            *token == "ssh-ed25519"
-                || *token == "ssh-rsa"
-                || token.starts_with("ecdsa-sha2-")
-                || token.starts_with("sk-")
-        })?;
+    let start = tokens.iter().position(|token| {
+        *token == "ssh-ed25519"
+            || *token == "ssh-rsa"
+            || token.starts_with("ecdsa-sha2-")
+            || token.starts_with("sk-")
+    })?;
     let key_type = tokens.get(start)?;
     let blob = tokens.get(start + 1)?;
     Some((*key_type, *blob))
@@ -93,7 +94,10 @@ fn parse_key_material(line: &str) -> Option<(&str, &str)> {
 fn managed_device_id(line: &str) -> Option<&str> {
     line.split_whitespace().find_map(|token| {
         token.strip_prefix(MARKER_PREFIX).filter(|id| {
-            id.len() == 32 && id.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+            id.len() == 32
+                && id
+                    .bytes()
+                    .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
         })
     })
 }

@@ -108,9 +108,7 @@ fn socket_alias_path(logical: PathBuf) -> PathBuf {
         } else {
             "/tmp"
         };
-        return PathBuf::from(format!(
-            "{temporary_root}/luvus-{uid}/{hash:016x}-api.sock"
-        ));
+        return PathBuf::from(format!("{temporary_root}/luvus-{uid}/{hash:016x}-api.sock"));
     }
     logical
 }

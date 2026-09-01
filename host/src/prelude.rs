@@ -15,9 +15,9 @@ pub enum Prelude {
 
 pub fn parse_prelude(payload: &str) -> Result<Prelude> {
     let value = parse_unique_value(payload.as_bytes())?;
-    let object = value.as_object().ok_or_else(|| {
-        Error::new("invalid_prelude", "prelude must be a JSON object")
-    })?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| Error::new("invalid_prelude", "prelude must be a JSON object"))?;
     for key in object.keys() {
         if !matches!(key.as_str(), "version" | "operation" | "session") {
             return Err(Error::new(
@@ -53,9 +53,7 @@ pub fn parse_prelude(payload: &str) -> Result<Prelude> {
             let session = object
                 .get("session")
                 .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    Error::new("invalid_prelude", "open requires a session string")
-                })?;
+                .ok_or_else(|| Error::new("invalid_prelude", "open requires a session string"))?;
             validate_session_name(session)?;
             Ok(Prelude::Open {
                 session: session.to_string(),
@@ -70,7 +68,10 @@ pub fn parse_prelude(payload: &str) -> Result<Prelude> {
 
 pub fn validate_session_name(name: &str) -> Result<()> {
     if name.is_empty() {
-        return Err(Error::new("invalid_session", "session name cannot be empty"));
+        return Err(Error::new(
+            "invalid_session",
+            "session name cannot be empty",
+        ));
     }
     if name.len() > MAX_SESSION_NAME_LEN {
         return Err(Error::new(
@@ -150,10 +151,9 @@ mod tests {
 
     #[test]
     fn extra_fields_are_rejected() {
-        let err = parse_prelude(
-            r#"{"version":1,"operation":"discover","socket":"/tmp/luvus.sock"}"#,
-        )
-        .unwrap_err();
+        let err =
+            parse_prelude(r#"{"version":1,"operation":"discover","socket":"/tmp/luvus.sock"}"#)
+                .unwrap_err();
         assert_eq!(err.code, "invalid_prelude");
     }
 
