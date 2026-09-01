@@ -86,8 +86,11 @@ pub fn import_device_key(private_key_openssh: String) -> Result<DevicePublicKey,
     identity_from_private(&key)
 }
 
-pub(crate) fn parse_private_key(mut private_key_openssh: String) -> Result<PrivateKey, TransportError> {
-    let parsed = PrivateKey::from_openssh(&private_key_openssh).map_err(|_| TransportError::invalid_key());
+pub(crate) fn parse_private_key(
+    mut private_key_openssh: String,
+) -> Result<PrivateKey, TransportError> {
+    let parsed =
+        PrivateKey::from_openssh(&private_key_openssh).map_err(|_| TransportError::invalid_key());
     private_key_openssh.zeroize();
     let key = parsed?;
     if key.is_encrypted() {
@@ -120,7 +123,10 @@ mod tests {
             .public_key
             .authorized_keys
             .starts_with("ssh-ed25519 "));
-        assert!(generated.public_key.authorized_keys.contains(DEVICE_KEY_COMMENT));
+        assert!(generated
+            .public_key
+            .authorized_keys
+            .contains(DEVICE_KEY_COMMENT));
         assert!(generated.public_key.fingerprint.starts_with("SHA256:"));
         assert!(generated
             .private_key_openssh

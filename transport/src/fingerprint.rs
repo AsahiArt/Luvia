@@ -114,10 +114,7 @@ fn decode_base64_fingerprint(body: &str) -> Result<[u8; SHA256_LEN], TransportEr
         .collect();
     let decoded = data_encoding::BASE64
         .decode(compact.as_bytes())
-        .or_else(|_| {
-            data_encoding::BASE64
-                .decode(pad_base64(&compact).as_bytes())
-        })
+        .or_else(|_| data_encoding::BASE64.decode(pad_base64(&compact).as_bytes()))
         .or_else(|_| data_encoding::BASE64_NOPAD.decode(compact.as_bytes()))
         .map_err(|_| TransportError::invalid_fingerprint("fingerprint is not valid base64"))?;
     if decoded.len() != SHA256_LEN {
@@ -132,7 +129,7 @@ fn decode_base64_fingerprint(body: &str) -> Result<[u8; SHA256_LEN], TransportEr
 
 fn pad_base64(input: &str) -> String {
     let mut padded = input.to_string();
-    while padded.len() % 4 != 0 {
+    while !padded.len().is_multiple_of(4) {
         padded.push('=');
     }
     padded

@@ -218,6 +218,5 @@ mod tests {
     #[test]
     fn read_bounds_constant() {
         assert_eq!(MAX_READ_BYTES, 1024 * 1024);
-        assert!(MAX_READ_BYTES > 0);
     }
 }

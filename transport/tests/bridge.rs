@@ -91,12 +91,13 @@ async fn start_echo(host_key: PrivateKey, client_key: PublicKey) -> u16 {
         .await
         .expect("bind");
     let port = listener.local_addr().expect("addr").port();
-    let mut config = server::Config::default();
-    config.auth_rejection_time = Duration::from_millis(1);
-    config.auth_rejection_time_initial = Some(Duration::ZERO);
-    config.inactivity_timeout = None;
-    config.keys = vec![host_key];
-    let config = Arc::new(config);
+    let config = Arc::new(server::Config {
+        auth_rejection_time: Duration::from_millis(1),
+        auth_rejection_time_initial: Some(Duration::ZERO),
+        inactivity_timeout: None,
+        keys: vec![host_key],
+        ..Default::default()
+    });
     tokio::spawn(async move {
         loop {
             let Ok((stream, _)) = listener.accept().await else {
@@ -139,14 +140,15 @@ fn pin_auth_bounds_and_concurrent_bridges() {
         let client_pub = PublicKey::from_openssh(&device.public_key.authorized_keys).unwrap();
         let real_fp = fingerprint(&host_key);
         let wrong_host = generate_device_key().unwrap();
-        let wrong_fp = fingerprint(&PrivateKey::from_openssh(&wrong_host.private_key_openssh).unwrap());
+        let wrong_fp =
+            fingerprint(&PrivateKey::from_openssh(&wrong_host.private_key_openssh).unwrap());
         let port = start_echo(host_key, client_pub).await;
 
         let mismatch = SshConnection::connect(
             "127.0.0.1".into(),
             port,
             "luvia".into(),
-            wrong_fp,
+            vec![wrong_fp.clone()],
             device.private_key_openssh.clone(),
         )
         .await
@@ -157,7 +159,7 @@ fn pin_auth_bounds_and_concurrent_bridges() {
             "127.0.0.1".into(),
             port,
             "luvia".into(),
-            real_fp.clone(),
+            vec![real_fp.clone()],
             stranger.private_key_openssh,
         )
         .await
@@ -168,7 +170,7 @@ fn pin_auth_bounds_and_concurrent_bridges() {
             "127.0.0.1".into(),
             port,
             "luvia".into(),
-            real_fp,
+            vec![wrong_fp, real_fp],
             device.private_key_openssh,
         )
         .await

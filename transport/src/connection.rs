@@ -30,7 +30,7 @@ use crate::runtime::{spawn_background, spawn_on_runtime};
 use crate::BRIDGE_COMMAND;
 
 struct PinnedHostKey {
-    expected: [u8; 32],
+    accepted: Vec<[u8; 32]>,
 }
 
 impl client::Handler for PinnedHostKey {
@@ -42,11 +42,22 @@ impl client::Handler for PinnedHostKey {
     ) -> Result<bool, Self::Error> {
         let actual_key = server_public_key.public_key();
         let actual = public_key_sha256(&actual_key);
-        if fingerprints_equal(&self.expected, &actual) {
+        let mut matched = false;
+        for expected in &self.accepted {
+            if fingerprints_equal(expected, &actual) {
+                matched = true;
+            }
+        }
+        if matched {
             Ok(true)
         } else {
             Err(TransportError::HostKeyMismatch {
-                expected: format_sha256(&self.expected),
+                expected: self
+                    .accepted
+                    .iter()
+                    .map(format_sha256)
+                    .collect::<Vec<_>>()
+                    .join(", "),
                 actual: format_public_key_sha256(&actual_key),
             })
         }
@@ -69,15 +80,23 @@ impl std::fmt::Debug for SshConnection {
 impl SshConnection {
     #[uniffi::constructor]
     pub async fn connect(
-        host: String,
+        address: String,
         port: u16,
-        user: String,
-        host_key_sha256: String,
+        username: String,
+        accepted_host_key_fingerprints: Vec<String>,
         private_key_openssh: String,
     ) -> Result<Arc<Self>, TransportError> {
-        let expected = parse_sha256_fingerprint(&host_key_sha256)?;
+        if accepted_host_key_fingerprints.is_empty() {
+            return Err(TransportError::invalid_fingerprint(
+                "no accepted host-key fingerprints",
+            ));
+        }
+        let mut accepted = Vec::with_capacity(accepted_host_key_fingerprints.len());
+        for fingerprint in &accepted_host_key_fingerprints {
+            accepted.push(parse_sha256_fingerprint(fingerprint)?);
+        }
         let key = parse_private_key(private_key_openssh)?;
-        spawn_on_runtime(async move { connect_inner(host, port, user, expected, key).await })
+        spawn_on_runtime(async move { connect_inner(address, port, username, accepted, key).await })
             .await?
     }
 
@@ -121,7 +140,7 @@ async fn connect_inner(
     host: String,
     port: u16,
     user: String,
-    expected: [u8; 32],
+    accepted: Vec<[u8; 32]>,
     key: PrivateKey,
 ) -> Result<Arc<SshConnection>, TransportError> {
     if host.is_empty() || user.is_empty() {
@@ -138,7 +157,7 @@ async fn connect_inner(
     let mut session = client::connect(
         Arc::new(config),
         (host.as_str(), port),
-        PinnedHostKey { expected },
+        PinnedHostKey { accepted },
     )
     .await?;
 
@@ -195,10 +214,29 @@ mod tests {
             "127.0.0.1".into(),
             1,
             "luvia".into(),
-            "md5:aa:bb".into(),
+            vec!["md5:aa:bb".into()],
             key.private_key_openssh,
         ));
-        assert!(matches!(err, Err(TransportError::InvalidFingerprint { .. })));
+        assert!(matches!(
+            err,
+            Err(TransportError::InvalidFingerprint { .. })
+        ));
+    }
+
+    #[test]
+    fn connect_rejects_empty_fingerprint_set() {
+        let key = generate_device_key().unwrap();
+        let err = crate::runtime::runtime().block_on(SshConnection::connect(
+            "127.0.0.1".into(),
+            1,
+            "luvia".into(),
+            Vec::new(),
+            key.private_key_openssh,
+        ));
+        assert!(matches!(
+            err,
+            Err(TransportError::InvalidFingerprint { .. })
+        ));
     }
 
     #[test]

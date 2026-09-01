@@ -50,5 +50,5 @@ pub fn spawn_background<F>(fut: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let _ = runtime().spawn(fut);
+    drop(runtime().spawn(fut));
 }
