@@ -13,6 +13,8 @@ public enum class TaskStatus {
     Blocked,
     Review,
     Done,
+    Merging,
+    Merged,
     Failed,
     Unknown,
 }
@@ -20,6 +22,12 @@ public enum class TaskStatus {
 public data class ProcessIdentity(
     public val pid: Long,
     public val startMarker: String?,
+)
+
+public data class WorkspaceWorker(
+    public val workspaceId: String,
+    public val tabId: String,
+    public val root: String,
 )
 
 public data class Task(
@@ -37,6 +45,8 @@ public data class Task(
     public val context: Double?,
     public val created: Long,
     public val updated: Long,
+    public val mode: String? = null,
+    public val workspaceWorker: WorkspaceWorker? = null,
 )
 
 public data class WorkspaceListEntry(
@@ -261,6 +271,12 @@ public sealed class BusEvent {
         public val code: Long?,
         public val files: List<String>,
         public val into: String?,
+        public val mode: String? = null,
+        public val workspaceId: String? = null,
+        public val tabId: String? = null,
+        public val cwd: String? = null,
+        public val commit: String? = null,
+        public val message: String? = null,
     ) : BusEvent()
 
     public class PaneChanged(
@@ -300,8 +316,198 @@ public sealed class BusEvent {
         public val reason: String?,
     ) : BusEvent()
 
+    public class AgentHook(
+        override val sequence: Long,
+        public val pane: String?,
+        public val agent: String?,
+        public val kind: String?,
+        public val message: String?,
+        public val tool: String?,
+    ) : BusEvent()
+
+    public class PaneRenamed(
+        override val sequence: Long,
+        public val pane: String?,
+        public val name: String?,
+    ) : BusEvent()
+
+    public class LeaseChanged(
+        override val sequence: Long,
+        public val name: String,
+        public val id: String?,
+        public val pane: String?,
+        public val task: String?,
+        public val paths: List<String>,
+        public val acquired: Long?,
+        public val leases: List<String>,
+    ) : BusEvent()
+
     public class Ignored(
         override val sequence: Long,
         public val name: String,
     ) : BusEvent()
 }
+
+public data class AgentReadResult(
+    public val pane: String,
+    public val text: String,
+    public val revision: Long?,
+)
+
+public data class AgentPromptResult(
+    public val pane: String,
+    public val submitted: Boolean,
+    public val matched: Boolean,
+    public val status: AgentStatus?,
+    public val baselineRevision: Long,
+    public val contentRevision: Long,
+    public val evidence: String,
+    public val revision: Long?,
+)
+
+public data class AgentSessionEntry(
+    public val agent: String,
+    public val sessionId: String,
+    public val cwd: String,
+)
+
+public data class MissionUsage(
+    public val model: String?,
+    public val tokensIn: Long?,
+    public val tokensOut: Long?,
+    public val cacheTokens: Long?,
+    public val totalTokens: Long?,
+    public val context: Double?,
+    public val costUsd: Double?,
+)
+
+public data class MissionSummary(
+    public val agents: Long,
+    public val tokens: Long,
+    public val costUsd: Double,
+    public val burnUsdPerHour: Double,
+)
+
+public enum class MissionRowKind {
+    LIVE,
+    RESUMABLE,
+}
+
+public data class MissionRow(
+    public val kind: MissionRowKind,
+    public val pane: String?,
+    public val agent: String?,
+    public val state: String?,
+    public val workspace: String?,
+    public val workspaceId: String?,
+    public val workspaceName: String?,
+    public val tab: String?,
+    public val location: String?,
+    public val usage: MissionUsage?,
+)
+
+public data class MissionSnapshot(
+    public val scope: String?,
+    public val workspace: String?,
+    public val workspaceId: String?,
+    public val refreshing: Boolean,
+    public val summary: MissionSummary,
+    public val rows: List<MissionRow>,
+)
+
+public data class DiffLine(
+    public val kind: String,
+    public val oldLine: Long?,
+    public val newLine: Long?,
+    public val text: String,
+)
+
+public data class DiffHunk(
+    public val id: String,
+    public val oldStart: Long,
+    public val newStart: Long,
+    public val header: String,
+    public val lines: List<DiffLine>,
+)
+
+public data class DiffFile(
+    public val path: String,
+    public val pathRawHex: String? = null,
+    public val oldPath: String? = null,
+    public val oldPathRawHex: String? = null,
+    public val layer: DiffLayer? = null,
+    public val status: String? = null,
+    public val additions: Long? = null,
+    public val deletions: Long? = null,
+    public val binary: Boolean? = null,
+    public val notes: Long? = null,
+    public val viewed: Boolean? = null,
+    public val modifiedSinceReview: Boolean? = null,
+    public val fingerprint: String? = null,
+    public val truncated: Boolean? = null,
+    public val omittedLines: Long? = null,
+    public val hunks: List<DiffHunk> = emptyList(),
+)
+
+public data class DiffListResult(
+    public val repo: String?,
+    public val branch: String?,
+    public val generation: Long?,
+    public val fingerprint: String?,
+    public val omitted: Long?,
+    public val refreshing: Boolean,
+    public val files: List<DiffFile>,
+)
+
+public data class ReviewNoteDelivery(
+    public val target: String,
+    public val deliveredAtMs: Long?,
+)
+
+public data class ReviewNote(
+    public val id: String,
+    public val review: String?,
+    public val author: String?,
+    public val kind: ReviewNoteKind?,
+    public val body: String,
+    public val state: ReviewNoteState?,
+    public val path: String?,
+    public val layer: DiffLayer?,
+    public val side: String?,
+    public val startLine: Long?,
+    public val endLine: Long?,
+    public val revision: Long?,
+    public val deliveries: List<ReviewNoteDelivery>,
+    public val createdAtMs: Long?,
+    public val updatedAtMs: Long?,
+)
+
+public data class ReviewNoteSendResult(
+    public val pane: String?,
+    public val target: String?,
+    public val count: Long,
+)
+
+public data class GitFileChange(
+    public val code: String,
+    public val path: String,
+)
+
+public data class GitStatus(
+    public val branch: String?,
+    public val upstream: String?,
+    public val ahead: Long?,
+    public val behind: Long?,
+    public val staged: List<GitFileChange>,
+    public val unstaged: List<GitFileChange>,
+    public val untracked: List<String>,
+    public val stashes: List<String>,
+)
+
+public data class GitCommit(
+    public val sha: String,
+    public val subject: String,
+    public val author: String?,
+    public val whenText: String?,
+    public val refs: String?,
+)

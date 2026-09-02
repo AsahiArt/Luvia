@@ -220,3 +220,116 @@ public sealed class TerminalUpdate {
 
     public class Failed(public val failure: Failure) : TerminalUpdate()
 }
+
+public enum class AgentReadSource {
+    VISIBLE,
+    RECENT,
+}
+
+public enum class MissionScope {
+    ALL,
+    WORKSPACE,
+}
+
+public enum class DiffLayer {
+    STAGED,
+    WORKTREE,
+    UNTRACKED,
+    CONFLICT,
+}
+
+public enum class ReviewNoteState {
+    OPEN,
+    RESOLVED,
+    OUTDATED,
+    ORPHANED,
+}
+
+public enum class ReviewNoteKind {
+    QUESTION,
+    ISSUE,
+    SUGGESTION,
+    PRAISE,
+}
+
+/**
+ * Named keys use the wire tokens accepted by `key_to_bytes`
+ * (`dispatch.rs:5591-5630`). `Ctrl` encodes as `ctrl+a`; `Char` is a single
+ * character passed through as itself.
+ */
+public sealed class AgentKey {
+    public abstract val wire: String
+
+    public data object ENTER : AgentKey() {
+        override val wire: String = "enter"
+    }
+
+    public data object ESC : AgentKey() {
+        override val wire: String = "esc"
+    }
+
+    public data object TAB : AgentKey() {
+        override val wire: String = "tab"
+    }
+
+    public data object SPACE : AgentKey() {
+        override val wire: String = "space"
+    }
+
+    public data object BACKSPACE : AgentKey() {
+        override val wire: String = "backspace"
+    }
+
+    public data object DELETE : AgentKey() {
+        override val wire: String = "delete"
+    }
+
+    public data object UP : AgentKey() {
+        override val wire: String = "up"
+    }
+
+    public data object DOWN : AgentKey() {
+        override val wire: String = "down"
+    }
+
+    public data object LEFT : AgentKey() {
+        override val wire: String = "left"
+    }
+
+    public data object RIGHT : AgentKey() {
+        override val wire: String = "right"
+    }
+
+    public data object HOME : AgentKey() {
+        override val wire: String = "home"
+    }
+
+    public data object END : AgentKey() {
+        override val wire: String = "end"
+    }
+
+    public data object PAGE_UP : AgentKey() {
+        override val wire: String = "pageup"
+    }
+
+    public data object PAGE_DOWN : AgentKey() {
+        override val wire: String = "pagedown"
+    }
+
+    public class Ctrl(public val letter: kotlin.Char) : AgentKey() {
+        override val wire: String = "ctrl+${letter.lowercaseChar()}"
+    }
+
+    public class Char(public val c: kotlin.Char) : AgentKey() {
+        override val wire: String = c.toString()
+    }
+}
+
+/**
+ * Exactly one of `old_line` / `new_line` is required (`dispatch.rs:3686-3696`).
+ */
+public sealed class ReviewLine {
+    public class Old(public val line: Int) : ReviewLine()
+
+    public class New(public val line: Int) : ReviewLine()
+}

@@ -63,6 +63,67 @@ class BusApplyTest {
         assertEquals("pi", projection.agents.single { it.paneId == "7" }.agent)
     }
 
+    @Test
+    fun mapsAgentHookTaskStartedMergeConflictAndLease() {
+        val hook =
+            parseBusEvent(
+                UhpEvent(
+                    "agent.hook",
+                    1,
+                    buildJsonObject {
+                        put("pane", "7")
+                        put("agent", "pi")
+                        put("kind", "tool")
+                        put("message", "ran")
+                        put("tool", "bash")
+                    },
+                ),
+            )
+        assertIs<BusEvent.AgentHook>(hook)
+        val started =
+            parseBusEvent(
+                UhpEvent(
+                    "task.started",
+                    2,
+                    buildJsonObject {
+                        put("id", "t1")
+                        put("pane", "7")
+                        put("mode", "worktree")
+                        put("worktree", "/tmp/wt")
+                    },
+                ),
+            )
+        assertIs<BusEvent.TaskPayload>(started)
+        assertEquals("t1", (started as BusEvent.TaskPayload).id)
+        val conflict =
+            parseBusEvent(
+                UhpEvent(
+                    "task.merge_conflict",
+                    3,
+                    buildJsonObject {
+                        put("id", "t1")
+                        put("branch", "feat")
+                    },
+                ),
+            )
+        assertIs<BusEvent.TaskPayload>(conflict)
+        val lease =
+            parseBusEvent(
+                UhpEvent(
+                    "lease.acquired",
+                    4,
+                    buildJsonObject {
+                        put("id", "l1")
+                        put("pane", 9)
+                        put("task", "t1")
+                        put("acquired", 1)
+                    },
+                ),
+            )
+        assertIs<BusEvent.LeaseChanged>(lease)
+        assertEquals("9", (lease as BusEvent.LeaseChanged).pane)
+    }
+
     private fun sampleSnapshot(focusedPane: String): SessionSnapshot =
         SessionSnapshot(
             sessionName = "default",
