@@ -29,6 +29,42 @@ class BusApplyTest {
     }
 
     @Test
+    fun terminalOutputReadyIsTerminalOnlyAndUpdatesRevisionInPlace() {
+        val snapshot = sampleSnapshot(focusedPane = "8")
+        val event =
+            parseBusEvent(
+                UhpEvent(
+                    "terminal.output_ready",
+                    12,
+                    buildJsonObject {
+                        put("pane_id", "7")
+                        put("content_revision", 41)
+                    },
+                ),
+            )
+        assertIs<BusEvent.TerminalChanged>(event)
+        val projection = projectBusEvent(event, snapshot, snapshot.agents, emptyList())
+        assertTrue(projection.terminalOnly)
+        assertFalse(projection.pullSession)
+        assertFalse(projection.relistTasks)
+        assertFalse(projection.resync)
+        assertEquals(41L, projection.snapshot?.panes?.single { it.paneId == "7" }?.contentRevision)
+    }
+
+    @Test
+    fun terminalCreatedIsNotTerminalOnly() {
+        val snapshot = sampleSnapshot(focusedPane = "8")
+        val event =
+            parseBusEvent(
+                UhpEvent("terminal.created", 13, buildJsonObject { put("pane_id", "9") }),
+            )
+        assertIs<BusEvent.TerminalChanged>(event)
+        val projection = projectBusEvent(event, snapshot, snapshot.agents, emptyList())
+        assertFalse(projection.terminalOnly)
+        assertTrue(projection.pullSession)
+    }
+
+    @Test
     fun paneCreatedPullsSessionState() {
         val snapshot = sampleSnapshot(focusedPane = "7")
         val event =

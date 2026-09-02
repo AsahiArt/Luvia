@@ -426,6 +426,7 @@ public class HostManager(
             live[hostId]?.agents = projection.agents
             live[hostId]?.tasks = tasks
         }
+        if (projection.terminalOnly) return
         rememberLiveTopology(hostId)
     }
 

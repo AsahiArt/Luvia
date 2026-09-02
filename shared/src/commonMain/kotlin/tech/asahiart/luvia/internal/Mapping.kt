@@ -876,6 +876,13 @@ internal data class HostBusProjection(
     val pullSession: Boolean = false,
     val relistTasks: Boolean = false,
     val resync: Boolean = false,
+    /**
+     * True when the event only touched per-pane terminal bookkeeping
+     * (content revision). Such updates change nothing the topology cache or
+     * the UI reads, so the caller may skip persisting and republishing.
+     * terminal.output_ready arrives ~20/s while any agent is printing.
+     */
+    val terminalOnly: Boolean = false,
 )
 
 internal fun projectBusEvent(
@@ -1007,7 +1014,7 @@ private fun projectTerminalLocal(
     val paneId = event.paneId
     val revision = event.contentRevision
     if (paneId == null || revision == null || snapshot == null) {
-        return HostBusProjection(snapshot, agents, tasks)
+        return HostBusProjection(snapshot, agents, tasks, terminalOnly = true)
     }
     val nextSnapshot =
         snapshot.copy(
@@ -1016,7 +1023,7 @@ private fun projectTerminalLocal(
                     if (pane.paneId == paneId) pane.copy(contentRevision = revision) else pane
                 },
         )
-    return HostBusProjection(nextSnapshot, agents, tasks)
+    return HostBusProjection(nextSnapshot, agents, tasks, terminalOnly = true)
 }
 
 internal class UnknownMajorException(val name: String, val major: Int) : Exception("unsupported protocol $name/$major")
