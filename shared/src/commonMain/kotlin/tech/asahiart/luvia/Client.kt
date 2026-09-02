@@ -448,9 +448,13 @@ public class LuviaSession internal constructor(
     }
 
     /**
-     * @deprecated `task.next` is declared read-only upstream (`capabilities.rs:250`)
-     * but claims/starts (`dispatch.rs:4126-4163`). Do not add new call sites.
+     * `task.next` is declared read-only upstream (`capabilities.rs:250`) but claims
+     * and starts a task (`dispatch.rs:4126-4163`). ADR 0001: the phone never calls it.
      */
+    @Deprecated(
+        "task.next claims a Task despite being declared read-only; the phone must not call it (ADR 0001).",
+        level = DeprecationLevel.ERROR,
+    )
     public suspend fun nextTask(): Outcome<TaskNextResult> =
         engine.unary(Methods.TASK_NEXT, JsonObject(emptyMap()), mutation = true) {
             mapTaskNext(it.asObjectOrEmpty())

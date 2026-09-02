@@ -267,6 +267,7 @@ class ContractTest {
     }
 
     @Test
+    @Suppress("DEPRECATION_ERROR")
     fun revisionGuardOnlyOnAcceptedMutations() = runTest {
         val seen = mutableListOf<UhpRequest>()
         val session = openSession(backgroundScope) { seen += it }
