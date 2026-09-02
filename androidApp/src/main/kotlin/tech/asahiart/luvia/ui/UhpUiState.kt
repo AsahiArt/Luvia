@@ -65,6 +65,11 @@ data class ReviewUiState(
     val unconfirmed: UnconfirmedKind? = null,
     val errorText: String? = null,
     val lastSend: ReviewNoteSendResult? = null,
+    // Sheet and draft state live here rather than in rememberSaveable: the
+    // compact and expanded layouts place these panes under different
+    // saveable-state scopes, so composition-local state is lost on rotation.
+    val noteDraft: String = "",
+    val sendTarget: String? = null,
 )
 
 @Immutable
@@ -78,6 +83,10 @@ data class TasksUiState(
     val unconfirmedTaskId: String? = null,
     val errorText: String? = null,
     val boardChanged: Boolean = false,
+    val showAdd: Boolean = false,
+    val completeId: String? = null,
+    val addTitle: String = "",
+    val addPaths: String = "",
 )
 
 @Immutable
@@ -90,6 +99,9 @@ data class HostUhpUiState(
     val agentDetail: AgentDetailUi = AgentDetailUi(),
     val review: ReviewUiState = ReviewUiState(),
     val tasks: TasksUiState = TasksUiState(),
+    // Selected section is held here, not in the NavDisplay entry: the compact
+    // and expanded layouts recreate that entry under different saveable scopes.
+    val section: HostSection = HostSection.Agents,
     val errorText: String? = null,
     val loading: Boolean = false,
 ) {
@@ -99,6 +111,7 @@ data class HostUhpUiState(
 class UhpHostActions(
     val shown: (String) -> Unit,
     val sectionShown: (String, HostSection) -> Unit,
+    val setSection: (String, HostSection) -> Unit,
     val refreshSection: (String, HostSection) -> Unit,
     val openAgent: (String, String) -> Unit,
     val closeAgent: (String) -> Unit,
@@ -114,9 +127,14 @@ class UhpHostActions(
     val removeNote: (String, String) -> Unit,
     val sendNotes: (String, String) -> Unit,
     val checkNotes: (String) -> Unit,
+    val setNoteDraft: (String, String) -> Unit,
+    val setSendTarget: (String, String?) -> Unit,
     val addTask: (String, String, List<String>) -> Unit,
     val completeTask: (String, String) -> Unit,
     val checkTasks: (String) -> Unit,
+    val setShowAddTask: (String, Boolean) -> Unit,
+    val setCompleteTaskId: (String, String?) -> Unit,
+    val setAddTaskDraft: (String, String, String) -> Unit,
 )
 
 internal fun HostUhpUiState.visibleSections(): List<HostSection> {

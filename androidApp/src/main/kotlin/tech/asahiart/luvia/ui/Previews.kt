@@ -216,6 +216,8 @@ private fun ReviewFileListPreview() {
             onRemoveNote = {},
             onSendNotes = {},
             onCheckUnconfirmed = {},
+            onNoteDraftChange = {},
+            onSendTargetChange = {},
         )
     }
 }
@@ -239,6 +241,9 @@ private fun TasksListPreview() {
             onAddTask = { _, _ -> },
             onCompleteTask = {},
             onCheckUnconfirmed = {},
+            onShowAddChange = {},
+            onCompleteIdChange = {},
+            onAddDraftChange = { _, _ -> },
         )
     }
 }

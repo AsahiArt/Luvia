@@ -14,11 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -189,8 +185,8 @@ private fun DetailNav(
                 if (host == null) {
                     EmptySelectionPane("Host unavailable", "The saved host was removed.")
                 } else {
-                    var section by rememberSaveable(route.id) { mutableStateOf(HostSection.Agents) }
                     val uhp = uhpForHost(route.id)
+                    val section = uhp.section
                     val visible = uhp.visibleSections()
                     LaunchedEffect(route.id) { uhpActions.shown(route.id) }
                     LaunchedEffect(route.id, section) {
@@ -198,13 +194,13 @@ private fun DetailNav(
                         if (section == HostSection.Terminal) onTerminalShown(route.id)
                     }
                     LaunchedEffect(visible, section) {
-                        if (section !in visible) section = HostSection.Agents
+                        if (section !in visible) uhpActions.setSection(route.id, HostSection.Agents)
                     }
                     HostDetailPane(
                         host = host,
                         section = section,
                         onSection = { next ->
-                            section = next
+                            uhpActions.setSection(route.id, next)
                             if (next == HostSection.Terminal) {
                                 backStack.removeAll { it is TerminalRoute }
                                 backStack.add(TerminalRoute(route.id))
@@ -253,6 +249,8 @@ private fun DetailNav(
                                 onResolveNote = { id -> uhpActions.resolveNote(route.id, id) },
                                 onReopenNote = { id -> uhpActions.reopenNote(route.id, id) },
                                 onRemoveNote = { id -> uhpActions.removeNote(route.id, id) },
+                                onNoteDraftChange = { text -> uhpActions.setNoteDraft(route.id, text) },
+                                onSendTargetChange = { pane -> uhpActions.setSendTarget(route.id, pane) },
                                 onSendNotes = { to -> uhpActions.sendNotes(route.id, to) },
                                 onCheckUnconfirmed = { uhpActions.checkNotes(route.id) },
                                 modifier = modifier,
@@ -264,6 +262,9 @@ private fun DetailNav(
                                 state = uhp,
                                 onRefresh = { uhpActions.refreshSection(route.id, HostSection.Tasks) },
                                 onAddTask = { title, paths -> uhpActions.addTask(route.id, title, paths) },
+                                onShowAddChange = { show -> uhpActions.setShowAddTask(route.id, show) },
+                                onCompleteIdChange = { id -> uhpActions.setCompleteTaskId(route.id, id) },
+                                onAddDraftChange = { title, paths -> uhpActions.setAddTaskDraft(route.id, title, paths) },
                                 onCompleteTask = { id -> uhpActions.completeTask(route.id, id) },
                                 onCheckUnconfirmed = { uhpActions.checkTasks(route.id) },
                                 modifier = modifier,

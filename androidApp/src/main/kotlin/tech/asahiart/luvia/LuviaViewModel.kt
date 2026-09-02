@@ -316,8 +316,37 @@ class LuviaViewModel(
         updateHost(hostId) { it.copy(agentDetail = AgentDetailUi()) }
     }
 
+    fun setSection(hostId: String, section: HostSection) {
+        updateHost(hostId) { it.copy(section = section) }
+    }
+
     fun setAgentDraft(hostId: String, text: String) {
         updateHost(hostId) { it.copy(agentDetail = it.agentDetail.copy(draft = text)) }
+    }
+
+    fun setNoteDraft(hostId: String, text: String) {
+        updateHost(hostId) { it.copy(review = it.review.copy(noteDraft = text)) }
+    }
+
+    fun setSendTarget(hostId: String, paneId: String?) {
+        updateHost(hostId) { it.copy(review = it.review.copy(sendTarget = paneId)) }
+    }
+
+    fun setShowAddTask(hostId: String, show: Boolean) {
+        updateHost(hostId) {
+            it.copy(
+                tasks = if (show) it.tasks.copy(showAdd = true)
+                else it.tasks.copy(showAdd = false, addTitle = "", addPaths = ""),
+            )
+        }
+    }
+
+    fun setCompleteTaskId(hostId: String, id: String?) {
+        updateHost(hostId) { it.copy(tasks = it.tasks.copy(completeId = id)) }
+    }
+
+    fun setAddTaskDraft(hostId: String, title: String, paths: String) {
+        updateHost(hostId) { it.copy(tasks = it.tasks.copy(addTitle = title, addPaths = paths)) }
     }
 
     fun promptAgent(hostId: String, text: String) {

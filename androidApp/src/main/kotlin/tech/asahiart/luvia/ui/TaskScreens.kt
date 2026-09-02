@@ -26,11 +26,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -46,6 +41,9 @@ fun TasksSection(
     onAddTask: (title: String, paths: List<String>) -> Unit,
     onCompleteTask: (String) -> Unit,
     onCheckUnconfirmed: () -> Unit,
+    onShowAddChange: (Boolean) -> Unit,
+    onCompleteIdChange: (String?) -> Unit,
+    onAddDraftChange: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when {
@@ -62,6 +60,9 @@ fun TasksSection(
                 onAddTask = onAddTask,
                 onCompleteTask = onCompleteTask,
                 onCheckUnconfirmed = onCheckUnconfirmed,
+                onShowAddChange = onShowAddChange,
+                onCompleteIdChange = onCompleteIdChange,
+                onAddDraftChange = onAddDraftChange,
                 modifier = modifier,
             )
         }
@@ -75,10 +76,13 @@ private fun TaskListPane(
     onAddTask: (title: String, paths: List<String>) -> Unit,
     onCompleteTask: (String) -> Unit,
     onCheckUnconfirmed: () -> Unit,
+    onShowAddChange: (Boolean) -> Unit,
+    onCompleteIdChange: (String?) -> Unit,
+    onAddDraftChange: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showAdd by rememberSaveable(key = "tasks-show-add") { mutableStateOf(false) }
-    var completeId by rememberSaveable(key = "tasks-complete-id") { mutableStateOf<String?>(null) }
+    val showAdd = state.tasks.showAdd
+    val completeId = state.tasks.completeId
     val grouped = state.tasks.tasks.groupBy { it.status.ifBlank { "unknown" } }
     PullToRefreshBox(
         isRefreshing = state.tasks.loading,
@@ -94,7 +98,7 @@ private fun TaskListPane(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Tasks", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                     if (state.canMutate && state.capabilities.taskAdd) {
-                        Button(onClick = { showAdd = true }, enabled = !state.tasks.mutating) { Text("Add Task") }
+                        Button(onClick = { onShowAddChange(true) }, enabled = !state.tasks.mutating) { Text("Add Task") }
                     }
                 }
             }
@@ -131,7 +135,7 @@ private fun TaskListPane(
                             state.capabilities.taskDone &&
                             task.isCompletable(),
                         completing = state.tasks.mutating,
-                        onComplete = { completeId = task.id },
+                        onComplete = { onCompleteIdChange(task.id) },
                     )
                 }
             }
@@ -139,9 +143,12 @@ private fun TaskListPane(
     }
     if (showAdd) {
         AddTaskSheet(
-            onDismiss = { showAdd = false },
+            title = state.tasks.addTitle,
+            pathsText = state.tasks.addPaths,
+            onDraftChange = onAddDraftChange,
+            onDismiss = { onShowAddChange(false) },
             onSubmit = { title, paths ->
-                showAdd = false
+                onShowAddChange(false)
                 onAddTask(title, paths)
             },
         )
@@ -149,19 +156,19 @@ private fun TaskListPane(
     completeId?.let { id ->
         val title = state.tasks.tasks.firstOrNull { it.id == id }?.title ?: id
         AlertDialog(
-            onDismissRequest = { completeId = null },
+            onDismissRequest = { onCompleteIdChange(null) },
             title = { Text("Complete Task?") },
             text = { Text("Mark \"$title\" complete on the Host.") },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        completeId = null
+                        onCompleteIdChange(null)
                         onCompleteTask(id)
                     },
                 ) { Text("Complete") }
             },
             dismissButton = {
-                TextButton(onClick = { completeId = null }) { Text("Cancel") }
+                TextButton(onClick = { onCompleteIdChange(null) }) { Text("Cancel") }
             },
         )
     }
@@ -198,12 +205,13 @@ private fun TaskRow(
 
 @Composable
 private fun AddTaskSheet(
+    title: String,
+    pathsText: String,
+    onDraftChange: (String, String) -> Unit,
     onDismiss: () -> Unit,
     onSubmit: (title: String, paths: List<String>) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var title by rememberSaveable(key = "task-add-title") { mutableStateOf("") }
-    var pathsText by rememberSaveable(key = "task-add-paths") { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
@@ -212,14 +220,14 @@ private fun AddTaskSheet(
             Text("Add Task", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             OutlinedTextField(
                 value = title,
-                onValueChange = { title = it },
+                onValueChange = { onDraftChange(it, pathsText) },
                 label = { Text("Title") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
             OutlinedTextField(
                 value = pathsText,
-                onValueChange = { pathsText = it },
+                onValueChange = { onDraftChange(title, it) },
                 label = { Text("Paths (optional)") },
                 modifier = Modifier.fillMaxWidth(),
                 supportingText = { Text("Comma-separated globs") },

@@ -35,7 +35,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +63,8 @@ fun ReviewSection(
     onReopenNote: (String) -> Unit,
     onRemoveNote: (String) -> Unit,
     onSendNotes: (String) -> Unit,
+    onNoteDraftChange: (String) -> Unit,
+    onSendTargetChange: (String?) -> Unit,
     onCheckUnconfirmed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -83,6 +84,8 @@ fun ReviewSection(
                 onReopenNote = onReopenNote,
                 onRemoveNote = onRemoveNote,
                 onSendNotes = onSendNotes,
+                onNoteDraftChange = onNoteDraftChange,
+                onSendTargetChange = onSendTargetChange,
                 onCheckUnconfirmed = onCheckUnconfirmed,
                 modifier = modifier,
             )
@@ -96,6 +99,7 @@ fun ReviewSection(
                 onReopenNote = onReopenNote,
                 onRemoveNote = onRemoveNote,
                 onSendNotes = onSendNotes,
+                onSendTargetChange = onSendTargetChange,
                 onCheckUnconfirmed = onCheckUnconfirmed,
                 modifier = modifier,
             )
@@ -112,6 +116,7 @@ private fun ReviewFileListPane(
     onReopenNote: (String) -> Unit,
     onRemoveNote: (String) -> Unit,
     onSendNotes: (String) -> Unit,
+    onSendTargetChange: (String?) -> Unit,
     onCheckUnconfirmed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -179,6 +184,8 @@ private fun ReviewFileListPane(
                     capabilities = state.capabilities,
                     agents = state.agents,
                     sending = state.review.sending,
+                    sendTarget = state.review.sendTarget,
+                    onSendTargetChange = onSendTargetChange,
                     onResolveNote = onResolveNote,
                     onReopenNote = onReopenNote,
                     onRemoveNote = onRemoveNote,
@@ -226,6 +233,8 @@ private fun ReviewFilePane(
     onReopenNote: (String) -> Unit,
     onRemoveNote: (String) -> Unit,
     onSendNotes: (String) -> Unit,
+    onNoteDraftChange: (String) -> Unit,
+    onSendTargetChange: (String?) -> Unit,
     onCheckUnconfirmed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -296,6 +305,8 @@ private fun ReviewFilePane(
                     capabilities = state.capabilities,
                     agents = state.agents,
                     sending = state.review.sending,
+                    sendTarget = state.review.sendTarget,
+                    onSendTargetChange = onSendTargetChange,
                     onResolveNote = onResolveNote,
                     onReopenNote = onReopenNote,
                     onRemoveNote = onRemoveNote,
@@ -308,7 +319,12 @@ private fun ReviewFilePane(
         AddReviewNoteSheet(
             path = file?.path ?: state.review.selectedPath.orEmpty(),
             line = line,
-            onDismiss = { pendingLine = null },
+            body = state.review.noteDraft,
+            onBodyChange = onNoteDraftChange,
+            onDismiss = {
+                pendingLine = null
+                onNoteDraftChange("")
+            },
             onSubmit = { body ->
                 val reviewLine = line.toReviewLine() ?: return@AddReviewNoteSheet
                 onAddNote(
@@ -318,6 +334,7 @@ private fun ReviewFilePane(
                     file?.layer ?: state.review.selectedLayer,
                 )
                 pendingLine = null
+                onNoteDraftChange("")
             },
         )
     }
@@ -359,11 +376,12 @@ private fun DiffLineRow(line: DiffLine, enabled: Boolean, onClick: () -> Unit) {
 private fun AddReviewNoteSheet(
     path: String,
     line: DiffLine,
+    body: String,
+    onBodyChange: (String) -> Unit,
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var body by rememberSaveable(key = "review-note:$path:${line.oldLine}:${line.newLine}") { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
@@ -382,7 +400,7 @@ private fun AddReviewNoteSheet(
             )
             OutlinedTextField(
                 value = body,
-                onValueChange = { body = it },
+                onValueChange = onBodyChange,
                 label = { Text("Review note") },
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3,
@@ -404,19 +422,20 @@ private fun NotesDrawer(
     capabilities: HostCapabilitiesUi,
     agents: List<AgentSummary>,
     sending: Boolean,
+    sendTarget: String?,
+    onSendTargetChange: (String?) -> Unit,
     onResolveNote: (String) -> Unit,
     onReopenNote: (String) -> Unit,
     onRemoveNote: (String) -> Unit,
     onSendNotes: (String) -> Unit,
 ) {
-    var sendTarget by rememberSaveable(key = "review-send-target") { mutableStateOf<String?>(null) }
     val openNotes = notes.filter { it.state == null || it.state == ReviewNoteState.OPEN }
     val resolvedNotes = notes.filter { it.state == ReviewNoteState.RESOLVED }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Review notes", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
             if (canMutate && capabilities.diffNoteSend && openNotes.isNotEmpty()) {
-                Button(onClick = { sendTarget = "" }, enabled = !sending) { Text("Send notes") }
+                Button(onClick = { onSendTargetChange("") }, enabled = !sending) { Text("Send notes") }
             }
         }
         if (notes.isEmpty()) {
@@ -456,9 +475,9 @@ private fun NotesDrawer(
     sendTarget?.let {
         SendNotesDialog(
             agents = agents,
-            onDismiss = { sendTarget = null },
+            onDismiss = { onSendTargetChange(null) },
             onSend = { target ->
-                sendTarget = null
+                onSendTargetChange(null)
                 onSendNotes(target)
             },
         )

@@ -32,6 +32,7 @@ fun LuviaApp() {
             openAgent = viewModel::openAgent,
             closeAgent = viewModel::closeAgent,
             promptAgent = viewModel::promptAgent,
+            setSection = viewModel::setSection,
             setAgentDraft = viewModel::setAgentDraft,
             sendKeys = viewModel::sendAgentKeys,
             checkAgent = viewModel::checkAgent,
@@ -43,9 +44,14 @@ fun LuviaApp() {
             removeNote = viewModel::removeReviewNote,
             sendNotes = viewModel::sendReviewNotes,
             checkNotes = viewModel::checkNotes,
+            setNoteDraft = viewModel::setNoteDraft,
+            setSendTarget = viewModel::setSendTarget,
             addTask = viewModel::addTask,
             completeTask = viewModel::completeTask,
             checkTasks = viewModel::checkTasks,
+            setShowAddTask = viewModel::setShowAddTask,
+            setCompleteTaskId = viewModel::setCompleteTaskId,
+            setAddTaskDraft = viewModel::setAddTaskDraft,
         )
     }
 
