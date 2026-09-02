@@ -194,6 +194,13 @@ public class HostManager(
         return session.observe(identity)
     }
 
+    /**
+     * The live UHP session for a connected Host, or null when not connected.
+     * UI layers use it for the structured surface (agents, review, tasks, mission);
+     * gate features with [LuviaSession.supports] rather than Host versions.
+     */
+    public fun session(hostId: String): LuviaSession? = live[hostId]?.session
+
 
     public fun close() {
         connectJobs.values.forEach { it.cancel() }

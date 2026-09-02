@@ -295,6 +295,7 @@ internal fun Failure.toUserMessage(): String {
         is Failure.TerminalGone -> message
         is Failure.ResyncRequired -> message
         is Failure.RevisionConflict -> message
+        is Failure.AgentPromptBusy -> "The agent is still handling a previous message. Wait for it to finish."
         is Failure.FrameTooLarge -> message
         is Failure.ServerBusy -> message
         is Failure.UnknownMajor -> "The host speaks an unsupported protocol ($name $major)."
