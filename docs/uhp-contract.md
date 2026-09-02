@@ -2,10 +2,9 @@
 
 Ground truth: Luvus source under `/Users/misaka/Developer/luvus`.
 Do **not** duplicate live-probe facts. Read `uhp-empirical-findings.md` first
-(F1–F8: admin on `session.snapshot`/`events.subscribe`, `read` covering
-non-admin reads, result shapes already probed, locator triple, `after_sequence`,
-`revision`/`if_revision`, 1 MiB frames).
-
+(F1–F8, probed on 0.13.2: admin on `session.snapshot`/`events.subscribe` — fixed
+in 0.13.4, see §5; `read` covering non-admin reads, result shapes already
+probed, locator triple, `after_sequence`, `revision`/`if_revision`, 1 MiB frames).
 Citations are `path:line` into `/Users/misaka/Developer/luvus`.
 
 ---
@@ -299,4 +298,91 @@ Clients must also treat EOF as loss (final control frame is best-effort).
 
 Envelope for every bus event (`src/ipc/api.rs:1009-1011`, `protocol/uhp/v1/schema/event.schema.json`):
 
-[Showing lines 1-300 of 524. Use :301 to continue]
+```json
+{ "event": "<name>", "sequence": <u64>, "data": { ... } }
+```
+
+---
+
+## 5. Delta v0.13.2 → 0.13.4 (`c42b78c`) for the UHP-first surface
+
+Read with ADR 0001. Vendored `protocol/uhp/v1` is synced to this commit
+(`protocol/uhp/UPSTREAM_COMMIT`).
+
+### Authorization
+
+- `session.snapshot` and `events.subscribe` are now `required_scope = "read"`
+  (`src/api/capabilities.rs:276-289`). F1 is fixed at HEAD; the bridge's
+  `read,admin` session token stays for older Hosts (ADR 0002).
+- Effective rule (`src/ipc/api.rs:309-314`): a token authorizes a method if it
+  holds `all`, the exact scope, or `read` while the method is read-only and not
+  `admin`. `read` therefore covers `task.next` — which claims. Never call it.
+- The `allowed_method` allow-list in `src/uhp/gateway.rs:403-415` belongs to
+  `luvus uhp access` and does not apply to `luvus.sock` clients.
+- `host.*`, `session.list/status`, `skill.*`, `integration.*` are served only
+  by `luvus uhp proxy` (`src/api/host.rs:48-52,76-81`) and reject session
+  `auth`. Unreachable through the bridge.
+
+### Agent surface (scope `agent`, `capabilities.rs:293-294`)
+
+| method | params | result | notes |
+|---|---|---|---|
+| `agent.read` | `target`, `lines?`=200, `source?` `visible`\|`recent` | `{type:agent_read, pane, text}` | `dispatch.rs:2584-2604`. Transcript without a stream. |
+| `agent.prompt` | `target`, `text` 1..262144, `wait?`=false, `until?`, `timeout_s?`=300 | `{type:agent_prompt, pane, submitted, matched, status, baseline_revision, content_revision, evidence}` | `dispatch.rs:4736-4803`. One atomic submit (`pty.rs:858-876`). Busy → `agent_prompt_busy`. Timeout still `submitted:true`. |
+| `agent.keys` | `target`, `keys[]` non-empty | `{type:ok, pane}` | `dispatch.rs:2553-2582`; names `5591-5630`: `enter esc tab space backspace delete up down left right home end pageup pagedown ctrl+<a-z>` or one printable. Unknown key fails the batch. |
+| `agent.send` | `target`, `text` | `{type:agent_send, …}` | Paste + separate Enter after 45 ms (`2543-2545`). Not atomic. Phone uses `agent.prompt` instead. |
+| `agent.sessions` | `{}` | `{type:session_list, sessions:[{agent, session_id, cwd}]}` | `dispatch.rs:2834-2846`. |
+| `agent.list` | `{}` | `{type:agent_list, agents[]}` | `type` field new vs F6 (`2462`). |
+
+### Review surface (scope `workspace`, `capabilities.rs:299-311`)
+
+Works without an open DIFF pane; operates on the git snapshot and persisted
+notes (`dispatch.rs:3392-3810`).
+
+| method | params | result |
+|---|---|---|
+| `diff.refresh` | `{}` | `{type:ok, refresh:"complete", generation}` |
+| `diff.list` | `layer?` `staged\|worktree\|untracked\|conflict` | `{type:diff_list, repo, branch, generation, fingerprint, omitted, refreshing, files[]}` |
+| `diff.get` | `path`, `layer?`, `include_patch?` | `{type:diff, file, additions, deletions, binary, truncated, omitted_lines, hunks[]}` |
+| `diff.note.list` | `state?` `open\|resolved\|outdated\|orphaned`, `file?` | `{type:diff_notes, notes[]}` |
+| `diff.note.add` | `file`, exactly one of `old_line`\|`new_line`, `end_line?`, `body`, `kind?` `issue\|question\|suggestion\|praise`, `layer?` | `{type:diff_note, note}` author `external` |
+| `diff.note.edit/resolve/reopen` | `id` (+ `body`) | `{type:diff_note, note}` |
+| `diff.note.remove` | `id` | `{type:ok, removed}` |
+| `diff.note.send` | `to`, `ids[]` or `all_open:true` | `{type:diff_note_send, pane, target, count}`; paste + delayed Enter into the agent pane (`src/diff.rs:1520-1571`). Never retry. |
+| `git.status` | `workspace?` | `{type:git_status, branch, upstream, ahead, behind, staged, unstaged, untracked, stashes}` |
+| `git.log` | `n?`=30 | `{type:git_log, commits:[{sha, subject, author, when, refs}]}` |
+
+Note object (`dispatch.rs:5713-5733`): `id, review, author, kind, body, state,
+path, layer, side, start_line, end_line, revision, deliveries[], created_at_ms,
+updated_at_ms`.
+
+TUI-only, do not call: `diff.open`, `diff.navigate`, `git.open`, `files.open`.
+
+### Orchestration changes
+
+- `task.start` / `task.next` accept `mode` `worktree\|workspace` and
+  `workspace_id` (`request.schema.json:119-144`); start result adds `mode,
+  workspace_id, tab_id, cwd`.
+- Task statuses add `merging`, `merged`; task object adds optional `mode`,
+  `workspace_worker{workspace_id, tab_id, root}` (`src/orch/mod.rs:48-66,99-138`).
+- `task.merge` → `merge_unavailable` for workspace-mode workers
+  (`src/orch/board.rs:561-566`).
+- `mission.snapshot` (`scope?` `workspace\|all`) → `{type:mission_snapshot,
+  summary{agents, tokens, cost_usd, burn_usd_per_hour}, rows[{kind live\|resumable,
+  pane?, agent, state, workspace, workspace_id, workspace_name, tab?, location,
+  usage?}]}` (`dispatch.rs:3851-3887`, `src/mission.rs:59-107`). Scope
+  `workspace`. Not in 0.13.2 — gate on `uhp.capabilities.methods`.
+
+### Events
+
+Catalog of 50 general events: `protocol/uhp/v1/schema/event-catalog.schema.json`.
+Wire envelope unchanged. Phone-relevant additions beyond F8:
+`agent.hook {pane, agent, kind, message, tool}`, `task.started {id, pane, mode,
+workspace_id, tab_id, cwd, worktree, branch}`, `task.gate_running/gate_failed/
+gate_passed`, `task.merge_started/merged/merge_conflict/merge_failed`,
+`task.needs_compaction {id, context}`, `lease.acquired/released`.
+
+### `session.snapshot`
+
+Unchanged JSON vs F6 (`dispatch.rs:4270-4356`). Still no tasks, no
+`workspace_id`/`tab_id` (use `workspace.list` / mission rows).
