@@ -28,8 +28,18 @@ and revoked on bridge exit.
 
 - Give the Device a token directly: leaks a Luvus credential off-host and
   cannot be scoped below `read` for snapshot on 0.13.2.
-- Use `luvus uhp access` (#231): its Control allow-list is too narrow for the
-  UHP-first surface (ADR 0001) and adds a second pairing flow.
+- Use `luvus uhp access` (#231): it is not a transport. The gateway binds
+  `127.0.0.1` on an ephemeral port (`src/uhp/gateway.rs:88`) and upstream
+  states "Luvus does not bundle or select a remote transport"; a provider must
+  forward the loopback endpoint over its own secure stream
+  (`website/.../uhp/remote-access.mdx:84-89,120-123`). We would still need
+  SSH around it. Its Control allow-list is `workspace/tab/pane.focus`,
+  `agent.prompt`, `terminal.backend.control` plus safe reads
+  (`src/uhp/gateway.rs:403-415`): no `agent.keys`, `agent.read`,
+  `diff.note.*`, `task.*`, narrower than our Controller. It also hands the
+  phone a bearer token, which the provider is told not to persist. Revisit
+  only as a Windows-host shim where `luvia-host` fronts the loopback port
+  instead of implementing named-pipe ownership checks.
 - Drop the session token now that F1 is fixed: breaks 0.13.2 Hosts for no
   Device-visible gain. Revisit when 0.13.4 is the installed floor.
 
