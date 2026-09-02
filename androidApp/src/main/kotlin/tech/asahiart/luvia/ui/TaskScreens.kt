@@ -77,8 +77,8 @@ private fun TaskListPane(
     onCheckUnconfirmed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showAdd by rememberSaveable { mutableStateOf(false) }
-    var completeId by rememberSaveable { mutableStateOf<String?>(null) }
+    var showAdd by rememberSaveable(key = "tasks-show-add") { mutableStateOf(false) }
+    var completeId by rememberSaveable(key = "tasks-complete-id") { mutableStateOf<String?>(null) }
     val grouped = state.tasks.tasks.groupBy { it.status.ifBlank { "unknown" } }
     PullToRefreshBox(
         isRefreshing = state.tasks.loading,
@@ -202,8 +202,8 @@ private fun AddTaskSheet(
     onSubmit: (title: String, paths: List<String>) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var title by rememberSaveable { mutableStateOf("") }
-    var pathsText by rememberSaveable { mutableStateOf("") }
+    var title by rememberSaveable(key = "task-add-title") { mutableStateOf("") }
+    var pathsText by rememberSaveable(key = "task-add-paths") { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),

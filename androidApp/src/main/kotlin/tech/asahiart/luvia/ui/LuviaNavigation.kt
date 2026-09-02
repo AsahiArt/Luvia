@@ -234,6 +234,7 @@ private fun DetailNav(
                                 onOpenAgent = { pane -> uhpActions.openAgent(route.id, pane) },
                                 onCloseAgent = { uhpActions.closeAgent(route.id) },
                                 onPrompt = { text -> uhpActions.promptAgent(route.id, text) },
+                                onDraftChange = { text -> uhpActions.setAgentDraft(route.id, text) },
                                 onSendKeys = { keys -> uhpActions.sendKeys(route.id, keys) },
                                 onCheckUnconfirmed = { uhpActions.checkAgent(route.id) },
                                 modifier = modifier,

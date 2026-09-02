@@ -70,6 +70,7 @@ private fun HostDetailPreview() {
                     onOpenAgent = {},
                     onCloseAgent = {},
                     onPrompt = {},
+                    onDraftChange = {},
                     onSendKeys = {},
                     onCheckUnconfirmed = {},
                     modifier = modifier,
@@ -126,6 +127,7 @@ private fun AgentsListPreview() {
             onOpenAgent = {},
             onCloseAgent = {},
             onPrompt = {},
+            onDraftChange = {},
             onSendKeys = {},
             onCheckUnconfirmed = {},
         )
@@ -164,6 +166,7 @@ private fun AgentDetailBlockedPreview() {
             onOpenAgent = {},
             onCloseAgent = {},
             onPrompt = {},
+            onDraftChange = {},
             onSendKeys = {},
             onCheckUnconfirmed = {},
         )

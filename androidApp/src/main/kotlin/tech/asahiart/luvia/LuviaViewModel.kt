@@ -316,6 +316,10 @@ class LuviaViewModel(
         updateHost(hostId) { it.copy(agentDetail = AgentDetailUi()) }
     }
 
+    fun setAgentDraft(hostId: String, text: String) {
+        updateHost(hostId) { it.copy(agentDetail = it.agentDetail.copy(draft = text)) }
+    }
+
     fun promptAgent(hostId: String, text: String) {
         val session = manager.session(hostId) ?: return
         val paneId = _uhp.value[hostId]?.agentDetail?.paneId ?: return

@@ -40,7 +40,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +61,7 @@ fun AgentsSection(
     onOpenAgent: (String) -> Unit,
     onCloseAgent: () -> Unit,
     onPrompt: (String) -> Unit,
+    onDraftChange: (String) -> Unit,
     onSendKeys: (List<AgentKey>) -> Unit,
     onCheckUnconfirmed: () -> Unit,
     modifier: Modifier = Modifier,
@@ -81,6 +81,7 @@ fun AgentsSection(
                 onBack = onCloseAgent,
                 onRefresh = onRefresh,
                 onPrompt = onPrompt,
+                onDraftChange = onDraftChange,
                 onSendKeys = onSendKeys,
                 onCheckUnconfirmed = onCheckUnconfirmed,
                 modifier = modifier,
@@ -277,6 +278,7 @@ fun AgentDetailPane(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onPrompt: (String) -> Unit,
+    onDraftChange: (String) -> Unit,
     onSendKeys: (List<AgentKey>) -> Unit,
     onCheckUnconfirmed: () -> Unit,
     modifier: Modifier = Modifier,
@@ -287,7 +289,10 @@ fun AgentDetailPane(
     val blocked = status == AgentStatus.Blocked
     val canPrompt = state.canMutate && state.capabilities.agentPrompt
     val canKeys = state.canMutate && state.capabilities.agentKeys
-    var draft by rememberSaveable { mutableStateOf("") }
+    // Held in ViewModel state, not rememberSaveable: the compact and expanded
+    // layouts put this pane under different saveable-state scopes, so a
+    // composition-local draft is lost on every layout switch.
+    val draft = detail.draft
     var pendingKeys by remember { mutableStateOf<PendingAgentAction?>(null) }
     val transcriptText = detail.transcript?.text.orEmpty()
     val lines = remember(transcriptText) { transcriptText.split('\n') }
@@ -428,7 +433,7 @@ fun AgentDetailPane(
         if (canPrompt) {
             OutlinedTextField(
                 value = draft,
-                onValueChange = { draft = it },
+                onValueChange = onDraftChange,
                 placeholder = { Text("Agent prompt") },
                 enabled = !detail.sending,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -440,7 +445,7 @@ fun AgentDetailPane(
                         enabled = !detail.sending && draft.isNotBlank(),
                         onClick = {
                             val text = draft.trim()
-                            draft = ""
+                            onDraftChange("")
                             onPrompt(text)
                         },
                     ) { Text("Send") }

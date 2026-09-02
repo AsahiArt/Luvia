@@ -32,6 +32,7 @@ fun LuviaApp() {
             openAgent = viewModel::openAgent,
             closeAgent = viewModel::closeAgent,
             promptAgent = viewModel::promptAgent,
+            setAgentDraft = viewModel::setAgentDraft,
             sendKeys = viewModel::sendAgentKeys,
             checkAgent = viewModel::checkAgent,
             openDiffFile = viewModel::openDiffFile,

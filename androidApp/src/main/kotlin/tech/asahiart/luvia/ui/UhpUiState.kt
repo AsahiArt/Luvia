@@ -50,6 +50,7 @@ data class AgentDetailUi(
     val unconfirmed: UnconfirmedKind? = null,
     val errorText: String? = null,
     val loading: Boolean = false,
+    val draft: String = "",
 )
 
 @Immutable
@@ -102,6 +103,7 @@ class UhpHostActions(
     val openAgent: (String, String) -> Unit,
     val closeAgent: (String) -> Unit,
     val promptAgent: (String, String) -> Unit,
+    val setAgentDraft: (String, String) -> Unit,
     val sendKeys: (String, List<tech.asahiart.luvia.AgentKey>) -> Unit,
     val checkAgent: (String) -> Unit,
     val openDiffFile: (String, String, tech.asahiart.luvia.DiffLayer?) -> Unit,
