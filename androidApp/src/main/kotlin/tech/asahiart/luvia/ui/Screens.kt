@@ -11,7 +11,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -472,7 +471,6 @@ private fun PairCommandStep(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val commandScroll = rememberScrollState()
     Column(
         modifier.padding(20.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -483,7 +481,7 @@ private fun PairCommandStep(
                 command,
                 fontFamily = FontFamily.Monospace,
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.fillMaxWidth().horizontalScroll(commandScroll).padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             )
         }
         Button(onClick = { onCopyCommand(command) }, modifier = Modifier.fillMaxWidth()) { Text("Copy command") }
@@ -494,7 +492,7 @@ private fun PairCommandStep(
                     authorizedKeysLine,
                     fontFamily = FontFamily.Monospace,
                     style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
