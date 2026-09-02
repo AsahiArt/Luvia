@@ -386,3 +386,29 @@ gate_passed`, `task.merge_started/merged/merge_conflict/merge_failed`,
 
 Unchanged JSON vs F6 (`dispatch.rs:4270-4356`). Still no tasks, no
 `workspace_id`/`tab_id` (use `workspace.list` / mission rows).
+
+## 6. "Remote" in 0.13.4 and why the bridge stays
+
+Three unrelated features share the word. None replaces `luvia-host`.
+
+| Feature | What it is | Phone use |
+|---|---|---|
+| `luvus --remote <host>` | TUI attach over plain ssh (`src/cli.rs:57,310`) | None; human-only |
+| `luvus uhp proxy` | One-shot stdin/stdout UHP proxy (`ssh host luvus uhp proxy`). Only route to `host.*`, `session.list/status` (`src/api/host.rs:48-52`) | Optional side channel for Host-profile reads; no events, one process per request |
+| `luvus uhp access [--control]` | Loopback TCP gateway + one-use pairing code. Transport-neutral: expects a provider (ssh, Tailscale) to forward `127.0.0.1:<port>` (`protocol/uhp/v1/access/README.md`) | Rejected, see below |
+
+`uhp access` limits (`src/uhp/gateway.rs:403-415`, `website/.../remote-access.mdx:56-70`):
+
+- `--control` allows exactly `workspace.focus`, `tab.focus`, `pane.focus`,
+  `agent.prompt`, `terminal.backend.control`. No `agent.keys`, `diff.note.*`,
+  `task.add/update/complete`. ADR 0001's surface is unreachable.
+- Read gate is `is_read_only(method)`, so `task.next` passes and still claims.
+- Pairing code is one-use, ≤5 min; authority is 24 h or process-bound. It
+  models "lend this session to a client", not a durable Grant.
+- The gateway itself is loopback-only; a provider is still required. `luvia-host`
+  already is that provider, and additionally pins the Host key, keeps Grants,
+  scopes by Role instead of a fixed five-method list, and works on 0.13.2.
+
+Decision: keep `luvia-host bridge` → `luvus.sock` as the sole phone path.
+If Host-profile methods are ever needed, the bridge may front `luvus uhp proxy`
+for that namespace only; that is additive and does not change the Device contract.
