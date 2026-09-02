@@ -195,9 +195,15 @@ fun HostDetailPane(
     onDisconnect: () -> Unit = {},
     onRefresh: () -> Unit = {},
     onUnpair: () -> Unit = {},
+    sections: List<HostSection> = HostSection.entries,
+    agentsContent: @Composable (Modifier) -> Unit = { EmptyPane("Agents", "Connect to this host", modifier = it) },
+    reviewContent: @Composable (Modifier) -> Unit = { EmptyPane("Review", "Connect to this host", modifier = it) },
+    tasksContent: @Composable (Modifier) -> Unit = { EmptyPane("Tasks", "Connect to this host", modifier = it) },
     modifier: Modifier = Modifier,
 ) {
     var confirmUnpair by remember { mutableStateOf(false) }
+    val visible = sections.ifEmpty { HostSection.entries }
+    val selectedIndex = visible.indexOf(section).coerceAtLeast(0)
     Column(modifier.fillMaxSize()) {
         CenterAlignedTopAppBar(
             title = {
@@ -230,8 +236,8 @@ fun HostDetailPane(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        PrimaryTabRow(selectedTabIndex = section.ordinal) {
-            HostSection.entries.forEach { item ->
+        PrimaryTabRow(selectedTabIndex = selectedIndex) {
+            visible.forEach { item ->
                 Tab(
                     selected = item == section,
                     onClick = { onSection(item) },
@@ -240,9 +246,9 @@ fun HostDetailPane(
             }
         }
         when (section) {
-            HostSection.Overview -> OverviewPane(host, Modifier.weight(1f))
-            HostSection.Agents -> EmptyPane("Agents", if (host.connected) "No agents in the current snapshot." else "Connect to load agent state.", modifier = Modifier.weight(1f))
-            HostSection.Tasks -> EmptyPane("Tasks", if (host.connected) "No orchestration tasks." else "Connect to load orchestration tasks.", modifier = Modifier.weight(1f))
+            HostSection.Agents -> agentsContent(Modifier.weight(1f))
+            HostSection.Review -> reviewContent(Modifier.weight(1f))
+            HostSection.Tasks -> tasksContent(Modifier.weight(1f))
             HostSection.Terminal -> if (terminal == null) {
                 EmptyPane("Terminal unavailable", "Select a live pane to observe or request control.", modifier = Modifier.weight(1f))
             } else {

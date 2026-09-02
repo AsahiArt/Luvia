@@ -20,7 +20,7 @@ data class HostUiModel(
 )
 
 enum class ConnectionBadge { Live, Connecting, Stale, Offline }
-enum class HostSection { Overview, Agents, Tasks, Terminal }
+enum class HostSection { Agents, Review, Tasks, Terminal }
 
 @Immutable
 data class TerminalUiModel(

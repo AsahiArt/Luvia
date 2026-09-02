@@ -47,6 +47,8 @@ private data object PairHostRoute : NavKey
 fun LuviaNavigation(
     hosts: List<HostUiModel>,
     terminalForHost: (String) -> TerminalUiModel?,
+    uhpForHost: (String) -> HostUhpUiState,
+    uhpActions: UhpHostActions,
     pairing: PairingUiState,
     onBeginPairing: (String, HostRole) -> Unit,
     onCompletePairing: (raw: String, onSuccess: () -> Unit) -> Unit,
@@ -89,6 +91,8 @@ fun LuviaNavigation(
                             backStack = backStack,
                             hosts = hosts,
                             terminalForHost = terminalForHost,
+                            uhpForHost = uhpForHost,
+                            uhpActions = uhpActions,
                             pairing = pairing,
                             onBeginPairing = onBeginPairing,
                             onCompletePairing = onCompletePairing,
@@ -110,6 +114,8 @@ fun LuviaNavigation(
                     backStack = backStack,
                     hosts = hosts,
                     terminalForHost = terminalForHost,
+                    uhpForHost = uhpForHost,
+                    uhpActions = uhpActions,
                     pairing = pairing,
                     onBeginPairing = onBeginPairing,
                     onCompletePairing = onCompletePairing,
@@ -134,6 +140,8 @@ private fun DetailNav(
     backStack: NavBackStack<NavKey>,
     hosts: List<HostUiModel>,
     terminalForHost: (String) -> TerminalUiModel?,
+    uhpForHost: (String) -> HostUhpUiState,
+    uhpActions: UhpHostActions,
     pairing: PairingUiState,
     onBeginPairing: (String, HostRole) -> Unit,
     onCompletePairing: (raw: String, onSuccess: () -> Unit) -> Unit,
@@ -180,9 +188,16 @@ private fun DetailNav(
                 if (host == null) {
                     EmptySelectionPane("Host unavailable", "The saved host was removed.")
                 } else {
-                    var section by remember(route.id) { mutableStateOf(HostSection.Overview) }
+                    var section by remember(route.id) { mutableStateOf(HostSection.Agents) }
+                    val uhp = uhpForHost(route.id)
+                    val visible = uhp.visibleSections()
+                    LaunchedEffect(route.id) { uhpActions.shown(route.id) }
                     LaunchedEffect(route.id, section) {
+                        uhpActions.sectionShown(route.id, section)
                         if (section == HostSection.Terminal) onTerminalShown(route.id)
+                    }
+                    LaunchedEffect(visible, section) {
+                        if (section !in visible) section = HostSection.Agents
                     }
                     HostDetailPane(
                         host = host,
@@ -201,10 +216,56 @@ private fun DetailNav(
                         onSendText = { text -> onSendTerminalText(route.id, text) },
                         onConnect = { onConnect(route.id) },
                         onDisconnect = { onDisconnect(route.id) },
-                        onRefresh = { onRefresh(route.id) },
+                        onRefresh = {
+                            onRefresh(route.id)
+                            uhpActions.refreshSection(route.id, section)
+                        },
                         onUnpair = {
                             backStack.removeAll { it is HostRoute && it.id == route.id || it is TerminalRoute && it.hostId == route.id }
                             onUnpair(route.id)
+                        },
+                        sections = visible,
+                        agentsContent = { modifier ->
+                            AgentsSection(
+                                host = host,
+                                state = uhp,
+                                onRefresh = { uhpActions.refreshSection(route.id, HostSection.Agents) },
+                                onOpenAgent = { pane -> uhpActions.openAgent(route.id, pane) },
+                                onCloseAgent = { uhpActions.closeAgent(route.id) },
+                                onPrompt = { text -> uhpActions.promptAgent(route.id, text) },
+                                onSendKeys = { keys -> uhpActions.sendKeys(route.id, keys) },
+                                onCheckUnconfirmed = { uhpActions.checkAgent(route.id) },
+                                modifier = modifier,
+                            )
+                        },
+                        reviewContent = { modifier ->
+                            ReviewSection(
+                                host = host,
+                                state = uhp,
+                                onRefresh = { uhpActions.refreshSection(route.id, HostSection.Review) },
+                                onOpenFile = { path, layer -> uhpActions.openDiffFile(route.id, path, layer) },
+                                onCloseFile = { uhpActions.closeDiffFile(route.id) },
+                                onAddNote = { file, line, body, layer ->
+                                    uhpActions.addNote(route.id, file, line, body, layer)
+                                },
+                                onResolveNote = { id -> uhpActions.resolveNote(route.id, id) },
+                                onReopenNote = { id -> uhpActions.reopenNote(route.id, id) },
+                                onRemoveNote = { id -> uhpActions.removeNote(route.id, id) },
+                                onSendNotes = { to -> uhpActions.sendNotes(route.id, to) },
+                                onCheckUnconfirmed = { uhpActions.checkNotes(route.id) },
+                                modifier = modifier,
+                            )
+                        },
+                        tasksContent = { modifier ->
+                            TasksSection(
+                                host = host,
+                                state = uhp,
+                                onRefresh = { uhpActions.refreshSection(route.id, HostSection.Tasks) },
+                                onAddTask = { title, paths -> uhpActions.addTask(route.id, title, paths) },
+                                onCompleteTask = { id -> uhpActions.completeTask(route.id, id) },
+                                onCheckUnconfirmed = { uhpActions.checkTasks(route.id) },
+                                modifier = modifier,
+                            )
                         },
                     )
                 }

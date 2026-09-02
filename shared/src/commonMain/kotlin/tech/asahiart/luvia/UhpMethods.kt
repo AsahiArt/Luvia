@@ -7,6 +7,13 @@ import tech.asahiart.luvia.internal.Methods
  * Gate features on these, never on a Host version string (ADR 0001).
  */
 public object UhpMethods {
+    public const val AGENT_LIST: String = Methods.AGENT_LIST
+    public const val AGENT_GET: String = Methods.AGENT_GET
+    public const val DIFF_NOTE_EDIT: String = Methods.DIFF_NOTE_EDIT
+    public const val DIFF_NOTE_RESOLVE: String = Methods.DIFF_NOTE_RESOLVE
+    public const val DIFF_NOTE_REOPEN: String = Methods.DIFF_NOTE_REOPEN
+    public const val DIFF_NOTE_REMOVE: String = Methods.DIFF_NOTE_REMOVE
+    public const val TASK_GET: String = Methods.TASK_GET
     public const val AGENT_PROMPT: String = Methods.AGENT_PROMPT
     public const val AGENT_READ: String = Methods.AGENT_READ
     public const val AGENT_KEYS: String = Methods.AGENT_KEYS
