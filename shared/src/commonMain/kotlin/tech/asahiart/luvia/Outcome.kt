@@ -96,6 +96,13 @@ public sealed class Failure {
      */
     public class ControlConflict(public val message: String) : Failure()
 
+    /**
+     * Target agent already has a prompt waiting for completion
+     * (`dispatch.rs:4799-4803`). Do not submit another wait on the same pane
+     * until that turn finishes.
+     */
+    public class AgentPromptBusy(public val message: String) : Failure()
+
     /** Request exceeded the 1 MiB frame cap. Shrink the payload. */
     public class FrameTooLarge(public val message: String) : Failure()
 

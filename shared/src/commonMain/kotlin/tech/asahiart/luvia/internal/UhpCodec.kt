@@ -310,6 +310,7 @@ internal fun UhpError.toFailure(): tech.asahiart.luvia.Failure =
         "resync_required" -> tech.asahiart.luvia.Failure.ResyncRequired(message, sequence)
         "control_conflict" -> tech.asahiart.luvia.Failure.ControlConflict(message)
         "frame_too_large" -> tech.asahiart.luvia.Failure.FrameTooLarge(message)
+        "agent_prompt_busy" -> tech.asahiart.luvia.Failure.AgentPromptBusy(message)
         "server_busy" -> tech.asahiart.luvia.Failure.ServerBusy(message, retryable ?: true)
         else -> tech.asahiart.luvia.Failure.Remote(code, message)
     }

@@ -245,6 +245,7 @@ class ContractTest {
         assertIs<Failure.ResyncRequired>(errorFailure("resync_required", sequence = 4))
         assertIs<Failure.ControlConflict>(errorFailure("control_conflict"))
         assertIs<Failure.FrameTooLarge>(errorFailure("frame_too_large"))
+        assertIs<Failure.AgentPromptBusy>(errorFailure("agent_prompt_busy"))
         val busy = errorFailure("server_busy", retryable = true) as Failure.ServerBusy
         assertTrue(busy.retryable)
         assertIs<Failure.Remote>(errorFailure("already_claimed"))

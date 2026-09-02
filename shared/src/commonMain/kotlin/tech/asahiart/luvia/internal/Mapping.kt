@@ -12,16 +12,39 @@ import tech.asahiart.luvia.AgentExplainSession
 import tech.asahiart.luvia.AgentGetResult
 import tech.asahiart.luvia.AgentIdentityEvidence
 import tech.asahiart.luvia.AgentListResult
+import tech.asahiart.luvia.AgentPromptResult
+import tech.asahiart.luvia.AgentReadResult
+import tech.asahiart.luvia.AgentReadSource
+import tech.asahiart.luvia.AgentSessionEntry
 import tech.asahiart.luvia.AgentStateEvidence
 import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.AgentSummary
 import tech.asahiart.luvia.BusEvent
 import tech.asahiart.luvia.Capabilities
+import tech.asahiart.luvia.DiffFile
+import tech.asahiart.luvia.DiffHunk
+import tech.asahiart.luvia.DiffLayer
+import tech.asahiart.luvia.DiffLine
+import tech.asahiart.luvia.DiffListResult
 import tech.asahiart.luvia.EventSubscriptionAck
+import tech.asahiart.luvia.GitCommit
+import tech.asahiart.luvia.GitFileChange
+import tech.asahiart.luvia.GitStatus
 import tech.asahiart.luvia.Luvia
+import tech.asahiart.luvia.MissionRow
+import tech.asahiart.luvia.MissionRowKind
+import tech.asahiart.luvia.MissionScope
+import tech.asahiart.luvia.MissionSnapshot
+import tech.asahiart.luvia.MissionSummary
+import tech.asahiart.luvia.MissionUsage
 import tech.asahiart.luvia.PaneSplitResult
 import tech.asahiart.luvia.PaneSummary
 import tech.asahiart.luvia.ProcessIdentity
+import tech.asahiart.luvia.ReviewNote
+import tech.asahiart.luvia.ReviewNoteDelivery
+import tech.asahiart.luvia.ReviewNoteKind
+import tech.asahiart.luvia.ReviewNoteSendResult
+import tech.asahiart.luvia.ReviewNoteState
 import tech.asahiart.luvia.SessionSnapshot
 import tech.asahiart.luvia.SplitDirection
 import tech.asahiart.luvia.Task
@@ -47,6 +70,7 @@ import tech.asahiart.luvia.WorkspaceListEntry
 import tech.asahiart.luvia.WorkspaceListResult
 import tech.asahiart.luvia.WorkspaceOpenResult
 import tech.asahiart.luvia.WorkspaceSummary
+import tech.asahiart.luvia.WorkspaceWorker
 
 internal object Methods {
     const val CAPABILITIES: String = "uhp.capabilities"
@@ -62,6 +86,22 @@ internal object Methods {
     const val AGENT_EXPLAIN: String = "agent.explain"
     const val AGENT_START: String = "agent.start"
     const val AGENT_PROMPT: String = "agent.prompt"
+    const val AGENT_READ: String = "agent.read"
+    const val AGENT_KEYS: String = "agent.keys"
+    const val AGENT_SESSIONS: String = "agent.sessions"
+    const val MISSION_SNAPSHOT: String = "mission.snapshot"
+    const val DIFF_LIST: String = "diff.list"
+    const val DIFF_GET: String = "diff.get"
+    const val DIFF_REFRESH: String = "diff.refresh"
+    const val DIFF_NOTE_LIST: String = "diff.note.list"
+    const val DIFF_NOTE_ADD: String = "diff.note.add"
+    const val DIFF_NOTE_EDIT: String = "diff.note.edit"
+    const val DIFF_NOTE_RESOLVE: String = "diff.note.resolve"
+    const val DIFF_NOTE_REOPEN: String = "diff.note.reopen"
+    const val DIFF_NOTE_REMOVE: String = "diff.note.remove"
+    const val DIFF_NOTE_SEND: String = "diff.note.send"
+    const val GIT_STATUS: String = "git.status"
+    const val GIT_LOG: String = "git.log"
     const val TASK_LIST: String = "task.list"
     const val TASK_GET: String = "task.get"
     const val TASK_ADD: String = "task.add"
@@ -85,11 +125,19 @@ internal object Methods {
             PANE_SPLIT,
             AGENT_START,
             AGENT_PROMPT,
+            AGENT_KEYS,
             TASK_ADD,
             TASK_NEXT,
             TASK_START,
             TASK_HEARTBEAT,
             TASK_DONE,
+            DIFF_REFRESH,
+            DIFF_NOTE_ADD,
+            DIFF_NOTE_EDIT,
+            DIFF_NOTE_RESOLVE,
+            DIFF_NOTE_REOPEN,
+            DIFF_NOTE_REMOVE,
+            DIFF_NOTE_SEND,
             TERMINAL_CONTROL,
             TERMINAL_TYPE,
             TERMINAL_SUBMIT,
@@ -126,6 +174,51 @@ internal fun SplitDirection.wireName(): String =
         SplitDirection.Right -> "right"
         SplitDirection.Down -> "down"
         SplitDirection.Stack -> "stack"
+    }
+
+internal fun AgentReadSource.wireName(): String =
+    when (this) {
+        AgentReadSource.VISIBLE -> "visible"
+        AgentReadSource.RECENT -> "recent"
+    }
+
+internal fun MissionScope.wireName(): String =
+    when (this) {
+        MissionScope.ALL -> "all"
+        MissionScope.WORKSPACE -> "workspace"
+    }
+
+internal fun DiffLayer.wireName(): String =
+    when (this) {
+        DiffLayer.STAGED -> "staged"
+        DiffLayer.WORKTREE -> "worktree"
+        DiffLayer.UNTRACKED -> "untracked"
+        DiffLayer.CONFLICT -> "conflict"
+    }
+
+internal fun ReviewNoteState.wireName(): String =
+    when (this) {
+        ReviewNoteState.OPEN -> "open"
+        ReviewNoteState.RESOLVED -> "resolved"
+        ReviewNoteState.OUTDATED -> "outdated"
+        ReviewNoteState.ORPHANED -> "orphaned"
+    }
+
+internal fun ReviewNoteKind.wireName(): String =
+    when (this) {
+        ReviewNoteKind.QUESTION -> "question"
+        ReviewNoteKind.ISSUE -> "issue"
+        ReviewNoteKind.SUGGESTION -> "suggestion"
+        ReviewNoteKind.PRAISE -> "praise"
+    }
+
+internal fun AgentStatus.wireName(): String =
+    when (this) {
+        AgentStatus.Idle -> "idle"
+        AgentStatus.Working -> "working"
+        AgentStatus.Blocked -> "blocked"
+        AgentStatus.Done -> "done"
+        AgentStatus.Unknown -> "unknown"
     }
 
 internal fun mapCapabilities(result: JsonObject): Capabilities {
@@ -359,6 +452,150 @@ internal fun mapAgentExplain(result: JsonObject): AgentExplainResult {
     )
 }
 
+internal fun mapAgentRead(result: JsonObject): AgentReadResult =
+    AgentReadResult(
+        pane = result.optionalWireString("pane") ?: "",
+        text = result.optionalString("text") ?: "",
+        revision = result.optionalStrictLong("revision"),
+    )
+
+internal fun mapAgentPrompt(result: JsonObject): AgentPromptResult =
+    AgentPromptResult(
+        pane = result.optionalWireString("pane") ?: "",
+        submitted = result.booleanOrFalse("submitted"),
+        matched = result.booleanOrFalse("matched"),
+        status = result.optionalString("status")?.let { parseAgentStatus(it) },
+        baselineRevision = result.optionalStrictLong("baseline_revision") ?: 0L,
+        contentRevision = result.optionalStrictLong("content_revision") ?: 0L,
+        evidence = result.optionalString("evidence") ?: "",
+        revision = result.optionalStrictLong("revision"),
+    )
+
+internal fun mapAgentSessions(result: JsonObject): List<AgentSessionEntry> =
+    result.optionalObjectList("sessions").mapNotNull { obj ->
+        val agent = obj.optionalString("agent") ?: return@mapNotNull null
+        val sessionId = obj.optionalString("session_id") ?: return@mapNotNull null
+        val cwd = obj.optionalString("cwd") ?: return@mapNotNull null
+        AgentSessionEntry(agent = agent, sessionId = sessionId, cwd = cwd)
+    }
+
+internal fun mapMissionSnapshot(result: JsonObject): MissionSnapshot {
+    val summaryObj = result.optionalObject("summary")
+    val summary =
+        MissionSummary(
+            agents = summaryObj?.optionalStrictLong("agents") ?: 0L,
+            tokens = summaryObj?.optionalStrictLong("tokens") ?: 0L,
+            costUsd = summaryObj?.optionalDouble("cost_usd") ?: 0.0,
+            burnUsdPerHour = summaryObj?.optionalDouble("burn_usd_per_hour") ?: 0.0,
+        )
+    val rows =
+        result.optionalObjectList("rows").mapNotNull { obj ->
+            val kind =
+                when (obj.optionalString("kind")) {
+                    "live" -> MissionRowKind.LIVE
+                    "resumable" -> MissionRowKind.RESUMABLE
+                    else -> return@mapNotNull null
+                }
+            val usageObj = obj.optionalObject("usage")
+            MissionRow(
+                kind = kind,
+                pane = obj.optionalWireString("pane"),
+                agent = obj.optionalString("agent"),
+                state = obj.optionalString("state"),
+                workspace = obj.optionalWireString("workspace"),
+                workspaceId = obj.optionalString("workspace_id"),
+                workspaceName = obj.optionalString("workspace_name"),
+                tab = obj.optionalWireString("tab"),
+                location = obj.optionalString("location"),
+                usage =
+                    usageObj?.let {
+                        MissionUsage(
+                            model = it.optionalString("model"),
+                            tokensIn = it.optionalStrictLong("tokens_in"),
+                            tokensOut = it.optionalStrictLong("tokens_out"),
+                            cacheTokens = it.optionalStrictLong("cache_tokens"),
+                            totalTokens = it.optionalStrictLong("total_tokens"),
+                            context = it.optionalDouble("context"),
+                            costUsd = it.optionalDouble("cost_usd"),
+                        )
+                    },
+            )
+        }
+    return MissionSnapshot(
+        scope = result.optionalString("scope"),
+        workspace = result.optionalWireString("workspace"),
+        workspaceId = result.optionalString("workspace_id"),
+        refreshing = result.booleanOrFalse("refreshing"),
+        summary = summary,
+        rows = rows,
+    )
+}
+
+internal fun mapDiffList(result: JsonObject): DiffListResult =
+    DiffListResult(
+        repo = result.optionalString("repo"),
+        branch = result.optionalString("branch"),
+        generation = result.optionalStrictLong("generation"),
+        fingerprint = result.optionalString("fingerprint"),
+        omitted = result.optionalStrictLong("omitted"),
+        refreshing = result.booleanOrFalse("refreshing"),
+        files = result.optionalObjectList("files").map { mapDiffFileMeta(it) },
+    )
+
+internal fun mapDiffGet(result: JsonObject): DiffFile {
+    val file = result.optionalObject("file")?.let { mapDiffFileMeta(it) } ?: mapDiffFileMeta(result)
+    return file.copy(
+        additions = result.optionalStrictLong("additions") ?: file.additions,
+        deletions = result.optionalStrictLong("deletions") ?: file.deletions,
+        binary = result.optionalBoolean("binary") ?: file.binary,
+        truncated = result.optionalBoolean("truncated"),
+        omittedLines = result.optionalStrictLong("omitted_lines"),
+        hunks = mapDiffHunks(result),
+    )
+}
+
+internal fun mapReviewNotes(result: JsonObject): List<ReviewNote> =
+    result.optionalObjectList("notes").mapNotNull { mapReviewNote(it) }
+
+internal fun mapReviewNoteResult(result: JsonObject): ReviewNote {
+    val note = result.optionalObject("note")?.let { mapReviewNote(it) }
+        ?: mapReviewNote(result)
+        ?: throw CodecException(CodecException.Kind.Schema, "review note payload missing")
+    return note
+}
+
+internal fun mapReviewNoteSend(result: JsonObject): ReviewNoteSendResult =
+    ReviewNoteSendResult(
+        pane = result.optionalWireString("pane"),
+        target = result.optionalString("target"),
+        count = result.optionalStrictLong("count") ?: 0L,
+    )
+
+internal fun mapGitStatus(result: JsonObject): GitStatus =
+    GitStatus(
+        branch = result.optionalString("branch"),
+        upstream = result.optionalString("upstream"),
+        ahead = result.optionalStrictLong("ahead"),
+        behind = result.optionalStrictLong("behind"),
+        staged = result.optionalObjectList("staged").mapNotNull { mapGitFileChange(it) },
+        unstaged = result.optionalObjectList("unstaged").mapNotNull { mapGitFileChange(it) },
+        untracked = result.optionalStringList("untracked"),
+        stashes = result.optionalStringList("stashes"),
+    )
+
+internal fun mapGitLog(result: JsonObject): List<GitCommit> =
+    result.optionalObjectList("commits").mapNotNull { obj ->
+        val sha = obj.optionalString("sha") ?: return@mapNotNull null
+        GitCommit(
+            sha = sha,
+            subject = obj.optionalString("subject") ?: "",
+            author = obj.optionalString("author"),
+            whenText = obj.optionalString("when"),
+            refs = obj.optionalString("refs"),
+        )
+    }
+
+
 internal fun mapTaskList(result: JsonObject): TaskListResult =
     TaskListResult(
         tasks = result.optionalObjectList("tasks").mapNotNull { mapTask(it) },
@@ -493,6 +730,8 @@ internal fun parseTaskStatus(raw: String?): TaskStatus =
         "blocked" -> TaskStatus.Blocked
         "review" -> TaskStatus.Review
         "done" -> TaskStatus.Done
+        "merging" -> TaskStatus.Merging
+        "merged" -> TaskStatus.Merged
         "failed" -> TaskStatus.Failed
         else -> TaskStatus.Unknown
     }
@@ -508,6 +747,8 @@ internal fun TaskStatus.wireName(): String =
         TaskStatus.Blocked -> "blocked"
         TaskStatus.Review -> "review"
         TaskStatus.Done -> "done"
+        TaskStatus.Merging -> "merging"
+        TaskStatus.Merged -> "merged"
         TaskStatus.Failed -> "failed"
         TaskStatus.Unknown -> "unknown"
     }
@@ -536,7 +777,7 @@ internal fun parseBusEvent(event: UhpEvent): BusEvent {
         "task.added", "task.claimed", "task.updated", "task.done", "task.released",
         "task.deleted", "task.started", "task.ready", "task.needs_compaction",
         "task.gate_running", "task.gate_passed", "task.gate_failed",
-        "task.merged", "task.merge_conflict",
+        "task.merged", "task.merge_conflict", "task.merge_started", "task.merge_failed",
         ->
             BusEvent.TaskPayload(
                 sequence = event.sequence,
@@ -551,6 +792,12 @@ internal fun parseBusEvent(event: UhpEvent): BusEvent {
                 code = data.optionalStrictLong("code"),
                 files = data.optionalStringList("files"),
                 into = data.optionalString("into"),
+                mode = data.optionalString("mode"),
+                workspaceId = data.optionalString("workspace_id"),
+                tabId = data.optionalString("tab_id"),
+                cwd = data.optionalString("cwd"),
+                commit = data.optionalString("commit"),
+                message = data.optionalString("message"),
             )
         "pane.created", "pane.closed", "pane.focused", "pane.moved", "pane.forked" ->
             BusEvent.PaneChanged(
@@ -563,6 +810,32 @@ internal fun parseBusEvent(event: UhpEvent): BusEvent {
                 from = data.optionalWireString("from"),
                 to = data.optionalWireString("to"),
                 module = data.optionalString("module"),
+            )
+        "pane.renamed" ->
+            BusEvent.PaneRenamed(
+                sequence = event.sequence,
+                pane = data.optionalWireString("pane"),
+                name = data.optionalString("name"),
+            )
+        "agent.hook" ->
+            BusEvent.AgentHook(
+                sequence = event.sequence,
+                pane = data.optionalWireString("pane"),
+                agent = data.optionalString("agent"),
+                kind = data.optionalString("kind"),
+                message = data.optionalString("message"),
+                tool = data.optionalString("tool"),
+            )
+        "lease.acquired", "lease.released" ->
+            BusEvent.LeaseChanged(
+                sequence = event.sequence,
+                name = event.name,
+                id = data.optionalString("id"),
+                pane = data.optionalWireString("pane"),
+                task = data.optionalWireString("task"),
+                paths = data.optionalStringList("paths"),
+                acquired = data.optionalStrictLong("acquired"),
+                leases = data.optionalStringList("leases"),
             )
         "workspace.created", "workspace.closed", "workspace.moved" ->
             BusEvent.WorkspaceChanged(
@@ -620,6 +893,9 @@ internal fun projectBusEvent(
             } else {
                 base.copy(pullSession = true)
             }
+        is BusEvent.PaneRenamed -> base.copy(pullSession = true)
+        is BusEvent.AgentHook -> base
+        is BusEvent.LeaseChanged -> base
         is BusEvent.WorkspaceChanged -> base.copy(pullSession = true)
         is BusEvent.TerminalChanged ->
             if (event.name == "terminal.output_ready" || event.name == "terminal.metadata_changed") {
@@ -762,6 +1038,7 @@ private fun mapAgentSummary(obj: JsonObject): AgentSummary =
 private fun mapTask(obj: JsonObject): Task? {
     val id = obj.optionalString("id") ?: return null
     val title = obj.optionalString("title") ?: return null
+    val worker = obj.optionalObject("workspace_worker")
     return Task(
         id = id,
         title = title,
@@ -777,8 +1054,121 @@ private fun mapTask(obj: JsonObject): Task? {
         context = obj.optionalDouble("context"),
         created = obj.optionalStrictLong("created") ?: 0L,
         updated = obj.optionalStrictLong("updated") ?: 0L,
+        mode = obj.optionalString("mode"),
+        workspaceWorker =
+            worker?.let {
+                WorkspaceWorker(
+                    workspaceId = it.optionalString("workspace_id") ?: return@let null,
+                    tabId = it.optionalString("tab_id") ?: return@let null,
+                    root = it.optionalString("root") ?: return@let null,
+                )
+            },
     )
 }
+
+private fun mapDiffFileMeta(obj: JsonObject): DiffFile =
+    DiffFile(
+        path = obj.optionalString("path") ?: "",
+        pathRawHex = obj.optionalString("path_raw_hex"),
+        oldPath = obj.optionalString("old_path"),
+        oldPathRawHex = obj.optionalString("old_path_raw_hex"),
+        layer = parseDiffLayer(obj.optionalString("layer")),
+        status = obj.optionalString("status"),
+        additions = obj.optionalStrictLong("additions"),
+        deletions = obj.optionalStrictLong("deletions"),
+        binary = obj.optionalBoolean("binary"),
+        notes = obj.optionalStrictLong("notes"),
+        viewed = obj.optionalBoolean("viewed"),
+        modifiedSinceReview = obj.optionalBoolean("modified_since_review"),
+        fingerprint = obj.optionalString("fingerprint"),
+    )
+
+private fun mapDiffHunks(result: JsonObject): List<DiffHunk> =
+    result.optionalObjectList("hunks").map { hunk ->
+        DiffHunk(
+            id = hunk.optionalString("id") ?: "",
+            oldStart = hunk.optionalStrictLong("old_start") ?: 0L,
+            newStart = hunk.optionalStrictLong("new_start") ?: 0L,
+            header = hunk.optionalString("header") ?: "",
+            lines = mapDiffLines(hunk),
+        )
+    }
+
+private fun mapDiffLines(hunk: JsonObject): List<DiffLine> {
+    val value = hunk["lines"] ?: return emptyList()
+    if (value is JsonNull) return emptyList()
+    val array = value as? JsonArray ?: return emptyList()
+    return array.mapNotNull { el ->
+        val line = el as? JsonObject ?: return@mapNotNull null
+        DiffLine(
+            kind = line.optionalString("kind") ?: "",
+            oldLine = line.optionalStrictLong("old_line"),
+            newLine = line.optionalStrictLong("new_line"),
+            text = line.optionalString("text") ?: "",
+        )
+    }
+}
+
+private fun mapReviewNote(obj: JsonObject): ReviewNote? {
+    val id = obj.optionalString("id") ?: return null
+    return ReviewNote(
+        id = id,
+        review = obj.optionalString("review"),
+        author = obj.optionalString("author"),
+        kind = parseReviewNoteKind(obj.optionalString("kind")),
+        body = obj.optionalString("body") ?: "",
+        state = parseReviewNoteState(obj.optionalString("state")),
+        path = obj.optionalString("path"),
+        layer = parseDiffLayer(obj.optionalString("layer")),
+        side = obj.optionalString("side"),
+        startLine = obj.optionalStrictLong("start_line"),
+        endLine = obj.optionalStrictLong("end_line"),
+        revision = obj.optionalStrictLong("revision"),
+        deliveries =
+            obj.optionalObjectList("deliveries").mapNotNull { delivery ->
+                val target = delivery.optionalString("target") ?: return@mapNotNull null
+                ReviewNoteDelivery(
+                    target = target,
+                    deliveredAtMs = delivery.optionalStrictLong("delivered_at_ms"),
+                )
+            },
+        createdAtMs = obj.optionalStrictLong("created_at_ms"),
+        updatedAtMs = obj.optionalStrictLong("updated_at_ms"),
+    )
+}
+
+private fun mapGitFileChange(obj: JsonObject): GitFileChange? {
+    val path = obj.optionalString("path") ?: return null
+    val code = obj.optionalWireString("code") ?: return null
+    return GitFileChange(code = code, path = path)
+}
+
+private fun parseDiffLayer(raw: String?): DiffLayer? =
+    when (raw) {
+        "staged" -> DiffLayer.STAGED
+        "worktree", "unstaged" -> DiffLayer.WORKTREE
+        "untracked" -> DiffLayer.UNTRACKED
+        "conflict" -> DiffLayer.CONFLICT
+        else -> null
+    }
+
+private fun parseReviewNoteKind(raw: String?): ReviewNoteKind? =
+    when (raw) {
+        "question" -> ReviewNoteKind.QUESTION
+        "issue" -> ReviewNoteKind.ISSUE
+        "suggestion" -> ReviewNoteKind.SUGGESTION
+        "praise" -> ReviewNoteKind.PRAISE
+        else -> null
+    }
+
+private fun parseReviewNoteState(raw: String?): ReviewNoteState? =
+    when (raw) {
+        "open" -> ReviewNoteState.OPEN
+        "resolved" -> ReviewNoteState.RESOLVED
+        "outdated" -> ReviewNoteState.OUTDATED
+        "orphaned" -> ReviewNoteState.ORPHANED
+        else -> null
+    }
 
 private fun mapTerminalEntry(obj: JsonObject): TerminalInventoryEntry? {
     val terminalId = obj.optionalString("terminal_id") ?: return null

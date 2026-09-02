@@ -395,6 +395,9 @@ public class HostManager(
             is BusEvent.AgentStatusChanged,
             is BusEvent.TaskPayload,
             is BusEvent.PaneChanged,
+            is BusEvent.PaneRenamed,
+            is BusEvent.AgentHook,
+            is BusEvent.LeaseChanged,
             is BusEvent.WorkspaceChanged,
             is BusEvent.TerminalChanged,
             -> Unit

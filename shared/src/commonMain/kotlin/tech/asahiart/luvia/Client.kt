@@ -14,7 +14,18 @@ import tech.asahiart.luvia.internal.SessionEngine
 import tech.asahiart.luvia.internal.mapAgentExplain
 import tech.asahiart.luvia.internal.mapAgentGet
 import tech.asahiart.luvia.internal.mapAgentList
+import tech.asahiart.luvia.internal.mapAgentPrompt
+import tech.asahiart.luvia.internal.mapAgentRead
+import tech.asahiart.luvia.internal.mapAgentSessions
+import tech.asahiart.luvia.internal.mapDiffGet
+import tech.asahiart.luvia.internal.mapDiffList
+import tech.asahiart.luvia.internal.mapGitLog
+import tech.asahiart.luvia.internal.mapGitStatus
+import tech.asahiart.luvia.internal.mapMissionSnapshot
 import tech.asahiart.luvia.internal.mapPaneSplit
+import tech.asahiart.luvia.internal.mapReviewNoteResult
+import tech.asahiart.luvia.internal.mapReviewNoteSend
+import tech.asahiart.luvia.internal.mapReviewNotes
 import tech.asahiart.luvia.internal.mapTaskDone
 import tech.asahiart.luvia.internal.mapTaskHeartbeat
 import tech.asahiart.luvia.internal.mapTaskMutation
@@ -53,6 +64,8 @@ public class LuviaSession internal constructor(
 
     public val freshness: ConnectionFreshness
         get() = engine.freshness()
+
+    public fun supports(method: String): Boolean = method in capabilities.methods
 
     public suspend fun snapshot(): Outcome<SessionSnapshot> = engine.snapshot()
 
@@ -188,15 +201,216 @@ public class LuviaSession internal constructor(
             mutation = true,
         ) { }
 
-    public suspend fun promptAgent(target: String, text: String): Outcome<Unit> =
-        engine.unary(
-            Methods.AGENT_PROMPT,
+    /**
+     * `agent.prompt` (`dispatch.rs:4736-4803`). Never auto-retried.
+     * `until` is sent as a one-element array because the server requires
+     * `until` to be 1..4 states (`dispatch.rs:6037-6055`). `timeoutSeconds`
+     * maps to `timeout_s`.
+     */
+    public suspend fun promptAgent(
+        target: String,
+        text: String,
+        wait: Boolean = false,
+        until: AgentStatus? = null,
+        timeoutSeconds: Int? = null,
+    ): Outcome<AgentPromptResult> {
+        val params =
             buildJsonObject {
                 put("target", target)
                 put("text", text)
+                if (wait) put("wait", true)
+                if (until != null) {
+                    put("until", buildJsonArray { add(JsonPrimitive(until.wireName())) })
+                }
+                if (timeoutSeconds != null) put("timeout_s", timeoutSeconds)
+            }
+        return engine.unary(Methods.AGENT_PROMPT, params, mutation = true) {
+            mapAgentPrompt(it.asObjectOrEmpty())
+        }
+    }
+
+    public suspend fun readAgent(
+        target: String,
+        lines: Int = 200,
+        source: AgentReadSource = AgentReadSource.RECENT,
+    ): Outcome<AgentReadResult> =
+        engine.unary(
+            Methods.AGENT_READ,
+            buildJsonObject {
+                put("target", target)
+                put("lines", lines)
+                put("source", source.wireName())
+            },
+            mutation = false,
+        ) { mapAgentRead(it.asObjectOrEmpty()) }
+
+    /**
+     * `agent.keys` (`dispatch.rs:2553-2582`). Empty `keys` is rejected
+     * client-side to match the server (`dispatch.rs:2564-2568`).
+     */
+    public suspend fun sendAgentKeys(target: String, keys: List<AgentKey>): Outcome<Unit> {
+        if (keys.isEmpty()) {
+            return fail(Failure.InvalidRequest("agent keys needs at least one key"))
+        }
+        return engine.unary(
+            Methods.AGENT_KEYS,
+            buildJsonObject {
+                put("target", target)
+                put("keys", stringArray(keys.map { it.wire }))
             },
             mutation = true,
         ) { }
+    }
+
+    public suspend fun listAgentSessions(): Outcome<List<AgentSessionEntry>> =
+        engine.unary(Methods.AGENT_SESSIONS, JsonObject(emptyMap()), mutation = false) {
+            mapAgentSessions(it.asObjectOrEmpty())
+        }
+
+    /**
+     * `mission.snapshot` is 0.13.4+ (`dispatch.rs:3851-3887`). Gate with
+     * [supports]. Default scope is `all`; the server defaults omitted scope
+     * to `workspace`, so this always sends `scope`.
+     */
+    public suspend fun missionSnapshot(scope: MissionScope = MissionScope.ALL): Outcome<MissionSnapshot> =
+        engine.unary(
+            Methods.MISSION_SNAPSHOT,
+            buildJsonObject { put("scope", scope.wireName()) },
+            mutation = false,
+        ) { mapMissionSnapshot(it.asObjectOrEmpty()) }
+
+    public suspend fun listDiff(layer: DiffLayer? = null): Outcome<DiffListResult> {
+        val params =
+            buildJsonObject {
+                if (layer != null) put("layer", layer.wireName())
+            }
+        return engine.unary(Methods.DIFF_LIST, params, mutation = false) {
+            mapDiffList(it.asObjectOrEmpty())
+        }
+    }
+
+    /**
+     * `include_patch` defaults to false on the server (`dispatch.rs:3503-3506`);
+     * this client defaults to true so Review screens receive hunks.
+     */
+    public suspend fun getDiff(
+        path: String,
+        layer: DiffLayer? = null,
+        includePatch: Boolean = true,
+    ): Outcome<DiffFile> {
+        val params =
+            buildJsonObject {
+                put("path", path)
+                if (layer != null) put("layer", layer.wireName())
+                put("include_patch", includePatch)
+            }
+        return engine.unary(Methods.DIFF_GET, params, mutation = false) {
+            mapDiffGet(it.asObjectOrEmpty())
+        }
+    }
+
+    public suspend fun refreshDiff(): Outcome<Unit> =
+        engine.unary(Methods.DIFF_REFRESH, JsonObject(emptyMap()), mutation = true) { }
+
+    public suspend fun listReviewNotes(
+        state: ReviewNoteState? = null,
+        file: String? = null,
+    ): Outcome<List<ReviewNote>> {
+        val params =
+            buildJsonObject {
+                if (state != null) put("state", state.wireName())
+                if (file != null) put("file", file)
+            }
+        return engine.unary(Methods.DIFF_NOTE_LIST, params, mutation = false) {
+            mapReviewNotes(it.asObjectOrEmpty())
+        }
+    }
+
+    public suspend fun addReviewNote(
+        file: String,
+        line: ReviewLine,
+        endLine: Int? = null,
+        body: String,
+        kind: ReviewNoteKind = ReviewNoteKind.ISSUE,
+        layer: DiffLayer? = null,
+    ): Outcome<ReviewNote> {
+        val params =
+            buildJsonObject {
+                put("file", file)
+                putReviewLine(line)
+                if (endLine != null) put("end_line", endLine)
+                put("body", body)
+                put("kind", kind.wireName())
+                if (layer != null) put("layer", layer.wireName())
+            }
+        return engine.unary(Methods.DIFF_NOTE_ADD, params, mutation = true) {
+            mapReviewNoteResult(it.asObjectOrEmpty())
+        }
+    }
+
+    public suspend fun editReviewNote(id: String, body: String): Outcome<ReviewNote> =
+        engine.unary(
+            Methods.DIFF_NOTE_EDIT,
+            buildJsonObject {
+                put("id", id)
+                put("body", body)
+            },
+            mutation = true,
+        ) { mapReviewNoteResult(it.asObjectOrEmpty()) }
+
+    public suspend fun resolveReviewNote(id: String): Outcome<ReviewNote> =
+        engine.unary(
+            Methods.DIFF_NOTE_RESOLVE,
+            buildJsonObject { put("id", id) },
+            mutation = true,
+        ) { mapReviewNoteResult(it.asObjectOrEmpty()) }
+
+    public suspend fun reopenReviewNote(id: String): Outcome<ReviewNote> =
+        engine.unary(
+            Methods.DIFF_NOTE_REOPEN,
+            buildJsonObject { put("id", id) },
+            mutation = true,
+        ) { mapReviewNoteResult(it.asObjectOrEmpty()) }
+
+    public suspend fun removeReviewNote(id: String): Outcome<Unit> =
+        engine.unary(
+            Methods.DIFF_NOTE_REMOVE,
+            buildJsonObject { put("id", id) },
+            mutation = true,
+        ) { }
+
+    public suspend fun sendReviewNotes(
+        to: String,
+        ids: List<String>? = null,
+        allOpen: Boolean = false,
+    ): Outcome<ReviewNoteSendResult> {
+        val params =
+            buildJsonObject {
+                put("to", to)
+                if (ids != null) put("ids", stringArray(ids))
+                if (allOpen) put("all_open", true)
+            }
+        return engine.unary(Methods.DIFF_NOTE_SEND, params, mutation = true) {
+            mapReviewNoteSend(it.asObjectOrEmpty())
+        }
+    }
+
+    public suspend fun gitStatus(workspace: Int? = null): Outcome<GitStatus> {
+        val params =
+            buildJsonObject {
+                if (workspace != null) put("workspace", workspace)
+            }
+        return engine.unary(Methods.GIT_STATUS, params, mutation = false) {
+            mapGitStatus(it.asObjectOrEmpty())
+        }
+    }
+
+    public suspend fun gitLog(n: Int = 30): Outcome<List<GitCommit>> =
+        engine.unary(
+            Methods.GIT_LOG,
+            buildJsonObject { put("n", n) },
+            mutation = false,
+        ) { mapGitLog(it.asObjectOrEmpty()) }
 
     public suspend fun listTasks(): Outcome<List<TaskSummary>> =
         engine.unary(Methods.TASK_LIST, JsonObject(emptyMap()), mutation = false) {
@@ -233,6 +447,10 @@ public class LuviaSession internal constructor(
         }
     }
 
+    /**
+     * @deprecated `task.next` is declared read-only upstream (`capabilities.rs:250`)
+     * but claims/starts (`dispatch.rs:4126-4163`). Do not add new call sites.
+     */
     public suspend fun nextTask(): Outcome<TaskNextResult> =
         engine.unary(Methods.TASK_NEXT, JsonObject(emptyMap()), mutation = true) {
             mapTaskNext(it.asObjectOrEmpty())
@@ -331,6 +549,13 @@ private fun stringArray(values: List<String>): JsonArray =
     buildJsonArray {
         values.forEach { add(JsonPrimitive(it)) }
     }
+
+private fun kotlinx.serialization.json.JsonObjectBuilder.putReviewLine(line: ReviewLine) {
+    when (line) {
+        is ReviewLine.Old -> put("old_line", line.line)
+        is ReviewLine.New -> put("new_line", line.line)
+    }
+}
 
 private fun kotlinx.serialization.json.JsonElement.asObjectOrEmpty(): JsonObject =
     this as? JsonObject ?: JsonObject(emptyMap())
