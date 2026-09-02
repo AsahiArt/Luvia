@@ -264,6 +264,8 @@ enum FailureText {
             return "Connection closed"
         case .revisionConflict(let value):
             return value.message
+        case .agentPromptBusy(_):
+            return "The agent is still handling a previous message. Wait for it to finish."
         case .forbidden(let value):
             return value.message
         case .notFound(let value):
