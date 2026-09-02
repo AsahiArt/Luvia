@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -362,7 +363,7 @@ private fun AddReviewNoteSheet(
     onSubmit: (String) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var body by remember { mutableStateOf("") }
+    var body by rememberSaveable { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
@@ -408,7 +409,7 @@ private fun NotesDrawer(
     onRemoveNote: (String) -> Unit,
     onSendNotes: (String) -> Unit,
 ) {
-    var sendTarget by remember { mutableStateOf<String?>(null) }
+    var sendTarget by rememberSaveable { mutableStateOf<String?>(null) }
     val openNotes = notes.filter { it.state == null || it.state == ReviewNoteState.OPEN }
     val resolvedNotes = notes.filter { it.state == ReviewNoteState.RESOLVED }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {

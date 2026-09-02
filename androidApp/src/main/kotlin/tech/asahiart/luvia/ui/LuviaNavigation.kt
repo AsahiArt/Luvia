@@ -17,6 +17,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -188,7 +189,7 @@ private fun DetailNav(
                 if (host == null) {
                     EmptySelectionPane("Host unavailable", "The saved host was removed.")
                 } else {
-                    var section by remember(route.id) { mutableStateOf(HostSection.Agents) }
+                    var section by rememberSaveable(route.id) { mutableStateOf(HostSection.Agents) }
                     val uhp = uhpForHost(route.id)
                     val visible = uhp.visibleSections()
                     LaunchedEffect(route.id) { uhpActions.shown(route.id) }

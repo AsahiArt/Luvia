@@ -38,6 +38,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -205,29 +206,25 @@ fun HostDetailPane(
     val visible = sections.ifEmpty { HostSection.entries }
     val selectedIndex = visible.indexOf(section).coerceAtLeast(0)
     Column(modifier.fillMaxSize()) {
-        CenterAlignedTopAppBar(
+        TopAppBar(
             title = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(host.name)
-                    Text(host.sessionName ?: host.address, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column {
+                    Text(host.name, maxLines = 1)
+                    Text(host.sessionName ?: host.address, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
             },
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (host.connected) {
-                FilledTonalButton(onClick = onDisconnect) {
-                    Text(if (host.connection == ConnectionBadge.Connecting) "Cancel" else "Disconnect")
+            actions = {
+                if (host.connected) {
+                    TextButton(onClick = onDisconnect) {
+                        Text(if (host.connection == ConnectionBadge.Connecting) "Cancel" else "Disconnect")
+                    }
+                } else {
+                    Button(onClick = onConnect) { Text("Connect") }
                 }
-            } else {
-                Button(onClick = onConnect) { Text("Connect") }
-            }
-            FilledTonalButton(onClick = onRefresh) { Text("Refresh") }
-            TextButton(onClick = { confirmUnpair = true }) { Text("Unpair") }
-        }
+                TextButton(onClick = onRefresh) { Text("Refresh") }
+                TextButton(onClick = { confirmUnpair = true }) { Text("Unpair") }
+            },
+        )
         host.errorMessage?.let { error ->
             Text(
                 error,

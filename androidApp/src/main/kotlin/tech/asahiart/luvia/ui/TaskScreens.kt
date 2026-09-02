@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,8 +77,8 @@ private fun TaskListPane(
     onCheckUnconfirmed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showAdd by remember { mutableStateOf(false) }
-    var completeId by remember { mutableStateOf<String?>(null) }
+    var showAdd by rememberSaveable { mutableStateOf(false) }
+    var completeId by rememberSaveable { mutableStateOf<String?>(null) }
     val grouped = state.tasks.tasks.groupBy { it.status.ifBlank { "unknown" } }
     PullToRefreshBox(
         isRefreshing = state.tasks.loading,
@@ -201,8 +202,8 @@ private fun AddTaskSheet(
     onSubmit: (title: String, paths: List<String>) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var title by remember { mutableStateOf("") }
-    var pathsText by remember { mutableStateOf("") }
+    var title by rememberSaveable { mutableStateOf("") }
+    var pathsText by rememberSaveable { mutableStateOf("") }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),

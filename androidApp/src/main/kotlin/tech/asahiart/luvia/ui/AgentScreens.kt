@@ -3,6 +3,8 @@
 package tech.asahiart.luvia.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import tech.asahiart.luvia.AgentKey
 import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.AgentSummary
+import tech.asahiart.luvia.MissionRowKind
 import tech.asahiart.luvia.MissionSnapshot
 
 @Composable
@@ -150,8 +154,15 @@ private fun AgentsHeaderCard(host: HostUiModel, mission: MissionSnapshot?) {
             if (summary != null) {
                 Text(
                     buildString {
-                        append(summary.agents)
-                        append(" Agents")
+                        val live = mission.rows.count { it.kind == MissionRowKind.LIVE }
+                        val resumable = mission.rows.size - live
+                        append(live)
+                        append(" live")
+                        if (resumable > 0) {
+                            append(" · ")
+                            append(resumable)
+                            append(" resumable")
+                        }
                         if (summary.tokens > 0) {
                             append(" · ")
                             append(summary.tokens)
@@ -276,13 +287,13 @@ fun AgentDetailPane(
     val blocked = status == AgentStatus.Blocked
     val canPrompt = state.canMutate && state.capabilities.agentPrompt
     val canKeys = state.canMutate && state.capabilities.agentKeys
-    var draft by remember { mutableStateOf("") }
+    var draft by rememberSaveable { mutableStateOf("") }
     var pendingKeys by remember { mutableStateOf<PendingAgentAction?>(null) }
     val transcriptText = detail.transcript?.text.orEmpty()
     val lines = remember(transcriptText) { transcriptText.split('\n') }
     val listState = rememberLazyListState()
     LaunchedEffect(detail.transcript?.revision, transcriptText) {
-        if (lines.isNotEmpty()) listState.scrollToItem(lines.lastIndex)
+        if (lines.isNotEmpty()) listState.scrollToItem(lines.size)
     }
     val missionRow = state.mission?.rows?.firstOrNull { it.pane == detail.paneId }
 
@@ -302,71 +313,69 @@ fun AgentDetailPane(
             )
             FilledTonalButton(onClick = onRefresh) { Text("Refresh") }
         }
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                AgentStatusChip(status)
-                val place = listOfNotNull(
-                    summary?.workspaceName ?: summary?.workspace,
-                    summary?.branch,
-                ).joinToString(" · ")
-                if (place.isNotBlank()) {
-                    Text(place, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            val cwd = detail.detail?.cwd ?: summary?.cwd
-            if (!cwd.isNullOrBlank()) {
-                Text(
-                    cwd,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            missionRow?.usage?.let { usage ->
-                Text(
-                    buildString {
-                        usage.model?.let { append(it) }
-                        usage.totalTokens?.let {
-                            if (isNotEmpty()) append(" · ")
-                            append(it)
-                            append(" tokens")
-                        }
-                        usage.context?.let {
-                            if (isNotEmpty()) append(" · ")
-                            append("context ")
-                            append("%.0f".format(it * 100))
-                            append("%")
-                        }
-                        usage.costUsd?.let {
-                            if (isNotEmpty()) append(" · ")
-                            append("$")
-                            append("%.2f".format(it))
-                        }
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            detail.errorText?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-            detail.unconfirmed?.let { kind ->
-                UnconfirmedBanner(kind = kind, onCheck = onCheckUnconfirmed)
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Transcript",
-            style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
         Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
             if (!state.capabilities.agentRead) {
                 Text("Transcript is not available on this host.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 SelectionContainer {
                     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                        item(key = "header") {
+                            Column(
+                                Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    AgentStatusChip(status)
+                                    val place = listOfNotNull(
+                                        summary?.workspaceName ?: summary?.workspace,
+                                        summary?.branch,
+                                    ).joinToString(" · ")
+                                    if (place.isNotBlank()) {
+                                        Text(place, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                                val cwd = detail.detail?.cwd ?: summary?.cwd
+                                if (!cwd.isNullOrBlank()) {
+                                    Text(
+                                        cwd,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                missionRow?.usage?.let { usage ->
+                                    Text(
+                                        buildString {
+                                            usage.model?.let { append(it) }
+                                            usage.totalTokens?.let {
+                                                if (isNotEmpty()) append(" · ")
+                                                append(it)
+                                                append(" tokens")
+                                            }
+                                            usage.context?.let {
+                                                if (isNotEmpty()) append(" · ")
+                                                append("context ")
+                                                append("%.0f".format(it * 100))
+                                                append("%")
+                                            }
+                                            usage.costUsd?.let {
+                                                if (isNotEmpty()) append(" · ")
+                                                append("$")
+                                                append("%.2f".format(it))
+                                            }
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                detail.errorText?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                                detail.unconfirmed?.let { kind ->
+                                    UnconfirmedBanner(kind = kind, onCheck = onCheckUnconfirmed)
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text("Transcript", style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
                         items(lines.size) { index ->
                             Text(
                                 lines[index],
@@ -380,10 +389,9 @@ fun AgentDetailPane(
             }
         }
         if (canKeys) {
-            FlowRow(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 AgentKeyButton("Enter", enabled = !detail.sending) {
                     val action = PendingAgentAction("Enter", listOf(AgentKey.ENTER), null)
@@ -418,29 +426,26 @@ fun AgentDetailPane(
             }
         }
         if (canPrompt) {
-            Row(
-                Modifier.fillMaxWidth().padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    label = { Text("Agent prompt") },
-                    enabled = !detail.sending,
-                    modifier = Modifier.weight(1f),
-                    minLines = 1,
-                    maxLines = 4,
-                )
-                Button(
-                    enabled = !detail.sending && draft.isNotBlank(),
-                    onClick = {
-                        val text = draft.trim()
-                        draft = ""
-                        onPrompt(text)
-                    },
-                ) { Text("Send") }
-            }
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                placeholder = { Text("Agent prompt") },
+                enabled = !detail.sending,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                minLines = 1,
+                maxLines = 3,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                trailingIcon = {
+                    TextButton(
+                        enabled = !detail.sending && draft.isNotBlank(),
+                        onClick = {
+                            val text = draft.trim()
+                            draft = ""
+                            onPrompt(text)
+                        },
+                    ) { Text("Send") }
+                },
+            )
         }
     }
     pendingKeys?.let { pending ->

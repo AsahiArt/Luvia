@@ -918,9 +918,22 @@ private fun projectAgentStatus(
     if (pane == null) {
         return HostBusProjection(snapshot, agents, tasks, pullSession = true)
     }
+    // Luvus emits this event for plain shell panes too (dispatch.rs: "A plain
+    // shell going quiet or blocking is not an agent"). A shell identity means
+    // the pane is not, or is no longer, an Agent.
+    val shell = event.agent.isShellIdentity()
     val index = agents.indexOfFirst { it.paneId == pane }
     if (index < 0) {
-        return HostBusProjection(snapshot, agents, tasks, pullSession = true)
+        return if (shell) {
+            HostBusProjection(snapshot, agents, tasks)
+        } else {
+            HostBusProjection(snapshot, agents, tasks, pullSession = true)
+        }
+    }
+    if (shell) {
+        val remaining = agents.filterNot { it.paneId == pane }
+        val nextSnapshot = snapshot?.copy(agents = snapshot.agents.filterNot { it.paneId == pane })
+        return HostBusProjection(nextSnapshot, remaining, tasks)
     }
     val updated =
         agents[index].copy(
@@ -1203,4 +1216,15 @@ private fun mapTerminalEntry(obj: JsonObject): TerminalInventoryEntry? {
                 ProcessIdentity(pid = pid, startMarker = root.optionalString("start_marker"))
             },
     )
+}
+
+private val shellIdentities: Set<String> =
+    setOf(
+        "sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh",
+        "nu", "nushell", "xonsh", "elvish", "pwsh", "powershell", "cmd",
+    )
+
+private fun String?.isShellIdentity(): Boolean {
+    val name = this?.trim()?.substringAfterLast('/')?.lowercase() ?: return false
+    return name in shellIdentities
 }

@@ -42,6 +42,47 @@ class BusApplyTest {
     }
 
     @Test
+    fun shellPaneStatusForUnknownPaneIsIgnored() {
+        val snapshot = sampleSnapshot(focusedPane = "7")
+        val event =
+            parseBusEvent(
+                UhpEvent(
+                    "pane.agent_status_changed",
+                    14,
+                    buildJsonObject {
+                        put("pane", "42")
+                        put("status", "working")
+                        put("agent", "zsh")
+                    },
+                ),
+            )
+        val projection = projectBusEvent(event, snapshot, snapshot.agents, emptyList())
+        assertFalse(projection.pullSession)
+        assertEquals(snapshot.agents, projection.agents)
+    }
+
+    @Test
+    fun agentPaneRevertingToShellIsDropped() {
+        val snapshot = sampleSnapshot(focusedPane = "7")
+        val event =
+            parseBusEvent(
+                UhpEvent(
+                    "pane.agent_status_changed",
+                    15,
+                    buildJsonObject {
+                        put("pane", "8")
+                        put("status", "idle")
+                        put("agent", "/bin/zsh")
+                    },
+                ),
+            )
+        val projection = projectBusEvent(event, snapshot, snapshot.agents, emptyList())
+        assertFalse(projection.pullSession)
+        assertTrue(projection.agents.none { it.paneId == "8" })
+        assertTrue(projection.snapshot?.agents?.none { it.paneId == "8" } == true)
+    }
+
+    @Test
     fun agentStatusUpdatesInPlaceWithoutPull() {
         val snapshot = sampleSnapshot(focusedPane = "7")
         val event =

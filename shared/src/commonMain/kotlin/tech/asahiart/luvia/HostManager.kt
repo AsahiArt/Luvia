@@ -461,7 +461,12 @@ public class HostManager(
             profiles.map { profile ->
                 val session = live[profile.id]
                 val topology = profile.topology
-                val snapshot = session?.snapshot ?: topology?.toSnapshot()
+                // session.snapshot omits agents on 0.13.4; the agent.list result kept
+                // in LiveHost.agents is the authoritative list for the runtime.
+                val snapshot =
+                    session?.snapshot?.let { snap ->
+                        if (session.agents.isNotEmpty()) snap.copy(agents = session.agents) else snap
+                    } ?: topology?.toSnapshot()
                 val tasks = session?.tasks ?: topology?.tasks ?: emptyList()
                 val link = links[profile.id]
                     ?: session?.forcedLink
