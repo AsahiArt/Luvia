@@ -115,3 +115,54 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             build
+
+  # Exercises upload-artifact@v7, download-artifact@v8 (merge-multiple),
+  # and action-gh-release@v3. Those last two only run on tagged publishes,
+  # so this job is the only regular coverage. The draft is deleted before
+  # the job ends and is never made latest.
+  actions-smoke:
+    name: actions-smoke
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Stage smoke files
+        run: |
+          mkdir dist
+          echo smoke-a > dist/a.txt
+          echo smoke-b > dist/b.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: smoke-a
+          path: dist/a.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: smoke-b
+          path: dist/b.txt
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Check merged artifacts
+        run: |
+          test -f artifacts/a.txt
+          test -f artifacts/b.txt
+          grep -qx smoke-a artifacts/a.txt
+          grep -qx smoke-b artifacts/b.txt
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ci-actions-smoke-${{ github.run_id }}
+          name: CI actions smoke ${{ github.run_id }}
+          draft: true
+          prerelease: true
+          make_latest: false
+          files: artifacts/a.txt
+      - name: Delete smoke release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete "ci-actions-smoke-${{ github.run_id }}" --yes --cleanup-tag || true
+
