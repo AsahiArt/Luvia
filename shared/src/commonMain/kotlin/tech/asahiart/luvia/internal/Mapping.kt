@@ -303,7 +303,13 @@ internal fun mapSnapshot(result: JsonObject): SessionSnapshot {
                     )
                 val agentKind = pane.optionalString("agent")
                 val agentStatus = pane.optionalString("agent_status")
-                if (agentKind != null || agentStatus != null) {
+                // Match agent.list (dispatch.rs "Only real agent sessions, not the
+                // shells behind tabs"): a pane whose agent is a shell is not an
+                // Agent unless Luvus has bound a session to it.
+                val isAgentPane =
+                    (agentKind != null || agentStatus != null) &&
+                        (!agentKind.isShellIdentity() || pane.optionalString("agent_session") != null)
+                if (isAgentPane) {
                     agents +=
                         AgentSummary(
                             paneId = paneId,

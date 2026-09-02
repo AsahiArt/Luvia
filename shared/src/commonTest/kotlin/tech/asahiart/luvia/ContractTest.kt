@@ -159,8 +159,21 @@ class ContractTest {
         assertEquals("main", snapshot.workspaces.first().branch)
         assertEquals("1", snapshot.panes.first().paneId)
         assertEquals("/Users/misaka/.config/emacs", snapshot.panes.first().cwd)
-        assertEquals("zsh", snapshot.agents.first().agent)
+        // The single pane runs a bare zsh with no bound agent_session: it is a
+        // Pane, not an Agent (matches agent.list upstream).
+        assertTrue(snapshot.agents.isEmpty())
         assertEquals(35989L, snapshot.panes.first().rootProcessPid)
+    }
+
+    @Test
+    fun shellPaneWithBoundSessionStaysAnAgent() {
+        // An agent that exited back to its shell keeps its session binding;
+        // Luvus still lists it, so the phone must too (mission "resumable").
+        val resumable = SNAPSHOT_RESULT.replace("\"agent_session\":null", "\"agent_session\":\"01a0447f\"")
+        val snapshot = mapSnapshot(parseObject(resumable))
+        assertEquals(1, snapshot.agents.size)
+        assertEquals("zsh", snapshot.agents.single().agent)
+        assertEquals("01a0447f", snapshot.agents.single().session)
     }
 
     @Test
