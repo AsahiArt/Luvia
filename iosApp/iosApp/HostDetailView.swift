@@ -3,6 +3,7 @@ import SwiftUI
 struct HostDetailView: View {
     let host: HostViewState
     @Binding var section: HostSection
+    @Bindable var model: AppModel
     var terminalText: String
     var terminalStatus: String?
     var onConnect: () -> Void
@@ -22,12 +23,12 @@ struct HostDetailView: View {
 
             Group {
                 switch section {
-                case .overview:
-                    Overview(host: host)
                 case .agents:
-                    AgentList(host: host)
+                    AgentsSectionView(model: model, host: host)
+                case .review:
+                    ReviewSectionView(model: model, host: host)
                 case .tasks:
-                    TaskList(host: host)
+                    TasksSectionView(model: model, host: host)
                 case .terminal:
                     TerminalPane(
                         host: host,
@@ -54,104 +55,6 @@ struct HostDetailView: View {
     }
 }
 
-private struct Overview: View {
-    let host: HostViewState
-
-    var body: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
-                Metric(title: "Working", value: host.workingAgents, color: .blue)
-                Metric(title: "Blocked", value: host.blockedAgents, color: .orange)
-                Metric(title: "Done", value: host.completedAgents, color: .green)
-            }
-            .padding()
-
-            if let failure = host.failureMessage {
-                GroupBox("Connection") {
-                    Text(failure)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.horizontal)
-            }
-
-            if let task = host.activeTask {
-                GroupBox("Current task") {
-                    Text(task).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.horizontal)
-            }
-        }
-    }
-}
-
-private struct Metric: View {
-    let title: String
-    let value: Int
-    let color: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).foregroundStyle(.secondary)
-            Text(value, format: .number).font(.system(.largeTitle, design: .rounded, weight: .semibold))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
-    }
-}
-
-private struct AgentList: View {
-    let host: HostViewState
-
-    var body: some View {
-        if host.agents.isEmpty {
-            ContentUnavailableView(
-                "Agents",
-                systemImage: "person.2",
-                description: Text(host.connection == .live ? "No agents in this session." : "Connect to load agent state.")
-            )
-        } else {
-            List(host.agents) { agent in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(agent.name).font(.headline)
-                    Text(agent.status)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if let detail = agent.detail {
-                        Text(detail)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-            }
-        }
-    }
-}
-
-private struct TaskList: View {
-    let host: HostViewState
-
-    var body: some View {
-        if host.tasks.isEmpty {
-            ContentUnavailableView(
-                "Tasks",
-                systemImage: "checklist",
-                description: Text(host.connection == .live ? "No orchestration tasks." : "Connect to load orchestration tasks.")
-            )
-        } else {
-            List(host.tasks) { task in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(task.title).font(.headline)
-                    Text(task.status)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-}
 
 private struct TerminalPane: View {
     let host: HostViewState

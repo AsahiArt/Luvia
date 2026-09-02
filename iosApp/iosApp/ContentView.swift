@@ -19,6 +19,7 @@ struct ContentView: View {
                 HostDetailView(
                     host: host,
                     section: $model.selectedSection,
+                    model: model,
                     terminalText: model.terminalText,
                     terminalStatus: model.terminalStatus,
                     onConnect: { model.connect(host.id) },

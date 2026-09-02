@@ -27,12 +27,146 @@ struct AgentViewState: Identifiable, Hashable, Sendable {
     var name: String
     var status: String
     var detail: String?
+    var statusKind: AgentStatusKind
+    var kind: String?
+    var workspace: String?
+    var branch: String?
+    var cwd: String?
+    var isBlocked: Bool { statusKind == .blocked }
+}
+
+enum AgentStatusKind: String, Hashable, Sendable {
+    case idle
+    case working
+    case blocked
+    case done
+    case unknown
+
+    init(_ status: AgentStatus) {
+        switch status {
+        case .idle: self = .idle
+        case .working: self = .working
+        case .blocked: self = .blocked
+        case .done: self = .done
+        case .unknown: self = .unknown
+        default: self = .unknown
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .idle: "Idle"
+        case .working: "Working"
+        case .blocked: "Blocked"
+        case .done: "Done"
+        case .unknown: "Unknown"
+        }
+    }
 }
 
 struct TaskViewState: Identifiable, Hashable, Sendable {
     let id: String
     var title: String
     var status: String
+}
+
+enum UnconfirmedAction: Hashable, Sendable {
+    case agentPrompt
+    case agentKeys
+    case sendNotes
+    case addTask
+    case completeTask
+
+    var title: String { "Unconfirmed" }
+
+    var detail: String {
+        switch self {
+        case .agentPrompt:
+            "This Agent prompt may have been delivered. Check the Transcript."
+        case .agentKeys:
+            "These Agent keys may have been delivered. Check the Transcript."
+        case .sendNotes:
+            "Send notes may have reached the Agent. Check Review notes."
+        case .addTask:
+            "The Task may have been added. Check the board."
+        case .completeTask:
+            "The Task may have been completed. Check the board."
+        }
+    }
+}
+
+struct UhpCaps: Equatable, Sendable {
+    var agentRead = false
+    var agentPrompt = false
+    var agentKeys = false
+    var missionSnapshot = false
+    var diffList = false
+    var diffGet = false
+    var diffNoteList = false
+    var diffNoteAdd = false
+    var diffNoteSend = false
+    var taskList = false
+    var taskAdd = false
+    var taskDone = false
+}
+
+struct DiffFileItem: Identifiable, Hashable, Sendable {
+    var id: String { "\(layer)|\(path)" }
+    var path: String
+    var layer: String
+    var additions: Int
+    var deletions: Int
+}
+
+struct DiffLineItem: Identifiable, Hashable, Sendable {
+    let id: String
+    var kind: String
+    var oldLine: Int?
+    var newLine: Int?
+    var text: String
+}
+
+struct DiffHunkItem: Identifiable, Hashable, Sendable {
+    let id: String
+    var header: String
+    var lines: [DiffLineItem]
+}
+
+struct DiffFileDetail: Identifiable, Hashable, Sendable {
+    var id: String { item.id }
+    var item: DiffFileItem
+    var hunks: [DiffHunkItem]
+}
+
+struct ReviewNoteItem: Identifiable, Hashable, Sendable {
+    let id: String
+    var body: String
+    var stateLabel: String
+    var isOpen: Bool
+    var isResolved: Bool
+    var path: String?
+    var line: Int?
+    var deliveries: String?
+}
+
+struct AddNoteDraft: Hashable, Sendable {
+    var file = ""
+    var layer: String?
+    var usesNewLine = true
+    var line = 1
+    var body = ""
+}
+
+struct AgentHeaderState: Hashable, Sendable {
+    var paneId: String
+    var name: String
+    var kind: String?
+    var status: String
+    var isBlocked: Bool
+    var workspace: String?
+    var branch: String?
+    var cwd: String?
+    var missionUsage: String?
 }
 
 struct TerminalLocator: Hashable, Sendable {
@@ -210,8 +344,8 @@ struct HostViewState: Identifiable, Hashable, Sendable {
 }
 
 enum HostSection: String, CaseIterable, Identifiable, Sendable {
-    case overview = "Overview"
     case agents = "Agents"
+    case review = "Review"
     case tasks = "Tasks"
     case terminal = "Terminal"
 
@@ -219,8 +353,8 @@ enum HostSection: String, CaseIterable, Identifiable, Sendable {
 
     var symbol: String {
         switch self {
-        case .overview: "rectangle.3.group"
         case .agents: "person.2"
+        case .review: "plus.forwardslash.minus"
         case .tasks: "checklist"
         case .terminal: "terminal"
         }
@@ -231,14 +365,37 @@ private func isStatus(_ status: AgentStatus, _ expected: AgentStatus) -> Bool {
     status == expected
 }
 
-private func agentStatusLabel(_ status: AgentStatus) -> String {
-    switch status {
-    case .idle: "Idle"
-    case .working: "Working"
-    case .blocked: "Blocked"
-    case .done: "Done"
-    case .unknown: "Unknown"
+func agentStatusLabel(_ status: AgentStatus) -> String {
+    AgentStatusKind(status).label
+}
+
+func diffLayerLabel(_ layer: DiffLayer?) -> String {
+    guard let layer else { return "Other" }
+    switch layer {
+    case .staged: return "Staged"
+    case .worktree: return "Worktree"
+    case .untracked: return "Untracked"
+    case .conflict: return "Conflict"
+    default: return "Other"
     }
+}
+
+func diffLayer(from label: String) -> DiffLayer? {
+    switch label {
+    case "Staged": .staged
+    case "Worktree": .worktree
+    case "Untracked": .untracked
+    case "Conflict": .conflict
+    default: nil
+    }
+}
+
+func kotlinInt64(_ value: Any?) -> Int64? {
+    if let value = value as? Int64 { return value }
+    if let value = value as? Int32 { return Int64(value) }
+    if let value = value as? Int { return Int64(value) }
+    if let value = value as? NSNumber { return value.int64Value }
+    return nil
 }
 
 enum FailureText {
@@ -311,8 +468,9 @@ enum KotlinLists {
     }
 }
 
-private extension AgentViewState {
+extension AgentViewState {
     init(_ summary: AgentSummary) {
+        let kind = AgentStatusKind(summary.status)
         let label = summary.name
             ?? summary.agent
             ?? summary.workspaceName
@@ -320,13 +478,18 @@ private extension AgentViewState {
         self.init(
             id: summary.paneId,
             name: label,
-            status: agentStatusLabel(summary.status),
-            detail: summary.cwd ?? summary.workspace
+            status: kind.label,
+            detail: summary.cwd ?? summary.workspace,
+            statusKind: kind,
+            kind: summary.agent,
+            workspace: summary.workspaceName ?? summary.workspace,
+            branch: summary.branch,
+            cwd: summary.cwd
         )
     }
 }
 
-private extension TaskViewState {
+extension TaskViewState {
     init(_ summary: TaskSummary) {
         self.init(id: summary.id, title: summary.title, status: summary.status)
     }
