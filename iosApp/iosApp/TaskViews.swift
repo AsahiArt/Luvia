@@ -84,6 +84,7 @@ struct TasksListView: View {
                                     Spacer()
                                     if model.uhp.isController
                                         && model.uhp.caps.taskDone
+                                        && model.uhp.unconfirmed == nil
                                         && canComplete(task.status)
                                     {
                                         Button("Complete") { pendingComplete = task }
@@ -108,7 +109,7 @@ struct TasksListView: View {
             }
         }
         .toolbar {
-            if model.uhp.isController && model.uhp.caps.taskAdd {
+            if model.uhp.isController && model.uhp.caps.taskAdd && model.uhp.unconfirmed == nil {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Add Task", systemImage: "plus") {
                         model.uhp.isAddTaskPresented = true
@@ -174,7 +175,11 @@ struct AddTaskSheet: View {
                     Button("Add") {
                         _Concurrency.Task { await model.addTask() }
                     }
-                    .disabled(model.uhp.addTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.uhp.isSending)
+                    .disabled(
+                        model.uhp.addTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || model.uhp.isSending
+                            || model.uhp.unconfirmed != nil
+                    )
                 }
             }
         }

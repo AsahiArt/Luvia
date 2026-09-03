@@ -15,6 +15,10 @@ import tech.asahiart.luvia.TaskSummary
 enum class UnconfirmedKind {
     AgentPrompt,
     AgentKeys,
+    AddReviewNote,
+    ResolveReviewNote,
+    ReopenReviewNote,
+    RemoveReviewNote,
     SendNotes,
     AddTask,
     CompleteTask,
@@ -43,6 +47,8 @@ data class HostCapabilitiesUi(
 @Immutable
 data class AgentDetailUi(
     val paneId: String? = null,
+    // Independent of paneId so Back can keep draft/error/unconfirmed without showing detail.
+    val open: Boolean = false,
     val summary: AgentSummary? = null,
     val detail: AgentGetResult? = null,
     val transcript: AgentReadResult? = null,

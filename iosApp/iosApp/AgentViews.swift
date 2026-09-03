@@ -104,7 +104,7 @@ struct AgentDetailView: View {
 
     private var uhp: UhpSurfaceState { model.uhp }
     private var header: AgentHeaderState? { uhp.header }
-    private var canMutate: Bool { uhp.isController }
+    private var canMutate: Bool { uhp.isController && uhp.unconfirmed == nil }
     private var isBlocked: Bool { header?.isBlocked == true }
 
     var body: some View {

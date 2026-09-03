@@ -156,6 +156,7 @@ final class AppModel {
     private func replaceHosts(_ states: [HostViewState]) {
         let previousAgents = selectedHost?.agents ?? []
         let openID = uhp.selectedAgentID
+        let wasLive = hasLiveSession
         hosts = states
         if let selectedHostID, !states.contains(where: { $0.id == selectedHostID }) {
             self.selectedHostID = nil
@@ -163,7 +164,7 @@ final class AppModel {
         if selectedHostID == nil {
             selectedHostID = states.first?.id
         }
-        hasLiveSession = selectedHostID.flatMap { manager.session(hostId: $0) } != nil
+        refreshCaps()
         if let host = selectedHost {
             uhp.isController = host.isController
             syncAgentsFromHost(host)
@@ -179,6 +180,9 @@ final class AppModel {
             startTerminal()
         }
         syncLiveActivity()
+        if !wasLive && hasLiveSession {
+            _Concurrency.Task { await self.loadSelectedSection() }
+        }
     }
 
     private func startTerminal() {
@@ -333,6 +337,26 @@ final class UhpSurfaceState {
     var addTaskPaths = ""
     var boardChangedMessage: String?
 
+    var canAddNote: Bool {
+        isController && caps.diffNoteAdd && !isSending && unconfirmed == nil
+    }
+
+    var canResolveNote: Bool {
+        isController && caps.diffNoteResolve && !isSending && unconfirmed == nil
+    }
+
+    var canReopenNote: Bool {
+        isController && caps.diffNoteReopen && !isSending && unconfirmed == nil
+    }
+
+    var canRemoveNote: Bool {
+        isController && caps.diffNoteRemove && !isSending && unconfirmed == nil
+    }
+
+    var canSendNotes: Bool {
+        isController && caps.diffNoteSend && !isSending && unconfirmed == nil
+    }
+
     func reset(hostID: String?) {
         self.hostID = hostID
         caps = UhpCaps()
@@ -404,6 +428,9 @@ extension AppModel {
             diffNoteList: session.supports(method: methods.DIFF_NOTE_LIST),
             diffNoteAdd: session.supports(method: methods.DIFF_NOTE_ADD),
             diffNoteSend: session.supports(method: methods.DIFF_NOTE_SEND),
+            diffNoteResolve: session.supports(method: methods.DIFF_NOTE_RESOLVE),
+            diffNoteReopen: session.supports(method: methods.DIFF_NOTE_REOPEN),
+            diffNoteRemove: session.supports(method: methods.DIFF_NOTE_REMOVE),
             taskList: session.supports(method: methods.TASK_LIST),
             taskAdd: session.supports(method: methods.TASK_ADD),
             taskDone: session.supports(method: methods.TASK_DONE)
@@ -451,14 +478,25 @@ extension AppModel {
         await refreshOpenAgent()
     }
 
-    func refreshOpenAgent() async {
-        guard let id = uhp.selectedAgentID, let session = liveSession() else { return }
+    @discardableResult
+    func refreshOpenAgent() async -> Bool {
+        guard let id = uhp.selectedAgentID else {
+            uhp.errorMessage = "No Agent is selected."
+            return false
+        }
+        guard let session = liveSession() else {
+            uhp.errorMessage = "Not connected to this Host."
+            return false
+        }
+        uhp.errorMessage = nil
+        var refreshed = false
         do {
             let outcome = try await session.getAgent(target: id)
             switch onEnum(of: outcome) {
             case .ok(let ok):
                 if let result = ok.value {
                     applyAgentGet(result)
+                    refreshed = true
                 }
             case .err(let err):
                 uhp.errorMessage = FailureText.describe(err.failure)
@@ -466,39 +504,50 @@ extension AppModel {
         } catch {
             uhp.errorMessage = error.localizedDescription
         }
-        await readTranscript(for: id)
+        let transcriptRefreshed = await readTranscript(for: id)
         await loadMissionUsage(for: id)
+        return refreshed || transcriptRefreshed
     }
 
-    func readTranscript(for target: String) async {
-        guard uhp.caps.agentRead, let session = liveSession() else { return }
+    @discardableResult
+    func readTranscript(for target: String) async -> Bool {
+        guard uhp.caps.agentRead, let session = liveSession() else { return false }
         do {
             let outcome = try await session.readAgent(target: target, lines: 200, source: .recent)
             switch onEnum(of: outcome) {
             case .ok(let ok):
-                if let result = ok.value {
-                    uhp.transcript = result.text
-                    uhp.transcriptRevision = kotlinInt64(result.revision)
-                }
+                guard let result = ok.value else { return false }
+                uhp.transcript = result.text
+                uhp.transcriptRevision = kotlinInt64(result.revision)
+                return true
             case .err(let err):
                 uhp.errorMessage = FailureText.describe(err.failure)
+                return false
             }
         } catch {
             uhp.errorMessage = error.localizedDescription
+            return false
         }
     }
 
     func sendAgentPrompt() async {
         let text = uhp.composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let target = uhp.selectedAgentID else { return }
-        await promptAgent(target: target, text: text)
-        if uhp.unconfirmed == nil, uhp.errorMessage == nil {
+        if await promptAgent(target: target, text: text),
+           uhp.composerText.trimmingCharacters(in: .whitespacesAndNewlines) == text
+        {
             uhp.composerText = ""
         }
     }
 
-    func promptAgent(target: String, text: String) async {
-        guard uhp.caps.agentPrompt, let session = liveSession() else { return }
+    @discardableResult
+    func promptAgent(target: String, text: String) async -> Bool {
+        guard uhp.isController,
+              uhp.caps.agentPrompt,
+              !uhp.isSending,
+              uhp.unconfirmed == nil,
+              let session = liveSession()
+        else { return false }
         uhp.isSending = true
         defer { uhp.isSending = false }
         do {
@@ -513,16 +562,25 @@ extension AppModel {
             case .ok:
                 uhp.errorMessage = nil
                 await readTranscript(for: target)
+                return true
             case .err(let err):
                 handleMutationFailure(err.failure, action: .agentPrompt)
+                return false
             }
         } catch {
             markUnconfirmed(.agentPrompt, error.localizedDescription)
+            return false
         }
     }
 
     func sendAgentKeys(_ keys: [AgentKey]) async {
-        guard uhp.caps.agentKeys, let target = uhp.selectedAgentID, let session = liveSession() else { return }
+        guard uhp.isController,
+              uhp.caps.agentKeys,
+              !uhp.isSending,
+              uhp.unconfirmed == nil,
+              let target = uhp.selectedAgentID,
+              let session = liveSession()
+        else { return }
         uhp.isSending = true
         defer { uhp.isSending = false }
         do {
@@ -538,20 +596,36 @@ extension AppModel {
             markUnconfirmed(.agentKeys, error.localizedDescription)
         }
     }
-
     func checkUnconfirmed() async {
+        guard liveSession() != nil else {
+            uhp.errorMessage = "Not connected to this Host."
+            return
+        }
         switch uhp.unconfirmed {
         case .agentPrompt, .agentKeys:
-            await refreshOpenAgent()
-        case .sendNotes:
-            await loadNotes()
+            guard await refreshOpenAgent() else { return }
+        case .sendNotes, .addNote, .resolveNote, .reopenNote, .removeNote:
+            guard uhp.caps.diffNoteList else {
+                uhp.errorMessage = "This Host does not support diff.note.list."
+                return
+            }
+            guard await loadNotes() else { return }
         case .addTask, .completeTask:
-            await loadTasks()
+            var verified = false
             if let id = uhp.unconfirmedTaskID {
-                await refreshTaskRevision(id)
+                verified = await refreshTaskRevision(id)
+            }
+            let listed = uhp.caps.taskList ? await loadTasks() : false
+            guard verified || listed else {
+                if uhp.unconfirmedTaskID == nil && !uhp.caps.taskList {
+                    uhp.errorMessage = "This Host does not support task.list."
+                } else if uhp.errorMessage == nil {
+                    uhp.errorMessage = "The Task state could not be verified."
+                }
+                return
             }
         case nil:
-            break
+            return
         }
         uhp.unconfirmed = nil
         uhp.unconfirmedTaskID = nil
@@ -559,6 +633,7 @@ extension AppModel {
 
     func loadDiff() async {
         guard uhp.caps.diffList, let session = liveSession() else { return }
+        var diffLoadFailed = false
         do {
             let outcome = try await session.listDiff(layer: nil)
             switch onEnum(of: outcome) {
@@ -576,13 +651,15 @@ extension AppModel {
                 }
                 uhp.errorMessage = nil
             case .err(let err):
+                diffLoadFailed = true
                 uhp.errorMessage = FailureText.describe(err.failure)
             }
         } catch {
+            diffLoadFailed = true
             uhp.errorMessage = error.localizedDescription
         }
         if uhp.caps.diffNoteList {
-            await loadNotes()
+            await loadNotes(clearErrorOnSuccess: !diffLoadFailed)
         }
     }
 
@@ -609,6 +686,7 @@ extension AppModel {
     }
 
     func beginAddNote(file: DiffFileItem, line: DiffLineItem) {
+        guard uhp.canAddNote else { return }
         uhp.addNote = AddNoteDraft(
             file: file.path,
             layer: file.layer,
@@ -622,10 +700,12 @@ extension AppModel {
     func addReviewNote() async {
         let draft = uhp.addNote
         let body = draft.body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty, uhp.caps.diffNoteAdd, let session = liveSession() else { return }
+        guard !body.isEmpty, uhp.canAddNote, let session = liveSession() else { return }
         let line: ReviewLine = draft.usesNewLine
             ? ReviewLine.New(line: Int32(draft.line))
             : ReviewLine.Old(line: Int32(draft.line))
+        uhp.isSending = true
+        defer { uhp.isSending = false }
         do {
             let outcome = try await session.addReviewNote(
                 file: draft.file,
@@ -642,57 +722,73 @@ extension AppModel {
                 uhp.errorMessage = nil
                 await loadNotes()
             case .err(let err):
-                uhp.errorMessage = FailureText.describe(err.failure)
+                handleMutationFailure(err.failure, action: .addNote)
+                if uhp.unconfirmed != nil {
+                    uhp.isAddNotePresented = false
+                }
             }
         } catch {
-            uhp.errorMessage = error.localizedDescription
+            markUnconfirmed(.addNote, error.localizedDescription)
+            uhp.isAddNotePresented = false
         }
     }
 
     func resolveNote(_ id: String) async {
-        guard let session = liveSession() else { return }
+        guard uhp.canResolveNote, let session = liveSession() else { return }
+        uhp.isSending = true
+        defer { uhp.isSending = false }
         do {
             let outcome = try await session.resolveReviewNote(id: id)
-            if case .err(let err) = onEnum(of: outcome) {
-                uhp.errorMessage = FailureText.describe(err.failure)
-            } else {
+            switch onEnum(of: outcome) {
+            case .ok:
+                uhp.errorMessage = nil
                 await loadNotes()
+            case .err(let err):
+                handleMutationFailure(err.failure, action: .resolveNote)
             }
         } catch {
-            uhp.errorMessage = error.localizedDescription
+            markUnconfirmed(.resolveNote, error.localizedDescription)
         }
     }
 
     func reopenNote(_ id: String) async {
-        guard let session = liveSession() else { return }
+        guard uhp.canReopenNote, let session = liveSession() else { return }
+        uhp.isSending = true
+        defer { uhp.isSending = false }
         do {
             let outcome = try await session.reopenReviewNote(id: id)
-            if case .err(let err) = onEnum(of: outcome) {
-                uhp.errorMessage = FailureText.describe(err.failure)
-            } else {
+            switch onEnum(of: outcome) {
+            case .ok:
+                uhp.errorMessage = nil
                 await loadNotes()
+            case .err(let err):
+                handleMutationFailure(err.failure, action: .reopenNote)
             }
         } catch {
-            uhp.errorMessage = error.localizedDescription
+            markUnconfirmed(.reopenNote, error.localizedDescription)
         }
     }
 
     func removeNote(_ id: String) async {
-        guard let session = liveSession() else { return }
+        guard uhp.canRemoveNote, let session = liveSession() else { return }
+        uhp.isSending = true
+        defer { uhp.isSending = false }
         do {
             let outcome = try await session.removeReviewNote(id: id)
-            if case .err(let err) = onEnum(of: outcome) {
-                uhp.errorMessage = FailureText.describe(err.failure)
-            } else {
+            switch onEnum(of: outcome) {
+            case .ok:
+                uhp.errorMessage = nil
                 await loadNotes()
+            case .err(let err):
+                handleMutationFailure(err.failure, action: .removeNote)
             }
         } catch {
-            uhp.errorMessage = error.localizedDescription
+            markUnconfirmed(.removeNote, error.localizedDescription)
         }
     }
 
     func sendReviewNotes(to target: String) async {
-        guard uhp.caps.diffNoteSend, let session = liveSession() else { return }
+        guard uhp.canSendNotes, let session = liveSession() else { return }
         uhp.isSending = true
         defer { uhp.isSending = false }
         do {
@@ -714,12 +810,13 @@ extension AppModel {
         }
     }
 
-    func loadTasks() async {
+    @discardableResult
+    func loadTasks() async -> Bool {
         guard uhp.caps.taskList, let session = liveSession() else {
             if let host = selectedHost {
                 uhp.tasks = host.tasks
             }
-            return
+            return false
         }
         do {
             let outcome = try await session.listTasks()
@@ -728,17 +825,26 @@ extension AppModel {
                 let summaries: [TaskSummary] = KotlinLists.array(ok.value as Any)
                 uhp.tasks = summaries.map(TaskViewState.init)
                 uhp.errorMessage = nil
+                return true
             case .err(let err):
                 uhp.errorMessage = FailureText.describe(err.failure)
+                return false
             }
         } catch {
             uhp.errorMessage = error.localizedDescription
+            return false
         }
     }
 
     func addTask() async {
         let title = uhp.addTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, uhp.caps.taskAdd, let session = liveSession() else { return }
+        guard !title.isEmpty,
+              uhp.isController,
+              uhp.caps.taskAdd,
+              !uhp.isSending,
+              uhp.unconfirmed == nil,
+              let session = liveSession()
+        else { return }
         let paths = uhp.addTaskPaths
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -773,13 +879,18 @@ extension AppModel {
     }
 
     func completeTask(_ id: String) async {
-        guard uhp.caps.taskDone, let session = liveSession() else { return }
+        guard uhp.isController,
+              uhp.caps.taskDone,
+              !uhp.isSending,
+              uhp.unconfirmed == nil,
+              let session = liveSession()
+        else { return }
+        uhp.isSending = true
+        defer { uhp.isSending = false }
         if uhp.taskRevisions[id] == nil {
             await refreshTaskRevision(id)
         }
         let revision = uhp.taskRevisions[id].map { KotlinLong(longLong: $0) }
-        uhp.isSending = true
-        defer { uhp.isSending = false }
         do {
             let outcome = try await session.completeTask(id: id, ifRevision: revision)
             switch onEnum(of: outcome) {
@@ -799,19 +910,25 @@ extension AppModel {
         }
     }
 
-    private func loadNotes() async {
-        guard uhp.caps.diffNoteList, let session = liveSession() else { return }
+    private func loadNotes(clearErrorOnSuccess: Bool = true) async -> Bool {
+        guard uhp.caps.diffNoteList, let session = liveSession() else { return false }
         do {
             let outcome = try await session.listReviewNotes(state: nil, file: nil)
             switch onEnum(of: outcome) {
             case .ok(let ok):
                 let notes: [ReviewNote] = KotlinLists.array(ok.value as Any)
                 uhp.notes = notes.map(mapNote)
+                if clearErrorOnSuccess {
+                    uhp.errorMessage = nil
+                }
+                return true
             case .err(let err):
                 uhp.errorMessage = FailureText.describe(err.failure)
+                return false
             }
         } catch {
             uhp.errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -829,17 +946,19 @@ extension AppModel {
             return
         }
     }
-
-    private func refreshTaskRevision(_ id: String) async {
-        guard let session = liveSession() else { return }
+    @discardableResult
+    private func refreshTaskRevision(_ id: String) async -> Bool {
+        guard let session = liveSession() else { return false }
         do {
             let outcome = try await session.getTask(id: id)
             if case .ok(let ok) = onEnum(of: outcome), let result = ok.value {
                 storeTaskRevision(result.task.id, result.revision)
+                return true
             }
         } catch {
-            return
+            return false
         }
+        return false
     }
 
     private func storeTaskRevision(_ id: String, _ revision: Any?) {

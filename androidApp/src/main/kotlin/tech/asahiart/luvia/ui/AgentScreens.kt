@@ -74,7 +74,7 @@ fun AgentsSection(
                 modifier = modifier,
             )
         }
-        state.agentDetail.paneId != null -> {
+        state.agentDetail.open -> {
             AgentDetailPane(
                 host = host,
                 state = state,
@@ -93,6 +93,7 @@ fun AgentsSection(
                 state = state,
                 onRefresh = onRefresh,
                 onOpenAgent = onOpenAgent,
+                onCheckUnconfirmed = onCheckUnconfirmed,
                 modifier = modifier,
             )
         }
@@ -105,6 +106,7 @@ fun AgentListPane(
     state: HostUhpUiState,
     onRefresh: () -> Unit,
     onOpenAgent: (String) -> Unit,
+    onCheckUnconfirmed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     PullToRefreshBox(
@@ -124,6 +126,14 @@ fun AgentListPane(
                 item {
                     Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
+            }
+            state.agentDetail.errorText?.let { error ->
+                item {
+                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            state.agentDetail.unconfirmed?.let { kind ->
+                item { UnconfirmedBanner(kind = kind, onCheck = onCheckUnconfirmed) }
             }
             if (state.agents.isEmpty()) {
                 item {
@@ -287,8 +297,9 @@ fun AgentDetailPane(
     val summary = detail.summary ?: state.agents.firstOrNull { it.paneId == detail.paneId }
     val status = detail.detail?.status ?: summary?.status ?: AgentStatus.Unknown
     val blocked = status == AgentStatus.Blocked
-    val canPrompt = state.canMutate && state.capabilities.agentPrompt
-    val canKeys = state.canMutate && state.capabilities.agentKeys
+    val mutationPending = detail.sending || detail.unconfirmed != null
+    val canPrompt = state.canMutate && state.capabilities.agentPrompt && !mutationPending
+    val canKeys = state.canMutate && state.capabilities.agentKeys && !mutationPending
     // Held in ViewModel state, not rememberSaveable: the compact and expanded
     // layouts put this pane under different saveable-state scopes, so a
     // composition-local draft is lost on every layout switch.
@@ -317,6 +328,17 @@ fun AgentDetailPane(
                 maxLines = 2,
             )
             FilledTonalButton(onClick = onRefresh) { Text("Refresh") }
+        }
+        if (detail.errorText != null || detail.unconfirmed != null) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                detail.errorText?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                detail.unconfirmed?.let { kind ->
+                    UnconfirmedBanner(kind = kind, onCheck = onCheckUnconfirmed)
+                }
+            }
         }
         Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
             if (!state.capabilities.agentRead) {
@@ -373,10 +395,7 @@ fun AgentDetailPane(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
-                                detail.errorText?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                                detail.unconfirmed?.let { kind ->
-                                    UnconfirmedBanner(kind = kind, onCheck = onCheckUnconfirmed)
-                                }
+
                                 Spacer(Modifier.height(4.dp))
                                 Text("Transcript", style = MaterialTheme.typography.labelLarge)
                             }
@@ -398,32 +417,32 @@ fun AgentDetailPane(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                AgentKeyButton("Enter", enabled = !detail.sending) {
+                AgentKeyButton("Enter", enabled = !mutationPending) {
                     val action = PendingAgentAction("Enter", listOf(AgentKey.ENTER), null)
                     if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
                 }
-                AgentKeyButton("Esc", enabled = !detail.sending) {
+                AgentKeyButton("Esc", enabled = !mutationPending) {
                     val action = PendingAgentAction("Esc", listOf(AgentKey.ESC), null)
                     if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
                 }
-                AgentKeyButton("Up", enabled = !detail.sending) {
+                AgentKeyButton("Up", enabled = !mutationPending) {
                     val action = PendingAgentAction("Up", listOf(AgentKey.UP), null)
                     if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
                 }
-                AgentKeyButton("Down", enabled = !detail.sending) {
+                AgentKeyButton("Down", enabled = !mutationPending) {
                     val action = PendingAgentAction("Down", listOf(AgentKey.DOWN), null)
                     if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
                 }
-                AgentKeyButton("Tab", enabled = !detail.sending) {
+                AgentKeyButton("Tab", enabled = !mutationPending) {
                     val action = PendingAgentAction("Tab", listOf(AgentKey.TAB), null)
                     if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
                 }
                 if (canPrompt) {
-                    AgentKeyButton("y+Enter", enabled = !detail.sending) {
+                    AgentKeyButton("y+Enter", enabled = !mutationPending) {
                         val action = PendingAgentAction("y+Enter", null, "y")
                         if (blocked) pendingKeys = action else onPrompt("y")
                     }
-                    AgentKeyButton("n+Enter", enabled = !detail.sending) {
+                    AgentKeyButton("n+Enter", enabled = !mutationPending) {
                         val action = PendingAgentAction("n+Enter", null, "n")
                         if (blocked) pendingKeys = action else onPrompt("n")
                     }
@@ -435,17 +454,16 @@ fun AgentDetailPane(
                 value = draft,
                 onValueChange = onDraftChange,
                 placeholder = { Text("Agent prompt") },
-                enabled = !detail.sending,
+                enabled = !mutationPending,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 minLines = 1,
                 maxLines = 3,
                 textStyle = MaterialTheme.typography.bodyMedium,
                 trailingIcon = {
                     TextButton(
-                        enabled = !detail.sending && draft.isNotBlank(),
+                        enabled = !mutationPending && draft.isNotBlank(),
                         onClick = {
                             val text = draft.trim()
-                            onDraftChange("")
                             onPrompt(text)
                         },
                     ) { Text("Send") }
@@ -498,6 +516,10 @@ internal fun UnconfirmedBanner(kind: UnconfirmedKind, onCheck: () -> Unit) {
                 when (kind) {
                     UnconfirmedKind.AgentPrompt -> "Agent prompt Unconfirmed"
                     UnconfirmedKind.AgentKeys -> "Agent keys Unconfirmed"
+                    UnconfirmedKind.AddReviewNote -> "Add Review note Unconfirmed"
+                    UnconfirmedKind.ResolveReviewNote -> "Resolve Review note Unconfirmed"
+                    UnconfirmedKind.ReopenReviewNote -> "Reopen Review note Unconfirmed"
+                    UnconfirmedKind.RemoveReviewNote -> "Remove Review note Unconfirmed"
                     UnconfirmedKind.SendNotes -> "Send notes Unconfirmed"
                     UnconfirmedKind.AddTask -> "Add Task Unconfirmed"
                     UnconfirmedKind.CompleteTask -> "Complete Task Unconfirmed"

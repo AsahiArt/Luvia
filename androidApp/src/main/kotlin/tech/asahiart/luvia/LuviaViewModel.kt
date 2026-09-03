@@ -57,7 +57,9 @@ class LuviaViewModel(
                 runtimes.forEach { runtime -> applyRuntime(runtime) }
                 runtimes.forEach { runtime ->
                     val hostId = runtime.profile.id
-                    val openPane = _uhp.value[hostId]?.agentDetail?.paneId ?: return@forEach
+                    val agentDetail = _uhp.value[hostId]?.agentDetail ?: return@forEach
+                    if (!agentDetail.open) return@forEach
+                    val openPane = agentDetail.paneId ?: return@forEach
                     val newStatus = runtime.snapshot?.agents?.firstOrNull { it.paneId == openPane }?.status
                     val oldStatus = previous[hostId]?.get(openPane)
                     if (newStatus != null && oldStatus != null && newStatus != oldStatus) {
@@ -290,7 +292,7 @@ class LuviaViewModel(
                     ),
                 )
             }
-            val openPane = _uhp.value[hostId]?.agentDetail?.paneId
+            val openPane = _uhp.value[hostId]?.agentDetail?.takeIf { it.open }?.paneId
             if (openPane != null) {
                 loadAgentDetail(hostId, openPane)
             }
@@ -298,22 +300,50 @@ class LuviaViewModel(
     }
 
     fun openAgent(hostId: String, paneId: String) {
-        val summary = _uhp.value[hostId]?.agents?.firstOrNull { it.paneId == paneId }
+        val current = _uhp.value[hostId]
+        val existing = current?.agentDetail
+        if (existing != null &&
+            existing.paneId != null &&
+            existing.paneId != paneId &&
+            (existing.unconfirmed != null || existing.sending)
+        ) {
+            val name = existing.summary?.name ?: existing.summary?.agent ?: existing.paneId
+            val message = if (existing.unconfirmed != null) {
+                "Unconfirmed result for $name is still pending. Check it before opening another Agent."
+            } else {
+                "An Agent action is still in progress for $name. Wait before opening another Agent."
+            }
+            updateHost(hostId) {
+                it.copy(agentDetail = it.agentDetail.copy(errorText = message))
+            }
+            return
+        }
+        val summary = current?.agents?.firstOrNull { it.paneId == paneId }
+        val samePane = existing?.paneId == paneId
         updateHost(hostId) {
             it.copy(
-                agentDetail = AgentDetailUi(
-                    paneId = paneId,
-                    summary = summary,
-                    loading = true,
-                    errorText = null,
-                ),
+                agentDetail = if (samePane) {
+                    it.agentDetail.copy(
+                        open = true,
+                        paneId = paneId,
+                        summary = summary ?: it.agentDetail.summary,
+                        loading = true,
+                    )
+                } else {
+                    AgentDetailUi(
+                        paneId = paneId,
+                        open = true,
+                        summary = summary,
+                        loading = true,
+                    )
+                },
             )
         }
         viewModelScope.launch { loadAgentDetail(hostId, paneId) }
     }
 
     fun closeAgent(hostId: String) {
-        updateHost(hostId) { it.copy(agentDetail = AgentDetailUi()) }
+        updateHost(hostId) { it.copy(agentDetail = it.agentDetail.copy(open = false)) }
     }
 
     fun setSection(hostId: String, section: HostSection) {
@@ -335,8 +365,11 @@ class LuviaViewModel(
     fun setShowAddTask(hostId: String, show: Boolean) {
         updateHost(hostId) {
             it.copy(
-                tasks = if (show) it.tasks.copy(showAdd = true)
-                else it.tasks.copy(showAdd = false, addTitle = "", addPaths = ""),
+                tasks = when {
+                    show -> it.tasks.copy(showAdd = true)
+                    it.tasks.unconfirmed != null -> it.tasks.copy(showAdd = false)
+                    else -> it.tasks.copy(showAdd = false, addTitle = "", addPaths = "")
+                },
             )
         }
     }
@@ -351,41 +384,45 @@ class LuviaViewModel(
 
     fun promptAgent(hostId: String, text: String) {
         val session = manager.session(hostId) ?: return
-        val paneId = _uhp.value[hostId]?.agentDetail?.paneId ?: return
-        if (_uhp.value[hostId]?.canMutate != true) return
+        val state = _uhp.value[hostId] ?: return
+        val paneId = state.agentDetail.paneId ?: return
+        if (!state.canMutate || state.agentDetail.sending || state.agentDetail.unconfirmed != null) return
         if (!session.supports(UhpMethods.AGENT_PROMPT)) return
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
+        updateAgentPane(hostId, paneId) { it.copy(sending = true, errorText = null) }
         viewModelScope.launch {
-            updateHost(hostId) { it.copy(agentDetail = it.agentDetail.copy(sending = true, errorText = null)) }
             when (val result = session.promptAgent(paneId, trimmed, wait = false)) {
                 is Outcome.Ok -> {
-                    updateHost(hostId) {
-                        it.copy(agentDetail = it.agentDetail.copy(sending = false, unconfirmed = null))
+                    updateAgentPane(hostId, paneId) { detail ->
+                        detail.copy(
+                            sending = false,
+                            unconfirmed = null,
+                            draft = if (detail.draft.trim() == trimmed) "" else detail.draft,
+                        )
                     }
                     loadAgentDetail(hostId, paneId)
                 }
-                is Outcome.Err -> applyAgentMutationFailure(hostId, UnconfirmedKind.AgentPrompt, result.failure)
+                is Outcome.Err -> applyAgentMutationFailure(hostId, paneId, UnconfirmedKind.AgentPrompt, result.failure)
             }
         }
     }
 
     fun sendAgentKeys(hostId: String, keys: List<AgentKey>) {
         val session = manager.session(hostId) ?: return
-        val paneId = _uhp.value[hostId]?.agentDetail?.paneId ?: return
-        if (_uhp.value[hostId]?.canMutate != true) return
+        val state = _uhp.value[hostId] ?: return
+        val paneId = state.agentDetail.paneId ?: return
+        if (!state.canMutate || state.agentDetail.sending || state.agentDetail.unconfirmed != null) return
         if (!session.supports(UhpMethods.AGENT_KEYS)) return
         if (keys.isEmpty()) return
+        updateAgentPane(hostId, paneId) { it.copy(sending = true, errorText = null) }
         viewModelScope.launch {
-            updateHost(hostId) { it.copy(agentDetail = it.agentDetail.copy(sending = true, errorText = null)) }
             when (val result = session.sendAgentKeys(paneId, keys)) {
                 is Outcome.Ok -> {
-                    updateHost(hostId) {
-                        it.copy(agentDetail = it.agentDetail.copy(sending = false, unconfirmed = null))
-                    }
+                    updateAgentPane(hostId, paneId) { it.copy(sending = false, unconfirmed = null) }
                     loadAgentDetail(hostId, paneId)
                 }
-                is Outcome.Err -> applyAgentMutationFailure(hostId, UnconfirmedKind.AgentKeys, result.failure)
+                is Outcome.Err -> applyAgentMutationFailure(hostId, paneId, UnconfirmedKind.AgentKeys, result.failure)
             }
         }
     }
@@ -393,8 +430,25 @@ class LuviaViewModel(
     fun checkAgent(hostId: String) {
         val paneId = _uhp.value[hostId]?.agentDetail?.paneId ?: return
         viewModelScope.launch {
-            loadAgentDetail(hostId, paneId)
-            updateHost(hostId) { it.copy(agentDetail = it.agentDetail.copy(unconfirmed = null)) }
+            val session = manager.session(hostId)
+            if (session == null) {
+                updateAgentPane(hostId, paneId) {
+                    it.copy(loading = false, errorText = "Not connected to this host.")
+                }
+                return@launch
+            }
+            if (!session.supports(UhpMethods.AGENT_GET) && !session.supports(UhpMethods.AGENT_READ)) {
+                updateAgentPane(hostId, paneId) {
+                    it.copy(
+                        loading = false,
+                        errorText = "The host does not support agent.get or agent.read.",
+                    )
+                }
+                return@launch
+            }
+            if (loadAgentDetail(hostId, paneId)) {
+                updateAgentPane(hostId, paneId) { it.copy(unconfirmed = null) }
+            }
         }
     }
 
@@ -452,46 +506,60 @@ class LuviaViewModel(
 
     fun addReviewNote(hostId: String, file: String, line: ReviewLine, body: String, layer: DiffLayer?) {
         val session = manager.session(hostId) ?: return
-        if (_uhp.value[hostId]?.canMutate != true) return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || state.review.sending || state.review.unconfirmed != null) return
         if (!session.supports(UhpMethods.DIFF_NOTE_ADD)) return
+        val trimmed = body.trim()
+        if (trimmed.isEmpty()) return
+        updateHost(hostId) {
+            it.copy(review = it.review.copy(sending = true, errorText = null))
+        }
         viewModelScope.launch {
-            when (val result = session.addReviewNote(file = file, line = line, body = body, layer = layer)) {
-                is Outcome.Ok -> refreshNotes(hostId, file)
-                is Outcome.Err -> updateHost(hostId) {
-                    it.copy(review = it.review.copy(errorText = result.failure.toUserMessage()))
+            when (val result = session.addReviewNote(file = file, line = line, body = trimmed, layer = layer)) {
+                is Outcome.Ok -> {
+                    updateHost(hostId) {
+                        it.copy(
+                            review = it.review.copy(
+                                sending = false,
+                                unconfirmed = null,
+                                errorText = null,
+                                noteDraft = "",
+                            ),
+                        )
+                    }
+                    refreshNotes(hostId, file)
                 }
+                is Outcome.Err ->
+                    applyReviewMutationFailure(hostId, UnconfirmedKind.AddReviewNote, result.failure)
             }
         }
     }
 
     fun resolveReviewNote(hostId: String, id: String) {
-        mutateNote(hostId, "diff.note.resolve") { it.resolveReviewNote(id) }
+        mutateNote(hostId, UhpMethods.DIFF_NOTE_RESOLVE, UnconfirmedKind.ResolveReviewNote) {
+            it.resolveReviewNote(id)
+        }
     }
 
     fun reopenReviewNote(hostId: String, id: String) {
-        mutateNote(hostId, "diff.note.reopen") { it.reopenReviewNote(id) }
+        mutateNote(hostId, UhpMethods.DIFF_NOTE_REOPEN, UnconfirmedKind.ReopenReviewNote) {
+            it.reopenReviewNote(id)
+        }
     }
 
     fun removeReviewNote(hostId: String, id: String) {
-        val session = manager.session(hostId) ?: return
-        if (_uhp.value[hostId]?.canMutate != true) return
-        if (!session.supports(UhpMethods.DIFF_NOTE_REMOVE)) return
-        viewModelScope.launch {
-            when (val result = session.removeReviewNote(id)) {
-                is Outcome.Ok -> refreshNotes(hostId, _uhp.value[hostId]?.review?.selectedPath)
-                is Outcome.Err -> updateHost(hostId) {
-                    it.copy(review = it.review.copy(errorText = result.failure.toUserMessage()))
-                }
-            }
+        mutateNote(hostId, UhpMethods.DIFF_NOTE_REMOVE, UnconfirmedKind.RemoveReviewNote) {
+            it.removeReviewNote(id)
         }
     }
 
     fun sendReviewNotes(hostId: String, to: String) {
         val session = manager.session(hostId) ?: return
-        if (_uhp.value[hostId]?.canMutate != true) return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || state.review.sending || state.review.unconfirmed != null) return
         if (!session.supports(UhpMethods.DIFF_NOTE_SEND)) return
+        updateHost(hostId) { it.copy(review = it.review.copy(sending = true, errorText = null)) }
         viewModelScope.launch {
-            updateHost(hostId) { it.copy(review = it.review.copy(sending = true, errorText = null)) }
             when (val result = session.sendReviewNotes(to = to, allOpen = true)) {
                 is Outcome.Ok -> {
                     updateHost(hostId) {
@@ -505,64 +573,77 @@ class LuviaViewModel(
                     }
                     refreshNotes(hostId, _uhp.value[hostId]?.review?.selectedPath)
                 }
-                is Outcome.Err -> {
-                    if (result.failure.isUnconfirmed()) {
-                        updateHost(hostId) {
-                            it.copy(
-                                review = it.review.copy(
-                                    sending = false,
-                                    unconfirmed = UnconfirmedKind.SendNotes,
-                                    errorText = null,
-                                ),
-                            )
-                        }
-                    } else {
-                        updateHost(hostId) {
-                            it.copy(review = it.review.copy(sending = false, errorText = result.failure.toUserMessage()))
-                        }
-                    }
-                }
+                is Outcome.Err ->
+                    applyReviewMutationFailure(hostId, UnconfirmedKind.SendNotes, result.failure)
             }
         }
     }
 
     fun checkNotes(hostId: String) {
         viewModelScope.launch {
-            refreshNotes(hostId, _uhp.value[hostId]?.review?.selectedPath)
-            updateHost(hostId) { it.copy(review = it.review.copy(unconfirmed = null)) }
+            val session = manager.session(hostId)
+            if (session == null) {
+                updateHost(hostId) {
+                    it.copy(review = it.review.copy(errorText = "Not connected to this host."))
+                }
+                return@launch
+            }
+            if (!session.supports(UhpMethods.DIFF_NOTE_LIST)) {
+                updateHost(hostId) {
+                    it.copy(review = it.review.copy(errorText = "The host does not support diff.note.list."))
+                }
+                return@launch
+            }
+            if (refreshNotes(hostId, _uhp.value[hostId]?.review?.selectedPath)) {
+                updateHost(hostId) { it.copy(review = it.review.copy(unconfirmed = null)) }
+            }
         }
     }
 
     fun loadTasks(hostId: String) {
-        viewModelScope.launch {
-            val session = manager.session(hostId)
-            if (session == null) {
-                updateHost(hostId) { it.copy(connected = false) }
-                return@launch
-            }
-            if (!session.supports(UhpMethods.TASK_LIST)) return@launch
+        viewModelScope.launch { refreshTasks(hostId) }
+    }
+
+    private suspend fun refreshTasks(hostId: String): Boolean {
+        val session = manager.session(hostId)
+        if (session == null) {
             updateHost(hostId) {
-                it.copy(connected = true, tasks = it.tasks.copy(loading = true, errorText = null, boardChanged = false))
+                it.copy(
+                    connected = false,
+                    tasks = it.tasks.copy(loading = false, errorText = "Not connected to this host."),
+                )
             }
-            when (val result = session.listTasks()) {
-                is Outcome.Ok -> updateHost(hostId) {
+            return false
+        }
+        if (!session.supports(UhpMethods.TASK_LIST)) return false
+        updateHost(hostId) {
+            it.copy(connected = true, tasks = it.tasks.copy(loading = true, errorText = null, boardChanged = false))
+        }
+        return when (val result = session.listTasks()) {
+            is Outcome.Ok -> {
+                updateHost(hostId) {
                     it.copy(tasks = it.tasks.copy(tasks = result.value, loading = false))
                 }
-                is Outcome.Err -> updateHost(hostId) {
+                true
+            }
+            is Outcome.Err -> {
+                updateHost(hostId) {
                     it.copy(tasks = it.tasks.copy(loading = false, errorText = result.failure.toUserMessage()))
                 }
+                false
             }
         }
     }
 
     fun addTask(hostId: String, title: String, paths: List<String>) {
         val session = manager.session(hostId) ?: return
-        if (_uhp.value[hostId]?.canMutate != true) return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || state.tasks.mutating || state.tasks.unconfirmed != null) return
         if (!session.supports(UhpMethods.TASK_ADD)) return
         val trimmed = title.trim()
         if (trimmed.isEmpty()) return
+        updateHost(hostId) { it.copy(tasks = it.tasks.copy(mutating = true, errorText = null, boardChanged = false)) }
         viewModelScope.launch {
-            updateHost(hostId) { it.copy(tasks = it.tasks.copy(mutating = true, errorText = null, boardChanged = false)) }
             val ifRevision = _uhp.value[hostId]?.tasks?.boardRevision
             when (val result = session.addTask(title = trimmed, paths = paths, ifRevision = ifRevision)) {
                 is Outcome.Ok -> {
@@ -575,6 +656,9 @@ class LuviaViewModel(
                                 unconfirmed = null,
                                 boardRevision = result.value.revision ?: current.tasks.boardRevision,
                                 revisions = revisions,
+                                showAdd = false,
+                                addTitle = "",
+                                addPaths = "",
                             ),
                         )
                     }
@@ -587,10 +671,11 @@ class LuviaViewModel(
 
     fun completeTask(hostId: String, taskId: String) {
         val session = manager.session(hostId) ?: return
-        if (_uhp.value[hostId]?.canMutate != true) return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || state.tasks.mutating || state.tasks.unconfirmed != null) return
         if (!session.supports(UhpMethods.TASK_DONE)) return
+        updateHost(hostId) { it.copy(tasks = it.tasks.copy(mutating = true, errorText = null, boardChanged = false)) }
         viewModelScope.launch {
-            updateHost(hostId) { it.copy(tasks = it.tasks.copy(mutating = true, errorText = null, boardChanged = false)) }
             var ifRevision = _uhp.value[hostId]?.tasks?.revisions?.get(taskId)
             if (ifRevision == null && session.supports(UhpMethods.TASK_GET)) {
                 when (val got = session.getTask(taskId)) {
@@ -620,6 +705,7 @@ class LuviaViewModel(
                                 unconfirmed = null,
                                 unconfirmedTaskId = null,
                                 boardRevision = result.value.revision ?: current.tasks.boardRevision,
+                                completeId = null,
                                 revisions = current.tasks.revisions + (taskId to (result.value.revision ?: current.tasks.revisions[taskId] ?: 0L)),
                             ),
                         )
@@ -635,22 +721,50 @@ class LuviaViewModel(
         val taskId = _uhp.value[hostId]?.tasks?.unconfirmedTaskId
         viewModelScope.launch {
             val session = manager.session(hostId)
-            if (session != null && taskId != null && session.supports(UhpMethods.TASK_GET)) {
+            if (session == null) {
+                updateHost(hostId) {
+                    it.copy(
+                        connected = false,
+                        tasks = it.tasks.copy(errorText = "Not connected to this host."),
+                    )
+                }
+                return@launch
+            }
+            var verified = false
+            if (taskId != null && session.supports(UhpMethods.TASK_GET)) {
                 when (val got = session.getTask(taskId)) {
-                    is Outcome.Ok -> updateHost(hostId) { current ->
-                        current.copy(
-                            tasks = current.tasks.copy(
-                                boardRevision = got.value.revision ?: current.tasks.boardRevision,
-                                revisions = current.tasks.revisions + (taskId to (got.value.revision ?: 0L)),
-                            ),
-                        )
+                    is Outcome.Ok -> {
+                        updateHost(hostId) { current ->
+                            current.copy(
+                                tasks = current.tasks.copy(
+                                    boardRevision = got.value.revision ?: current.tasks.boardRevision,
+                                    revisions = current.tasks.revisions + (taskId to (got.value.revision ?: 0L)),
+                                ),
+                            )
+                        }
+                        verified = true
                     }
-                    is Outcome.Err -> Unit
+                    is Outcome.Err -> updateHost(hostId) {
+                        it.copy(tasks = it.tasks.copy(errorText = got.failure.toUserMessage()))
+                    }
                 }
             }
-            loadTasks(hostId)
-            updateHost(hostId) {
-                it.copy(tasks = it.tasks.copy(unconfirmed = null, unconfirmedTaskId = null, mutating = false))
+            val listed = refreshTasks(hostId)
+            if (verified || listed) {
+                updateHost(hostId) {
+                    it.copy(tasks = it.tasks.copy(unconfirmed = null, unconfirmedTaskId = null, mutating = false))
+                }
+            } else if (!session.supports(UhpMethods.TASK_LIST) &&
+                (taskId == null || !session.supports(UhpMethods.TASK_GET))
+            ) {
+                val message = if (taskId != null) {
+                    "The host does not support task.get or task.list."
+                } else {
+                    "The host does not support task.list."
+                }
+                updateHost(hostId) {
+                    it.copy(tasks = it.tasks.copy(errorText = message))
+                }
             }
         }
     }
@@ -721,12 +835,28 @@ class LuviaViewModel(
         viewModelScope.launch { loadAgentDetail(hostId, paneId) }
     }
 
-    private suspend fun loadAgentDetail(hostId: String, paneId: String) {
-        val session = manager.session(hostId) ?: return
+    private suspend fun loadAgentDetail(hostId: String, paneId: String): Boolean {
+        val session = manager.session(hostId)
+        if (session == null) {
+            updateAgentPane(hostId, paneId) {
+                it.copy(loading = false, errorText = "Not connected to this host.")
+            }
+            return false
+        }
+        val canGet = session.supports(UhpMethods.AGENT_GET)
+        val canRead = session.supports(UhpMethods.AGENT_READ)
+        if (!canGet && !canRead) {
+            updateAgentPane(hostId, paneId) { it.copy(loading = false) }
+            return false
+        }
         var error: String? = null
-        val detail = if (session.supports(UhpMethods.AGENT_GET)) {
+        var readOk = false
+        val detail = if (canGet) {
             when (val result = session.getAgent(paneId)) {
-                is Outcome.Ok -> result.value
+                is Outcome.Ok -> {
+                    readOk = true
+                    result.value
+                }
                 is Outcome.Err -> {
                     error = result.failure.toUserMessage()
                     null
@@ -735,9 +865,12 @@ class LuviaViewModel(
         } else {
             null
         }
-        val transcript = if (session.supports(UhpMethods.AGENT_READ)) {
+        val transcript = if (canRead) {
             when (val result = session.readAgent(paneId)) {
-                is Outcome.Ok -> result.value
+                is Outcome.Ok -> {
+                    readOk = true
+                    result.value
+                }
                 is Outcome.Err -> {
                     error = error ?: result.failure.toUserMessage()
                     null
@@ -746,9 +879,11 @@ class LuviaViewModel(
         } else {
             null
         }
+        var applied = false
         updateHost(hostId) { current ->
             if (current.agentDetail.paneId != paneId) current
             else {
+                applied = true
                 current.copy(
                     agentDetail = current.agentDetail.copy(
                         detail = detail ?: current.agentDetail.detail,
@@ -759,56 +894,107 @@ class LuviaViewModel(
                 )
             }
         }
+        return readOk && applied
     }
 
     private suspend fun fetchDiffFile(hostId: String, path: String, layer: DiffLayer?) {
         val session = manager.session(hostId) ?: return
+        var diffLoadFailed = false
         if (session.supports(UhpMethods.DIFF_GET)) {
             when (val result = session.getDiff(path, layer, includePatch = true)) {
                 is Outcome.Ok -> updateHost(hostId) {
                     it.copy(review = it.review.copy(selectedFile = result.value, selectedPath = path, selectedLayer = layer))
                 }
-                is Outcome.Err -> updateHost(hostId) {
-                    it.copy(review = it.review.copy(errorText = result.failure.toUserMessage()))
+                is Outcome.Err -> {
+                    diffLoadFailed = true
+                    updateHost(hostId) {
+                        it.copy(review = it.review.copy(errorText = result.failure.toUserMessage()))
+                    }
                 }
             }
         }
-        refreshNotes(hostId, path)
+        refreshNotes(hostId, path, clearErrorOnSuccess = !diffLoadFailed)
     }
 
-    private suspend fun refreshNotes(hostId: String, file: String?) {
-        val session = manager.session(hostId) ?: return
-        if (!session.supports(UhpMethods.DIFF_NOTE_LIST)) return
-        when (val result = session.listReviewNotes(file = file)) {
-            is Outcome.Ok -> updateHost(hostId) { it.copy(review = it.review.copy(notes = result.value)) }
-            is Outcome.Err -> updateHost(hostId) {
-                it.copy(review = it.review.copy(errorText = result.failure.toUserMessage()))
+    private suspend fun refreshNotes(
+        hostId: String,
+        file: String?,
+        clearErrorOnSuccess: Boolean = true,
+    ): Boolean {
+        val session = manager.session(hostId) ?: return false
+        if (!session.supports(UhpMethods.DIFF_NOTE_LIST)) return false
+        return when (val result = session.listReviewNotes(file = file)) {
+            is Outcome.Ok -> {
+                updateHost(hostId) {
+                    it.copy(
+                        review = it.review.copy(
+                            notes = result.value,
+                            errorText = if (clearErrorOnSuccess) null else it.review.errorText,
+                        ),
+                    )
+                }
+                true
+            }
+            is Outcome.Err -> {
+                updateHost(hostId) {
+                    it.copy(review = it.review.copy(errorText = result.failure.toUserMessage()))
+                }
+                false
             }
         }
     }
 
-    private fun mutateNote(hostId: String, method: String, call: suspend (LuviaSession) -> Outcome<ReviewNote>) {
+    private fun mutateNote(
+        hostId: String,
+        method: String,
+        kind: UnconfirmedKind,
+        call: suspend (LuviaSession) -> Outcome<*>,
+    ) {
         val session = manager.session(hostId) ?: return
-        if (_uhp.value[hostId]?.canMutate != true) return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || state.review.sending || state.review.unconfirmed != null) return
         if (!session.supports(method)) return
+        updateHost(hostId) {
+            it.copy(review = it.review.copy(sending = true, errorText = null))
+        }
         viewModelScope.launch {
             when (val result = call(session)) {
-                is Outcome.Ok -> refreshNotes(hostId, _uhp.value[hostId]?.review?.selectedPath)
-                is Outcome.Err -> updateHost(hostId) {
-                    it.copy(review = it.review.copy(errorText = result.failure.toUserMessage()))
+                is Outcome.Ok -> {
+                    updateHost(hostId) {
+                        it.copy(
+                            review = it.review.copy(
+                                sending = false,
+                                unconfirmed = null,
+                                errorText = null,
+                            ),
+                        )
+                    }
+                    refreshNotes(hostId, _uhp.value[hostId]?.review?.selectedPath)
                 }
+                is Outcome.Err -> applyReviewMutationFailure(hostId, kind, result.failure)
             }
         }
     }
 
-    private fun applyAgentMutationFailure(hostId: String, kind: UnconfirmedKind, failure: Failure) {
+    private fun applyReviewMutationFailure(hostId: String, kind: UnconfirmedKind, failure: Failure) {
         updateHost(hostId) {
-            val detail = if (failure.isUnconfirmed()) {
-                it.agentDetail.copy(sending = false, unconfirmed = kind, errorText = null)
+            it.copy(
+                review = if (failure.isUnconfirmed()) {
+                    it.review.copy(sending = false, unconfirmed = kind, errorText = null)
+                } else {
+                    it.review.copy(sending = false, errorText = failure.toUserMessage())
+                },
+            )
+        }
+    }
+
+    private fun applyAgentMutationFailure(hostId: String, paneId: String, kind: UnconfirmedKind, failure: Failure) {
+        updateAgentPane(hostId, paneId) {
+            if (failure.isUnconfirmed()) {
+                it.copy(sending = false, unconfirmed = kind, errorText = null)
             } else {
-                it.agentDetail.copy(sending = false, errorText = failure.toUserMessage())
+                it.copy(sending = false, errorText = failure.toUserMessage())
             }
-            it.copy(agentDetail = detail)
         }
     }
 
@@ -844,6 +1030,17 @@ class LuviaViewModel(
                     it.tasks.copy(mutating = false, errorText = failure.toUserMessage())
                 },
             )
+        }
+    }
+
+    private fun updateAgentPane(
+        hostId: String,
+        paneId: String,
+        transform: (AgentDetailUi) -> AgentDetailUi,
+    ) {
+        updateHost(hostId) { current ->
+            if (current.agentDetail.paneId != paneId) current
+            else current.copy(agentDetail = transform(current.agentDetail))
         }
     }
 

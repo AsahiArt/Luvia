@@ -97,7 +97,7 @@ private fun TaskListPane(
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Tasks", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                    if (state.canMutate && state.capabilities.taskAdd) {
+                    if (state.canMutate && state.capabilities.taskAdd && state.tasks.unconfirmed == null) {
                         Button(onClick = { onShowAddChange(true) }, enabled = !state.tasks.mutating) { Text("Add Task") }
                     }
                 }
@@ -133,6 +133,7 @@ private fun TaskListPane(
                         task = task,
                         canComplete = state.canMutate &&
                             state.capabilities.taskDone &&
+                            state.tasks.unconfirmed == null &&
                             task.isCompletable(),
                         completing = state.tasks.mutating,
                         onComplete = { onCompleteIdChange(task.id) },
@@ -145,12 +146,13 @@ private fun TaskListPane(
         AddTaskSheet(
             title = state.tasks.addTitle,
             pathsText = state.tasks.addPaths,
+            sending = state.tasks.mutating,
+            errorText = state.tasks.errorText,
+            unconfirmed = state.tasks.unconfirmed,
+            onCheckUnconfirmed = onCheckUnconfirmed,
             onDraftChange = onAddDraftChange,
             onDismiss = { onShowAddChange(false) },
-            onSubmit = { title, paths ->
-                onShowAddChange(false)
-                onAddTask(title, paths)
-            },
+            onSubmit = onAddTask,
         )
     }
     completeId?.let { id ->
@@ -207,21 +209,35 @@ private fun TaskRow(
 private fun AddTaskSheet(
     title: String,
     pathsText: String,
+    sending: Boolean,
+    errorText: String?,
+    unconfirmed: UnconfirmedKind?,
+    onCheckUnconfirmed: () -> Unit,
     onDraftChange: (String, String) -> Unit,
     onDismiss: () -> Unit,
     onSubmit: (title: String, paths: List<String>) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    ModalBottomSheet(
+        onDismissRequest = { if (!sending) onDismiss() },
+        sheetState = sheetState,
+    ) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Add Task", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            errorText?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            unconfirmed?.let { kind ->
+                UnconfirmedBanner(kind = kind, onCheck = onCheckUnconfirmed)
+            }
             OutlinedTextField(
                 value = title,
                 onValueChange = { onDraftChange(it, pathsText) },
                 label = { Text("Title") },
+                enabled = !sending && unconfirmed == null,
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
@@ -229,11 +245,12 @@ private fun AddTaskSheet(
                 value = pathsText,
                 onValueChange = { onDraftChange(title, it) },
                 label = { Text("Paths (optional)") },
+                enabled = !sending && unconfirmed == null,
                 modifier = Modifier.fillMaxWidth(),
                 supportingText = { Text("Comma-separated globs") },
             )
             Button(
-                enabled = title.isNotBlank(),
+                enabled = title.isNotBlank() && !sending && unconfirmed == null,
                 onClick = {
                     val paths = pathsText.split(',')
                         .map { it.trim() }

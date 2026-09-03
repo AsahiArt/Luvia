@@ -29,6 +29,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -180,7 +181,7 @@ private fun ReviewFileListPane(
             item {
                 NotesDrawer(
                     notes = state.review.notes,
-                    canMutate = state.canMutate,
+                    canMutate = state.canMutate && !state.review.sending && state.review.unconfirmed == null,
                     capabilities = state.capabilities,
                     agents = state.agents,
                     sending = state.review.sending,
@@ -240,6 +241,23 @@ private fun ReviewFilePane(
 ) {
     val file = state.review.selectedFile
     var pendingLine by remember { mutableStateOf<DiffLine?>(null) }
+    var noteSubmissionPending by remember { mutableStateOf(false) }
+    LaunchedEffect(
+        state.review.sending,
+        state.review.noteDraft,
+        state.review.errorText,
+        state.review.unconfirmed,
+    ) {
+        if (noteSubmissionPending && !state.review.sending) {
+            if (state.review.noteDraft.isEmpty() &&
+                state.review.errorText == null &&
+                state.review.unconfirmed == null
+            ) {
+                pendingLine = null
+            }
+            noteSubmissionPending = false
+        }
+    }
     Column(modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -290,7 +308,10 @@ private fun ReviewFilePane(
                     val line = hunk.lines[index]
                     DiffLineRow(
                         line = line,
-                        enabled = state.canMutate && state.capabilities.diffNoteAdd,
+                        enabled = state.canMutate &&
+                            state.capabilities.diffNoteAdd &&
+                            !state.review.sending &&
+                            state.review.unconfirmed == null,
                         onClick = { pendingLine = line },
                     )
                 }
@@ -301,7 +322,7 @@ private fun ReviewFilePane(
                     notes = state.review.notes.filter { note ->
                         note.path == null || note.path == file?.path || note.path == state.review.selectedPath
                     },
-                    canMutate = state.canMutate,
+                    canMutate = state.canMutate && !state.review.sending && state.review.unconfirmed == null,
                     capabilities = state.capabilities,
                     agents = state.agents,
                     sending = state.review.sending,
@@ -320,21 +341,24 @@ private fun ReviewFilePane(
             path = file?.path ?: state.review.selectedPath.orEmpty(),
             line = line,
             body = state.review.noteDraft,
+            sending = state.review.sending,
+            errorText = state.review.errorText,
+            unconfirmed = state.review.unconfirmed,
             onBodyChange = onNoteDraftChange,
+            onCheckUnconfirmed = onCheckUnconfirmed,
             onDismiss = {
                 pendingLine = null
-                onNoteDraftChange("")
+                if (state.review.unconfirmed == null) onNoteDraftChange("")
             },
             onSubmit = { body ->
                 val reviewLine = line.toReviewLine() ?: return@AddReviewNoteSheet
+                noteSubmissionPending = true
                 onAddNote(
                     file?.path ?: state.review.selectedPath.orEmpty(),
                     reviewLine,
                     body,
                     file?.layer ?: state.review.selectedLayer,
                 )
-                pendingLine = null
-                onNoteDraftChange("")
             },
         )
     }
@@ -377,12 +401,19 @@ private fun AddReviewNoteSheet(
     path: String,
     line: DiffLine,
     body: String,
+    sending: Boolean,
+    errorText: String?,
+    unconfirmed: UnconfirmedKind?,
     onBodyChange: (String) -> Unit,
+    onCheckUnconfirmed: () -> Unit,
     onDismiss: () -> Unit,
     onSubmit: (String) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    ModalBottomSheet(
+        onDismissRequest = { if (!sending) onDismiss() },
+        sheetState = sheetState,
+    ) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -398,15 +429,22 @@ private fun AddReviewNoteSheet(
                 "Line ${line.newLine ?: line.oldLine ?: 0}",
                 style = MaterialTheme.typography.labelMedium,
             )
+            errorText?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            unconfirmed?.let { kind ->
+                UnconfirmedBanner(kind = kind, onCheck = onCheckUnconfirmed)
+            }
             OutlinedTextField(
                 value = body,
                 onValueChange = onBodyChange,
                 label = { Text("Review note") },
+                enabled = !sending && unconfirmed == null,
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3,
             )
             Button(
-                enabled = body.isNotBlank(),
+                enabled = body.isNotBlank() && !sending && unconfirmed == null,
                 onClick = { onSubmit(body.trim()) },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Add Review note") }

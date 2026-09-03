@@ -143,6 +143,7 @@ private fun AgentDetailBlockedPreview() {
             state = previewAgentsState().copy(
                 agentDetail = AgentDetailUi(
                     paneId = "7",
+                    open = true,
                     summary = previewBlockedAgent(),
                     detail = AgentGetResult(
                         pane = "7",

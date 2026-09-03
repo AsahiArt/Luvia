@@ -74,6 +74,10 @@ enum UnconfirmedAction: Hashable, Sendable {
     case agentPrompt
     case agentKeys
     case sendNotes
+    case addNote
+    case resolveNote
+    case reopenNote
+    case removeNote
     case addTask
     case completeTask
 
@@ -87,6 +91,14 @@ enum UnconfirmedAction: Hashable, Sendable {
             "These Agent keys may have been delivered. Check the Transcript."
         case .sendNotes:
             "Send notes may have reached the Agent. Check Review notes."
+        case .addNote:
+            "This Review note may have been added. Check Review notes."
+        case .resolveNote:
+            "This Review note may have been resolved. Check Review notes."
+        case .reopenNote:
+            "This Review note may have been reopened. Check Review notes."
+        case .removeNote:
+            "This Review note may have been removed. Check Review notes."
         case .addTask:
             "The Task may have been added. Check the board."
         case .completeTask:
@@ -105,6 +117,9 @@ struct UhpCaps: Equatable, Sendable {
     var diffNoteList = false
     var diffNoteAdd = false
     var diffNoteSend = false
+    var diffNoteResolve = false
+    var diffNoteReopen = false
+    var diffNoteRemove = false
     var taskList = false
     var taskAdd = false
     var taskDone = false

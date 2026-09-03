@@ -89,13 +89,22 @@ struct ReviewListView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if let error = model.uhp.errorMessage, !error.isEmpty {
-                Text(error)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-                    .padding(.bottom, 8)
+            if model.uhp.unconfirmed != nil || !(model.uhp.errorMessage ?? "").isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    if let unconfirmed = model.uhp.unconfirmed {
+                        UnconfirmedBanner(action: unconfirmed) {
+                            _Concurrency.Task { await model.checkUnconfirmed() }
+                        }
+                    }
+                    if let error = model.uhp.errorMessage, !error.isEmpty {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
             }
         }
         .toolbar {
@@ -104,7 +113,7 @@ struct ReviewListView: View {
                     Button("Notes") { model.uhp.isNotesPresented = true }
                 }
             }
-            if model.uhp.isController && model.uhp.caps.diffNoteSend {
+            if model.uhp.canSendNotes {
                 ToolbarItem(placement: .secondaryAction) {
                     Button("Send notes") { model.uhp.isSendNotesPresented = true }
                 }
@@ -171,7 +180,7 @@ struct DiffFileDetailView: View {
                                 DiffLineRow(line: line)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
-                                        guard model.uhp.isController, model.uhp.caps.diffNoteAdd else { return }
+                                        guard model.uhp.canAddNote else { return }
                                         model.beginAddNote(file: file, line: line)
                                     }
                             }
@@ -235,6 +244,22 @@ struct ReviewNotesSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                if let unconfirmed = model.uhp.unconfirmed {
+                    Section {
+                        UnconfirmedBanner(action: unconfirmed) {
+                            _Concurrency.Task { await model.checkUnconfirmed() }
+                        }
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                    }
+                }
+                if let error = model.uhp.errorMessage, !error.isEmpty {
+                    Section {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                }
                 Section("Open") {
                     if openNotes.isEmpty {
                         Text("No open Review notes.")
@@ -243,14 +268,18 @@ struct ReviewNotesSheet: View {
                         ForEach(openNotes) { note in
                             NoteRow(note: note)
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    if model.uhp.isController {
+                                    if model.uhp.canResolveNote {
                                         Button("Resolve") {
                                             _Concurrency.Task { await model.resolveNote(note.id) }
                                         }
                                         .tint(.orange)
+                                        .disabled(model.uhp.isSending)
+                                    }
+                                    if model.uhp.canRemoveNote {
                                         Button("Remove", role: .destructive) {
                                             _Concurrency.Task { await model.removeNote(note.id) }
                                         }
+                                        .disabled(model.uhp.isSending)
                                     }
                                 }
                         }
@@ -264,10 +293,17 @@ struct ReviewNotesSheet: View {
                         ForEach(resolvedNotes) { note in
                             NoteRow(note: note)
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    if model.uhp.isController {
+                                    if model.uhp.canReopenNote {
                                         Button("Reopen") {
                                             _Concurrency.Task { await model.reopenNote(note.id) }
                                         }
+                                        .disabled(model.uhp.isSending)
+                                    }
+                                    if model.uhp.canRemoveNote {
+                                        Button("Remove", role: .destructive) {
+                                            _Concurrency.Task { await model.removeNote(note.id) }
+                                        }
+                                        .disabled(model.uhp.isSending)
                                     }
                                 }
                         }
@@ -322,6 +358,12 @@ struct AddNoteSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if let error = model.uhp.errorMessage, !error.isEmpty {
+                    Section {
+                        Text(error)
+                            .foregroundStyle(.red)
+                    }
+                }
                 LabeledContent("File") {
                     Text(model.uhp.addNote.file)
                         .font(.system(.body, design: .monospaced))
@@ -332,21 +374,27 @@ struct AddNoteSheet: View {
                 }
                 TextField("Review note", text: $model.uhp.addNote.body, axis: .vertical)
                     .lineLimit(3...8)
+                    .disabled(model.uhp.isSending || model.uhp.unconfirmed != nil)
             }
             .navigationTitle("Add Review note")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .disabled(model.uhp.isSending)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
                         _Concurrency.Task { await model.addReviewNote() }
                     }
-                    .disabled(model.uhp.addNote.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(
+                        model.uhp.addNote.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || !model.uhp.canAddNote
+                    )
                 }
             }
         }
         .presentationDetents([.medium, .large])
+        .interactiveDismissDisabled(model.uhp.isSending)
     }
 }
 
@@ -389,7 +437,7 @@ struct SendNotesSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Send notes") { confirm = true }
-                        .disabled(model.uhp.sendNotesTarget == nil || model.uhp.isSending)
+                        .disabled(model.uhp.sendNotesTarget == nil || !model.uhp.canSendNotes)
                 }
             }
             .confirmationDialog(
