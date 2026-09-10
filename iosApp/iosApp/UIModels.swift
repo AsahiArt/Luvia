@@ -9,7 +9,7 @@ struct UserFacingError: Error, Equatable {
 enum HostConnectionBadge: String, Sendable {
     case live = "Live"
     case connecting = "Connecting"
-    case stale = "Stale"
+    case stale = "Reconnect"
     case offline = "Offline"
 
     var symbol: String {
@@ -131,6 +131,7 @@ struct DiffFileItem: Identifiable, Hashable, Sendable {
     var layer: String
     var additions: Int
     var deletions: Int
+    var isDirectory: Bool { path.hasSuffix("/") || path.hasSuffix("\\") }
 }
 
 struct DiffLineItem: Identifiable, Hashable, Sendable {
@@ -466,6 +467,9 @@ enum FailureText {
     static func pairingAware(_ reason: String) -> String {
         if reason == "pairing code is for a different device key" {
             return "This pairing code belongs to a different device key. Run the command from the previous step on the host, then scan the QR it prints for this device."
+        }
+        if reason.hasPrefix("pairing code") {
+            return "This is not a valid luvia1: pairing code. Scan again or paste a different code. The draft is still valid."
         }
         return reason
     }

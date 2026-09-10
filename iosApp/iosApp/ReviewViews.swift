@@ -68,18 +68,30 @@ struct ReviewListView: View {
                     ForEach(grouped, id: \.layer) { group in
                         Section(group.layer) {
                             ForEach(group.files) { file in
-                                NavigationLink(value: file) {
+                                if file.isDirectory {
                                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                                         Text(file.path)
                                             .font(.system(.body, design: .monospaced))
                                             .lineLimit(3)
                                         Spacer(minLength: 8)
-                                        Text("+\(file.additions)")
-                                            .font(.caption.monospacedDigit())
-                                            .foregroundStyle(.green)
-                                        Text("-\(file.deletions)")
-                                            .font(.caption.monospacedDigit())
-                                            .foregroundStyle(.red)
+                                        Text("Directory")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                } else {
+                                    NavigationLink(value: file) {
+                                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                            Text(file.path)
+                                                .font(.system(.body, design: .monospaced))
+                                                .lineLimit(3)
+                                            Spacer(minLength: 8)
+                                            Text("+\(file.additions)")
+                                                .font(.caption.monospacedDigit())
+                                                .foregroundStyle(.green)
+                                            Text("-\(file.deletions)")
+                                                .font(.caption.monospacedDigit())
+                                                .foregroundStyle(.red)
+                                        }
                                     }
                                 }
                             }

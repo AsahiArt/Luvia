@@ -283,13 +283,13 @@ struct AgentDetailView: View {
     }
 }
 enum QuickAgentKey: String, CaseIterable, Identifiable {
+    case yes
+    case no
     case enter
     case esc
     case up
     case down
     case tab
-    case yes
-    case no
 
     var id: String { rawValue }
 

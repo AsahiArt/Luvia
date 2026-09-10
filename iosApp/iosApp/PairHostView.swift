@@ -64,7 +64,7 @@ struct PairHostView: View {
                 }
                 .pickerStyle(.segmented)
             } footer: {
-                Text("Observer can watch sessions. Controller can type in terminals.")
+                Text("Observer can watch sessions. Controller can prompt agents, review, tasks, and type in terminals.")
             }
             if let errorMessage {
                 Section {
@@ -129,7 +129,14 @@ struct PairHostView: View {
             }
             if !showPaste {
                 Section {
-                    Button("Scan QR code") { isScanning = true }
+                    Button("Scan QR code") {
+                        #if targetEnvironment(simulator)
+                        showPaste = true
+                        errorMessage = "Camera access is unavailable. Paste the luvia1: pairing code instead."
+                        #else
+                        isScanning = true
+                        #endif
+                    }
                         .buttonStyle(.borderedProminent)
                     Button("Paste code instead") {
                         showPaste = true
@@ -141,6 +148,8 @@ struct PairHostView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .font(.system(.footnote, design: .monospaced))
+                        .lineLimit(3...8)
+                        .accessibilityLabel("luvia1 pairing code")
                     Button("Pair") {
                         _Concurrency.Task { await submit(pasteCode) }
                     }

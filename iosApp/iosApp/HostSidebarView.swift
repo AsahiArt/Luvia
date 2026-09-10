@@ -11,11 +11,13 @@ struct HostSidebarView: View {
     var body: some View {
         Group {
             if hosts.isEmpty {
-                ContentUnavailableView(
-                    "No Hosts",
-                    systemImage: "server.rack",
-                    description: Text("Pair a Luvus host to begin.")
-                )
+                ContentUnavailableView {
+                    Label("No Hosts", systemImage: "server.rack")
+                } description: {
+                    Text("Pair a Luvus host to begin.")
+                } actions: {
+                    Button("Add Host", action: addHost)
+                }
             } else {
                 List(hosts, selection: $selection) { host in
                     HostRow(host: host)

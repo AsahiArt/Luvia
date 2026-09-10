@@ -69,6 +69,42 @@ class HostManagerTest {
         assertEquals("pairing code is for a different device key", (err.failure as Failure.ProtocolError).reason)
         manager.close()
     }
+
+    @Test
+    fun completePairingSurfacesVaultFailure() = runTest {
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-hm-vault-${Random.nextLong()}.json"
+        val store = HostStore(path.toString(), backgroundScope)
+        val manager = HostManager(store, ThrowingVault(), backgroundScope)
+        val fingerprint = "SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"
+        val draft =
+            PairingDraft(
+                deviceLabel = "phone",
+                role = HostRole.Controller,
+                authorizedKeysLine = "ssh-ed25519 AAAA",
+                deviceKeyFingerprint = fingerprint,
+                command = "luvia-host pair",
+                privateKeyOpenssh = "SECRET",
+            )
+        val body =
+            """{"v":1,"id":"grant-1","dk":"$fingerprint","name":"studio","user":"misaka","port":22,"addrs":["studio.tailnet"],"hk":["$fingerprint"],"role":"controller"}"""
+        val encoded = "luvia1:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
+        val result = manager.completePairing(draft, encoded)
+        val err = result as Outcome.Err
+        assertEquals("Could not store the device key on this device.", (err.failure as Failure.ProtocolError).reason)
+        manager.close()
+    }
+}
+
+private class ThrowingVault : DeviceKeyVault {
+    override fun save(deviceId: String, privateKeyOpenssh: String) {
+        error("keychain status -34018")
+    }
+
+    override fun credential(deviceId: String): DeviceCredential? = null
+
+    override fun delete(deviceId: String) {}
+
+    override fun deviceIds(): List<String> = emptyList()
 }
 
 private class MemoryVault : DeviceKeyVault {

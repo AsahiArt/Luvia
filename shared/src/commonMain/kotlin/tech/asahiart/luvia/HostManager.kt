@@ -102,7 +102,11 @@ public class HostManager(
         if (code.deviceKeyFingerprint != draft.deviceKeyFingerprint) {
             return fail(Failure.ProtocolError("pairing code is for a different device key"))
         }
-        vault.save(code.deviceId, draft.privateKeyOpenssh)
+        try {
+            vault.save(code.deviceId, draft.privateKeyOpenssh)
+        } catch (error: Exception) {
+            return fail(Failure.ProtocolError("Could not store the device key on this device."))
+        }
         val profile =
             HostProfile(
                 id = code.deviceId,

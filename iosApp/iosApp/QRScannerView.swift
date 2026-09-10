@@ -65,6 +65,10 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
     }
 
     private func authorize() {
+        guard AVCaptureDevice.default(for: .video) != nil else {
+            onUnavailable?()
+            return
+        }
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             configureSession()
