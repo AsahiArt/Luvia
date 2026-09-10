@@ -118,7 +118,19 @@ private fun TaskListPane(
                 item { UnconfirmedBanner(kind = kind, onCheck = onCheckUnconfirmed) }
             }
             if (state.tasks.tasks.isEmpty() && !state.tasks.loading) {
-                item { Text("No Tasks.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                item {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text("No Tasks on the board.", style = MaterialTheme.typography.headlineSmall)
+                        Text(
+                            "Add a Task to put work on this Host.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
             grouped.forEach { (status, tasks) ->
                 item {

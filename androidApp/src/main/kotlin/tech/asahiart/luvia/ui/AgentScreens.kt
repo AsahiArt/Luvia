@@ -15,9 +15,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -294,7 +294,8 @@ fun AgentDetailPane(
     modifier: Modifier = Modifier,
 ) {
     val detail = state.agentDetail
-    val summary = detail.summary ?: state.agents.firstOrNull { it.paneId == detail.paneId }
+    val listed = state.agents.firstOrNull { it.paneId == detail.paneId }
+    val summary = detail.summary ?: listed
     val status = detail.detail?.status ?: summary?.status ?: AgentStatus.Unknown
     val blocked = status == AgentStatus.Blocked
     val mutationPending = detail.sending || detail.unconfirmed != null
@@ -309,9 +310,23 @@ fun AgentDetailPane(
     val lines = remember(transcriptText) { transcriptText.split('\n') }
     val listState = rememberLazyListState()
     LaunchedEffect(detail.transcript?.revision, transcriptText) {
-        if (lines.isNotEmpty()) listState.scrollToItem(lines.size)
+        if (lines.isNotEmpty()) listState.scrollToItem(lines.lastIndex)
     }
     val missionRow = state.mission?.rows?.firstOrNull { it.pane == detail.paneId }
+    val titleName = listOfNotNull(
+        listed?.name,
+        summary?.name,
+        detail.detail?.name,
+        listed?.agent,
+        summary?.agent,
+        detail.detail?.agent,
+    ).firstOrNull { it.isNotBlank() } ?: "Agent"
+    val kind = listed?.agent ?: summary?.agent ?: detail.detail?.agent
+    val place = listOfNotNull(
+        summary?.workspaceName ?: summary?.workspace,
+        summary?.branch,
+    ).joinToString(" · ")
+    val cwd = detail.detail?.cwd ?: summary?.cwd
 
     Column(modifier.fillMaxSize().imePadding()) {
         Row(
@@ -320,23 +335,79 @@ fun AgentDetailPane(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             TextButton(onClick = onBack) { Text("Back") }
-            Text(
-                summary?.name ?: summary?.agent ?: "Agent",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-                maxLines = 2,
-            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    titleName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                )
+                if (!kind.isNullOrBlank() && kind != titleName) {
+                    Text(kind, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             FilledTonalButton(onClick = onRefresh) { Text("Refresh") }
+        }
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                AgentStatusChip(status)
+                if (place.isNotBlank()) {
+                    Text(
+                        place,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (!cwd.isNullOrBlank()) {
+                Text(
+                    cwd,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            missionRow?.usage?.let { usage ->
+                Text(
+                    buildString {
+                        usage.model?.let { append(it) }
+                        usage.totalTokens?.let {
+                            if (isNotEmpty()) append(" · ")
+                            append(it)
+                            append(" tokens")
+                        }
+                        usage.context?.let {
+                            if (isNotEmpty()) append(" · ")
+                            append("context ")
+                            append("%.0f".format(it * 100))
+                            append("%")
+                        }
+                        usage.costUsd?.let {
+                            if (isNotEmpty()) append(" · ")
+                            append("$")
+                            append("%.2f".format(it))
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         if (detail.errorText != null || detail.unconfirmed != null) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 detail.errorText?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                detail.unconfirmed?.let { kind ->
-                    UnconfirmedBanner(kind = kind, onCheck = onCheckUnconfirmed)
+                detail.unconfirmed?.let { kindBanner ->
+                    UnconfirmedBanner(kind = kindBanner, onCheck = onCheckUnconfirmed)
                 }
             }
         }
@@ -346,60 +417,6 @@ fun AgentDetailPane(
             } else {
                 SelectionContainer {
                     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                        item(key = "header") {
-                            Column(
-                                Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    AgentStatusChip(status)
-                                    val place = listOfNotNull(
-                                        summary?.workspaceName ?: summary?.workspace,
-                                        summary?.branch,
-                                    ).joinToString(" · ")
-                                    if (place.isNotBlank()) {
-                                        Text(place, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
-                                val cwd = detail.detail?.cwd ?: summary?.cwd
-                                if (!cwd.isNullOrBlank()) {
-                                    Text(
-                                        cwd,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                missionRow?.usage?.let { usage ->
-                                    Text(
-                                        buildString {
-                                            usage.model?.let { append(it) }
-                                            usage.totalTokens?.let {
-                                                if (isNotEmpty()) append(" · ")
-                                                append(it)
-                                                append(" tokens")
-                                            }
-                                            usage.context?.let {
-                                                if (isNotEmpty()) append(" · ")
-                                                append("context ")
-                                                append("%.0f".format(it * 100))
-                                                append("%")
-                                            }
-                                            usage.costUsd?.let {
-                                                if (isNotEmpty()) append(" · ")
-                                                append("$")
-                                                append("%.2f".format(it))
-                                            }
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-
-                                Spacer(Modifier.height(4.dp))
-                                Text("Transcript", style = MaterialTheme.typography.labelLarge)
-                            }
-                        }
                         items(lines.size) { index ->
                             Text(
                                 lines[index],
@@ -414,9 +431,22 @@ fun AgentDetailPane(
         }
         if (canKeys) {
             Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(start = 12.dp, end = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                if (canPrompt) {
+                    AgentKeyButton("y+Enter", enabled = !mutationPending) {
+                        val action = PendingAgentAction("y+Enter", null, "y")
+                        if (blocked) pendingKeys = action else onPrompt("y")
+                    }
+                    AgentKeyButton("n+Enter", enabled = !mutationPending) {
+                        val action = PendingAgentAction("n+Enter", null, "n")
+                        if (blocked) pendingKeys = action else onPrompt("n")
+                    }
+                }
                 AgentKeyButton("Enter", enabled = !mutationPending) {
                     val action = PendingAgentAction("Enter", listOf(AgentKey.ENTER), null)
                     if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
@@ -437,16 +467,7 @@ fun AgentDetailPane(
                     val action = PendingAgentAction("Tab", listOf(AgentKey.TAB), null)
                     if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
                 }
-                if (canPrompt) {
-                    AgentKeyButton("y+Enter", enabled = !mutationPending) {
-                        val action = PendingAgentAction("y+Enter", null, "y")
-                        if (blocked) pendingKeys = action else onPrompt("y")
-                    }
-                    AgentKeyButton("n+Enter", enabled = !mutationPending) {
-                        val action = PendingAgentAction("n+Enter", null, "n")
-                        if (blocked) pendingKeys = action else onPrompt("n")
-                    }
-                }
+                Spacer(Modifier.width(8.dp))
             }
         }
         if (canPrompt) {

@@ -30,7 +30,13 @@ fun QrScanner(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val previewView = remember { PreviewView(context) }
+    val previewView = remember {
+        PreviewView(context).apply {
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            clipToOutline = true
+        }
+    }
     val callback = rememberUpdatedState(onQrCode)
 
     DisposableEffect(lifecycleOwner) {

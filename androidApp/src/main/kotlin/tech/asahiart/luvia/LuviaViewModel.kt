@@ -492,6 +492,19 @@ class LuviaViewModel(
     }
 
     fun openDiffFile(hostId: String, path: String, layer: DiffLayer?) {
+        if (path.endsWith('/') || path.endsWith('\\')) {
+            updateHost(hostId) {
+                it.copy(
+                    review = it.review.copy(
+                        selectedPath = path,
+                        selectedLayer = layer,
+                        selectedFile = null,
+                        errorText = null,
+                    ),
+                )
+            }
+            return
+        }
         updateHost(hostId) {
             it.copy(review = it.review.copy(selectedPath = path, selectedLayer = layer, selectedFile = null, errorText = null))
         }

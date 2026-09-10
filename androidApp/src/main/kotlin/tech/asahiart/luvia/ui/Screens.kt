@@ -5,10 +5,13 @@ package tech.asahiart.luvia.ui
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +41,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -63,7 +68,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -75,6 +84,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import tech.asahiart.luvia.HostRole
+import tech.asahiart.luvia.stripAnsi
 
 @Composable
 fun HostListPane(
@@ -203,6 +213,7 @@ fun HostDetailPane(
     modifier: Modifier = Modifier,
 ) {
     var confirmUnpair by remember { mutableStateOf(false) }
+    var overflowOpen by remember { mutableStateOf(false) }
     val visible = sections.ifEmpty { HostSection.entries }
     val selectedIndex = visible.indexOf(section).coerceAtLeast(0)
     Column(modifier.fillMaxSize()) {
@@ -221,8 +232,30 @@ fun HostDetailPane(
                 } else {
                     Button(onClick = onConnect) { Text("Connect") }
                 }
-                TextButton(onClick = onRefresh) { Text("Refresh") }
-                TextButton(onClick = { confirmUnpair = true }) { Text("Unpair") }
+                Box {
+                    IconButton(
+                        onClick = { overflowOpen = true },
+                        modifier = Modifier.semantics { contentDescription = "More" },
+                    ) {
+                        Text("⋮", style = MaterialTheme.typography.titleLarge)
+                    }
+                    DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Refresh") },
+                            onClick = {
+                                overflowOpen = false
+                                onRefresh()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Unpair") },
+                            onClick = {
+                                overflowOpen = false
+                                confirmUnpair = true
+                            },
+                        )
+                    }
+                }
             },
         )
         host.errorMessage?.let { error ->
@@ -320,6 +353,9 @@ fun TerminalPane(
     modifier: Modifier = Modifier,
 ) {
     var input by remember { mutableStateOf("") }
+    val displayed = remember(terminal.text, terminal.isAnsi) {
+        if (terminal.isAnsi) stripAnsi(terminal.text) else terminal.text
+    }
     Column(modifier.background(Color(0xFF111318)).imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(terminal.title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
@@ -336,7 +372,7 @@ fun TerminalPane(
         HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
         SelectionContainer {
             Text(
-                terminal.text,
+                displayed,
                 color = Color(0xFFE4E7EC),
                 fontFamily = FontFamily.Monospace,
                 style = MaterialTheme.typography.bodySmall,
@@ -415,7 +451,7 @@ fun PairHostPane(
                     completing = completing,
                     onComplete = onComplete,
                     onBack = { showScan = false },
-                    modifier = Modifier.padding(padding),
+                    modifier = Modifier.padding(padding).fillMaxSize(),
                 )
         }
     }
@@ -428,10 +464,11 @@ private fun PairLabelStep(
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var label by remember { mutableStateOf(Build.MODEL.orEmpty()) }
+    val context = LocalContext.current
+    var label by remember { mutableStateOf(defaultDeviceLabel(context)) }
     var role by remember { mutableStateOf(HostRole.Controller) }
     Column(
-        modifier.padding(20.dp).verticalScroll(rememberScrollState()),
+        modifier.imePadding().padding(20.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text("Name this device, then pick whether it may control terminals or only observe.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -454,6 +491,11 @@ private fun PairLabelStep(
                 }
             }
         }
+        Text(
+            "Observer can watch sessions. Controller can prompt agents, review, tasks, and type in terminals.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             FilledTonalButton(onClick = onCancel) { Text("Cancel") }
@@ -474,8 +516,10 @@ private fun PairCommandStep(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var copied by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     Column(
-        modifier.padding(20.dp).verticalScroll(rememberScrollState()),
+        modifier.imePadding().padding(20.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text("Run this command on the host machine, then scan the QR it prints.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -487,7 +531,17 @@ private fun PairCommandStep(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             )
         }
-        Button(onClick = { onCopyCommand(command) }, modifier = Modifier.fillMaxWidth()) { Text("Copy command") }
+        Button(
+            onClick = {
+                onCopyCommand(command)
+                copied = true
+                scope.launch {
+                    delay(2_000)
+                    copied = false
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(if (copied) "Copied" else "Copy command") }
         if (authorizedKeysLine.isNotBlank()) {
             Text("Public key", style = MaterialTheme.typography.labelLarge)
             SelectionContainer {
@@ -539,61 +593,87 @@ private fun PairScanStep(
         cameraDenied = !granted
         showScanner = granted
     }
+    val previewVisible = showScanner && cameraGranted && !cameraDenied
     Column(
-        modifier.padding(20.dp).verticalScroll(rememberScrollState()),
+        modifier
+            .imePadding()
+            .padding(20.dp)
+            .fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text("Scan the QR printed by luvia-host, or paste the pairing code. The app will verify it.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Button(
-            onClick = {
-                lastCode = null
-                if (cameraGranted) {
-                    showScanner = true
-                } else {
-                    permissionLauncher.launch(Manifest.permission.CAMERA)
-                }
-            },
-            enabled = !completing,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Scan QR code") }
-        if (cameraDenied) {
+        Column(
+            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
             Text(
-                "Camera permission denied. Paste the luvia1: code instead.",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
+                "Scan the QR printed by luvia-host, or paste the pairing code. The app will verify it.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-        if (showScanner && cameraGranted) {
-            QrScanner(
-                onQrCode = { code ->
-                    if (!completing && code != lastCode) {
-                        lastCode = code
-                        onComplete(code)
-                    }
+            if (!previewVisible) {
+                Button(
+                    onClick = {
+                        lastCode = null
+                        if (cameraGranted) {
+                            showScanner = true
+                            cameraDenied = false
+                        } else {
+                            permissionLauncher.launch(Manifest.permission.CAMERA)
+                        }
+                    },
+                    enabled = !completing,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Scan QR code") }
+            }
+            if (cameraDenied) {
+                Text(
+                    "Camera permission denied. Paste the luvia1: code instead.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            if (previewVisible) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(240.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .clipToBounds()
+                        .background(Color.Black),
+                ) {
+                    QrScanner(
+                        onQrCode = { code ->
+                            if (!completing && code != lastCode) {
+                                lastCode = code
+                                onComplete(code)
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    QrViewfinderOverlay(Modifier.fillMaxSize())
+                }
+            }
+            TextButton(
+                onClick = {
+                    val clip = context.getSystemService(ClipboardManager::class.java)
+                        ?.primaryClip
+                        ?.takeIf { it.itemCount > 0 }
+                        ?.getItemAt(0)
+                        ?.coerceToText(context)
+                        ?.toString()
+                        .orEmpty()
+                    if (clip.isNotBlank()) pasted = clip
                 },
-                modifier = Modifier.fillMaxWidth().height(280.dp),
+                enabled = !completing,
+            ) { Text("Paste code instead") }
+            OutlinedTextField(
+                value = pasted,
+                onValueChange = { pasted = it },
+                label = { Text("luvia1: pairing code") },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !completing,
             )
         }
-        TextButton(
-            onClick = {
-                val clip = context.getSystemService(ClipboardManager::class.java)
-                    ?.primaryClip
-                    ?.takeIf { it.itemCount > 0 }
-                    ?.getItemAt(0)
-                    ?.coerceToText(context)
-                    ?.toString()
-                    .orEmpty()
-                if (clip.isNotBlank()) pasted = clip
-            },
-            enabled = !completing,
-        ) { Text("Paste code instead") }
-        OutlinedTextField(
-            value = pasted,
-            onValueChange = { pasted = it },
-            label = { Text("luvia1: pairing code") },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !completing,
-        )
         errorMessage?.let {
             Text(
                 "$it Scan again or paste a different code. The draft is still valid.",
@@ -609,6 +689,28 @@ private fun PairScanStep(
                 enabled = !completing && pasted.isNotBlank(),
             ) { Text("Pair") }
         }
+    }
+}
+
+@Composable
+private fun QrViewfinderOverlay(modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val color = Color.White.copy(alpha = 0.85f)
+        val stroke = 3.dp.toPx()
+        val length = 28.dp.toPx()
+        val inset = 20.dp.toPx()
+        val left = inset
+        val top = inset
+        val right = size.width - inset
+        val bottom = size.height - inset
+        drawLine(color, Offset(left, top), Offset(left + length, top), stroke, StrokeCap.Round)
+        drawLine(color, Offset(left, top), Offset(left, top + length), stroke, StrokeCap.Round)
+        drawLine(color, Offset(right, top), Offset(right - length, top), stroke, StrokeCap.Round)
+        drawLine(color, Offset(right, top), Offset(right, top + length), stroke, StrokeCap.Round)
+        drawLine(color, Offset(left, bottom), Offset(left + length, bottom), stroke, StrokeCap.Round)
+        drawLine(color, Offset(left, bottom), Offset(left, bottom - length), stroke, StrokeCap.Round)
+        drawLine(color, Offset(right, bottom), Offset(right - length, bottom), stroke, StrokeCap.Round)
+        drawLine(color, Offset(right, bottom), Offset(right, bottom - length), stroke, StrokeCap.Round)
     }
 }
 
@@ -629,7 +731,25 @@ private fun EmptyPane(
     }
 }
 
-private fun ConnectionBadge.label() = name
+private fun ConnectionBadge.label() = when (this) {
+    ConnectionBadge.Live -> "Live"
+    ConnectionBadge.Connecting -> "Connecting"
+    ConnectionBadge.Stale -> "Reconnect"
+    ConnectionBadge.Offline -> "Offline"
+}
+
+private fun defaultDeviceLabel(context: Context): String {
+    val deviceName = Settings.Global.getString(context.contentResolver, Settings.Global.DEVICE_NAME)
+        ?.trim()
+        .orEmpty()
+    if (deviceName.isNotEmpty()) return deviceName
+    val bluetoothName = Settings.Secure.getString(context.contentResolver, "bluetooth_name")
+        ?.trim()
+        .orEmpty()
+    if (bluetoothName.isNotEmpty()) return bluetoothName
+    return Build.MODEL.orEmpty()
+}
+
 private fun ConnectionBadge.color() = when (this) {
     ConnectionBadge.Live -> Color(0xFF2E7D32)
     ConnectionBadge.Connecting -> Color(0xFF1565C0)

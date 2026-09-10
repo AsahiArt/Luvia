@@ -35,9 +35,6 @@ private data object HostsRoute : NavKey
 private data class HostRoute(val id: String) : NavKey
 
 @Serializable
-private data class TerminalRoute(val hostId: String) : NavKey
-
-@Serializable
 private data object PairHostRoute : NavKey
 
 @Composable
@@ -70,7 +67,7 @@ fun LuviaNavigation(
                         hosts = hosts,
                         selectedHostId = (backStack.lastOrNull { it is HostRoute } as? HostRoute)?.id,
                         onSelect = { id ->
-                            backStack.removeAll { it is HostRoute || it is TerminalRoute || it is PairHostRoute }
+                            backStack.removeAll { it is HostRoute || it is PairHostRoute }
                             backStack.add(HostRoute(id))
                         },
                         onAddHost = {
@@ -165,7 +162,7 @@ private fun DetailNav(
                         hosts = hosts,
                         selectedHostId = (backStack.lastOrNull { it is HostRoute } as? HostRoute)?.id,
                         onSelect = { id ->
-                            backStack.removeAll { it is HostRoute || it is TerminalRoute || it is PairHostRoute }
+                            backStack.removeAll { it is HostRoute || it is PairHostRoute }
                             backStack.add(HostRoute(id))
                         },
                         onAddHost = {
@@ -201,12 +198,6 @@ private fun DetailNav(
                         section = section,
                         onSection = { next ->
                             uhpActions.setSection(route.id, next)
-                            if (next == HostSection.Terminal) {
-                                backStack.removeAll { it is TerminalRoute }
-                                backStack.add(TerminalRoute(route.id))
-                            } else {
-                                backStack.removeAll { it is TerminalRoute }
-                            }
                         },
                         terminal = terminalForHost(route.id),
                         onRequestControl = { onRequestControl(route.id) },
@@ -218,7 +209,7 @@ private fun DetailNav(
                             uhpActions.refreshSection(route.id, section)
                         },
                         onUnpair = {
-                            backStack.removeAll { it is HostRoute && it.id == route.id || it is TerminalRoute && it.hostId == route.id }
+                            backStack.removeAll { it is HostRoute && it.id == route.id }
                             onUnpair(route.id)
                         },
                         sections = visible,
@@ -270,19 +261,6 @@ private fun DetailNav(
                                 modifier = modifier,
                             )
                         },
-                    )
-                }
-            }
-            entry<TerminalRoute> { route ->
-                LaunchedEffect(route.hostId) { onTerminalShown(route.hostId) }
-                val terminal = terminalForHost(route.hostId)
-                if (terminal == null) {
-                    EmptySelectionPane("Terminal unavailable", "Select a live pane to observe or request control.")
-                } else {
-                    TerminalPane(
-                        terminal = terminal,
-                        onRequestControl = { onRequestControl(route.hostId) },
-                        onSendText = { text -> onSendTerminalText(route.hostId, text) },
                     )
                 }
             }

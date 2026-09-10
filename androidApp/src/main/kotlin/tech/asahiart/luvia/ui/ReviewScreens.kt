@@ -136,8 +136,10 @@ private fun ReviewFileListPane(
             item {
                 val list = state.review.list
                 Text(
-                    listOfNotNull(list?.repo, list?.branch).joinToString(" · ").ifBlank { "Diff" },
+                    listOfNotNull(shortRepoName(list?.repo), list?.branch).joinToString(" · ").ifBlank { "Diff" },
                     style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             state.review.errorText?.let { error ->
@@ -175,7 +177,15 @@ private fun ReviewFileListPane(
                     )
                 }
                 items(layerFiles, key = { "${it.layer}-${it.path}" }) { file ->
-                    DiffFileRow(file = file, onClick = { onOpenFile(file.path, file.layer) })
+                    val directory = isDiffDirectory(file.path)
+                    DiffFileRow(
+                        file = file,
+                        onClick = if (directory) {
+                            null
+                        } else {
+                            { onOpenFile(file.path, file.layer) }
+                        },
+                    )
                 }
             }
             item {
@@ -198,8 +208,12 @@ private fun ReviewFileListPane(
 }
 
 @Composable
-private fun DiffFileRow(file: DiffFile, onClick: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+private fun DiffFileRow(file: DiffFile, onClick: (() -> Unit)?) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+    ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 file.path,
@@ -209,6 +223,9 @@ private fun DiffFileRow(file: DiffFile, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (onClick == null) {
+                    Text("Directory", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 val plus = file.additions
                 val minus = file.deletions
                 if (plus != null) {
@@ -273,21 +290,32 @@ private fun ReviewFilePane(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        state.review.errorText?.let {
-            Text(
-                it,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
+        val selectedPath = file?.path ?: state.review.selectedPath.orEmpty()
+        val directory = isDiffDirectory(selectedPath)
+        if (!directory) {
+            state.review.errorText?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
         }
         state.review.unconfirmed?.let { kind ->
             UnconfirmedBanner(kind = kind, onCheck = onCheckUnconfirmed)
         }
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-        ) {
+        if (directory) {
+            UhpEmptyPane(
+                title = "This is a directory, not a file diff.",
+                message = "Select a file to see hunks.",
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            ) {
             val hunks = file?.hunks.orEmpty()
             if (hunks.isEmpty()) {
                 item {
@@ -334,6 +362,7 @@ private fun ReviewFilePane(
                     onSendNotes = onSendNotes,
                 )
             }
+        }
         }
     }
     pendingLine?.let { line ->
@@ -477,7 +506,18 @@ private fun NotesDrawer(
             }
         }
         if (notes.isEmpty()) {
-            Text("No Review notes.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("No Review notes.", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Open a file and add a note on a diff line.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
         if (openNotes.isNotEmpty()) {
             Text("Open", style = MaterialTheme.typography.labelLarge)
@@ -620,6 +660,16 @@ private fun SendNotesDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
+}
+
+private fun isDiffDirectory(path: String): Boolean =
+    path.endsWith('/') || path.endsWith('\\')
+
+private fun shortRepoName(repo: String?): String? {
+    if (repo.isNullOrBlank()) return null
+    val trimmed = repo.trimEnd('/', '\\')
+    val name = trimmed.substringAfterLast('/').substringAfterLast('\\')
+    return name.ifBlank { repo }
 }
 
 private fun layerLabel(layer: DiffLayer?): String = when (layer) {
