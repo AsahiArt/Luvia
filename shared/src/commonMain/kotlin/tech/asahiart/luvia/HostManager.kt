@@ -270,8 +270,12 @@ public class HostManager(
                         "Device key for this host is gone. Re-pair the host to restore access.",
                     ),
                 )
+        val attempted = connectToProfile(profile, credential)
+        if (attempted.deadLiteralAddresses.isNotEmpty()) {
+            runCatching { store.forgetLiteralAddresses(hostId, attempted.deadLiteralAddresses) }
+        }
         val connected =
-            when (val result = connectToProfile(profile, credential)) {
+            when (val result = attempted.outcome) {
                 is Outcome.Err -> return fail(result.failure)
                 is Outcome.Ok -> result.value
             }

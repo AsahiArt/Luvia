@@ -17,6 +17,8 @@ public interface HostStore {
 
     public suspend fun setLastConnectedAddress(hostId: String, address: String)
 
+    public suspend fun forgetLiteralAddresses(hostId: String, addresses: List<String>)
+
     public suspend fun updateStatus(hostId: String, status: HostStatus, atEpochMs: Long)
 }
 

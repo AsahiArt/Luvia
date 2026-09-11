@@ -27,6 +27,11 @@ public data class HostConnection(
     public val address: String,
 )
 
+public data class ProfileConnectResult(
+    public val outcome: Outcome<HostConnection>,
+    public val deadLiteralAddresses: List<String> = emptyList(),
+)
+
 public class ConnectedHost internal constructor(
     public val client: LuviaClient,
     private val connection: SshConnection,
@@ -102,52 +107,98 @@ public suspend fun connectToHost(
 public suspend fun connectToProfile(
     profile: HostProfile,
     credential: DeviceCredential,
-): Outcome<HostConnection> {
+): ProfileConnectResult = connectToProfile(profile, credential, ::connectToHost)
+
+internal suspend fun connectToProfile(
+    profile: HostProfile,
+    credential: DeviceCredential,
+    attempt: suspend (HostEndpoint, DeviceCredential) -> Outcome<ConnectedHost>,
+): ProfileConnectResult {
     if (profile.sshPort !in 1..65535) {
-        return fail(Failure.Transport("invalid SSH port"))
+        return ProfileConnectResult(fail(Failure.Transport("invalid SSH port")))
     }
     if (profile.username.isBlank() || profile.hostKeyFingerprints.isEmpty()) {
-        return fail(Failure.Transport("incomplete host endpoint"))
+        return ProfileConnectResult(fail(Failure.Transport("incomplete host endpoint")))
     }
     val ordered = orderedAddresses(profile)
     if (ordered.isEmpty()) {
-        return fail(Failure.Transport("incomplete host endpoint"))
+        return ProfileConnectResult(fail(Failure.Transport("incomplete host endpoint")))
     }
+    val dead = ArrayList<String>()
     var lastFailure: Failure? = null
     for (address in ordered) {
         if (address.isBlank()) continue
         when (
-            val result = connectToHost(
-                HostEndpoint(
-                    address = address,
-                    port = profile.sshPort,
-                    username = profile.username,
-                    hostKeyFingerprints = profile.hostKeyFingerprints,
-                ),
-                credential,
-            )
+            val result =
+                attempt(
+                    HostEndpoint(
+                        address = address,
+                        port = profile.sshPort,
+                        username = profile.username,
+                        hostKeyFingerprints = profile.hostKeyFingerprints,
+                    ),
+                    credential,
+                )
         ) {
-            is Outcome.Ok -> return ok(HostConnection(result.value, address))
+            is Outcome.Ok ->
+                return ProfileConnectResult(ok(HostConnection(result.value, address)), dead)
             is Outcome.Err -> {
                 lastFailure = result.failure
+                if (isLiteralIp(address) && isDeadLiteralFailure(result.failure)) {
+                    dead += address
+                }
                 if (!isRetryableTransportFailure(result.failure)) {
-                    return fail(result.failure)
+                    return ProfileConnectResult(fail(result.failure), dead)
                 }
             }
         }
     }
-    return fail(lastFailure ?: Failure.Transport("incomplete host endpoint"))
+    return ProfileConnectResult(
+        fail(lastFailure ?: Failure.Transport("incomplete host endpoint")),
+        dead,
+    )
 }
 
-private fun orderedAddresses(profile: HostProfile): List<String> {
-    val last = profile.lastConnectedAddress
-    if (last.isNullOrBlank() || last !in profile.addresses) {
-        return profile.addresses
+internal fun orderedAddresses(profile: HostProfile): List<String> {
+    val seen = LinkedHashSet<String>()
+    val literals = ArrayList<String>()
+    val names = ArrayList<String>()
+    for (raw in profile.addresses) {
+        val address = raw.trim()
+        if (address.isEmpty() || !seen.add(address)) continue
+        if (isLiteralIp(address)) literals += address else names += address
     }
-    return listOf(last) + profile.addresses.filter { it != last }
+    val last = profile.lastConnectedAddress?.trim().orEmpty()
+    if (isLiteralIp(last)) prefer(literals, last) else prefer(names, last)
+    return literals + names
 }
 
-private fun isRetryableTransportFailure(failure: Failure): Boolean {
+internal fun isLiteralIp(address: String): Boolean {
+    val trimmed = address.trim().removePrefix("[").removeSuffix("]")
+    if (trimmed.contains(':')) {
+        return trimmed.any { it == ':' } &&
+            trimmed.all { it.isDigit() || it in "abcdefABCDEF:." }
+    }
+    val parts = trimmed.split('.')
+    if (parts.size != 4) return false
+    return parts.all { part ->
+        val value = part.toIntOrNull() ?: return false
+        value in 0..255
+    }
+}
+
+internal fun isDeadLiteralFailure(failure: Failure): Boolean {
+    val reason = (failure as? Failure.Transport)?.reason ?: return false
+    return reason.contains("connect timeout") || reason.contains("no route")
+}
+
+internal fun isRetryableTransportFailure(failure: Failure): Boolean {
     val reason = (failure as? Failure.Transport)?.reason ?: return false
     return !reason.contains("host key mismatch")
+}
+
+private fun prefer(list: MutableList<String>, preferred: String) {
+    if (preferred.isEmpty() || preferred !in list) return
+    list.remove(preferred)
+    list.add(0, preferred)
 }

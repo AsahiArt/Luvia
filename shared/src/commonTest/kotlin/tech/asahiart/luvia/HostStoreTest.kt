@@ -43,7 +43,7 @@ class HostStoreTest {
         store.updateStatus("host-1", HostStatus.Stale, 200)
         val loaded = store.current().hosts.single()
         assertEquals("studio", loaded.alias)
-        assertEquals(listOf("studio.tailnet", "10.0.0.2"), loaded.addresses)
+        assertEquals(listOf("10.0.0.2", "studio.tailnet"), loaded.addresses)
         assertEquals("misaka", loaded.username)
         assertEquals(listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"), loaded.hostKeyFingerprints)
         assertEquals(HostRole.Observer, loaded.role)
@@ -89,5 +89,34 @@ class HostStoreTest {
         assertEquals(emptyList(), spare.hostKeyFingerprints)
         assertEquals(HostRole.Controller, spare.role)
         assertEquals(2222, spare.sshPort)
+    }
+
+    @Test
+    fun rememberSuccessfulAddressPrependsAndForgetDropsLiteralsOnly() = runTest {
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-host-addr-${Random.nextLong()}.json"
+        val store = HostStore(path.toString(), backgroundScope)
+        store.upsert(
+            HostProfile(
+                id = "host-1",
+                alias = "Yui.local",
+                addresses = listOf("192.168.1.16", "Yui.local", "172.18.0.1"),
+                sshPort = 22,
+                username = "misaka",
+                hostKeyFingerprints = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+                role = HostRole.Controller,
+                lastStatus = HostStatus.Unknown,
+                lastUpdatedEpochMs = 1,
+                lastConnectedAddress = "Yui.local",
+                topology = null,
+            ),
+        )
+        store.forgetLiteralAddresses("host-1", listOf("192.168.1.16", "Yui.local"))
+        val afterDrop = store.current().hosts.single()
+        assertEquals(listOf("Yui.local", "172.18.0.1"), afterDrop.addresses)
+        assertEquals("Yui.local", afterDrop.lastConnectedAddress)
+        store.setLastConnectedAddress("host-1", "192.168.1.33")
+        val afterOk = store.current().hosts.single()
+        assertEquals(listOf("192.168.1.33", "Yui.local", "172.18.0.1"), afterOk.addresses)
+        assertEquals("192.168.1.33", afterOk.lastConnectedAddress)
     }
 }

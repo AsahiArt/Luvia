@@ -24,6 +24,7 @@ import tech.asahiart.luvia.HostStatus
 import tech.asahiart.luvia.HostStore
 import tech.asahiart.luvia.TaskSummary
 import tech.asahiart.luvia.WorkspaceSummary
+import tech.asahiart.luvia.isLiteralIp
 
 private val cacheJson: Json =
     Json {
@@ -169,10 +170,40 @@ internal class DataStoreHostStore(
     }
 
     override suspend fun setLastConnectedAddress(hostId: String, address: String) {
+        val working = address.trim()
         dataStore.updateData { current ->
             val hosts =
                 current.hosts.map { host ->
-                    if (host.id == hostId) host.copy(lastConnectedAddress = address) else host
+                    if (host.id != hostId) {
+                        host
+                    } else {
+                        val rest = host.addresses.filterNot { it == working }
+                        host.copy(
+                            lastConnectedAddress = working,
+                            addresses = listOf(working) + rest,
+                        )
+                    }
+                }
+            current.copy(version = HOST_CATALOG_VERSION, hosts = hosts)
+        }
+    }
+
+    override suspend fun forgetLiteralAddresses(hostId: String, addresses: List<String>) {
+        val drop = addresses.map { it.trim() }.filter { it.isNotEmpty() && isLiteralIp(it) }.toSet()
+        if (drop.isEmpty()) return
+        dataStore.updateData { current ->
+            val hosts =
+                current.hosts.map { host ->
+                    if (host.id != hostId) {
+                        host
+                    } else {
+                        val remaining = host.addresses.filterNot { it in drop }
+                        val kept = remaining.ifEmpty { host.addresses }
+                        val last = host.lastConnectedAddress
+                        val newLast =
+                            if (last != null && last in drop) kept.firstOrNull() else last
+                        host.copy(addresses = kept, lastConnectedAddress = newLast)
+                    }
                 }
             current.copy(version = HOST_CATALOG_VERSION, hosts = hosts)
         }

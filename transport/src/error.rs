@@ -60,6 +60,16 @@ impl TransportError {
             reason: reason.into(),
         }
     }
+
+    pub(crate) fn from_connect_io(err: std::io::Error) -> Self {
+        match err.kind() {
+            std::io::ErrorKind::TimedOut => Self::io("connect timeout"),
+            std::io::ErrorKind::HostUnreachable
+            | std::io::ErrorKind::NetworkUnreachable
+            | std::io::ErrorKind::AddrNotAvailable => Self::io("no route"),
+            _ => Self::io("ssh transport failure"),
+        }
+    }
 }
 
 impl From<russh::Error> for TransportError {

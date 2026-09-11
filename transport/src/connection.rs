@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use russh::keys::{PrivateKey, PrivateKeyWithHashAlg, PublicKeyOrCertificate};
 use russh::{client, ChannelMsg, Disconnect};
+use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
 use crate::channel::BridgeChannel;
@@ -28,6 +29,9 @@ use crate::fingerprint::{
 use crate::keys::parse_private_key;
 use crate::runtime::{spawn_background, spawn_on_runtime};
 use crate::BRIDGE_COMMAND;
+
+const DNS_TIMEOUT: Duration = Duration::from_secs(2);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct PinnedHostKey {
     accepted: Vec<[u8; 32]>,
@@ -147,6 +151,26 @@ async fn connect_inner(
         return Err(TransportError::io("host and user are required"));
     }
 
+    let resolved = match tokio::time::timeout(
+        DNS_TIMEOUT,
+        tokio::net::lookup_host((host.as_str(), port)),
+    )
+    .await
+    {
+        Ok(Ok(mut addrs)) => addrs
+            .next()
+            .ok_or_else(|| TransportError::io("dns failed"))?,
+        Ok(Err(_)) => return Err(TransportError::io("dns failed")),
+        Err(_) => return Err(TransportError::io("dns timeout")),
+    };
+
+    let stream = match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(resolved)).await {
+        Ok(Ok(stream)) => stream,
+        Ok(Err(err)) => return Err(TransportError::from_connect_io(err)),
+        Err(_) => return Err(TransportError::io("connect timeout")),
+    };
+    let _ = stream.set_nodelay(true);
+
     let config = client::Config {
         inactivity_timeout: None,
         keepalive_interval: Some(Duration::from_secs(30)),
@@ -154,12 +178,20 @@ async fn connect_inner(
         ..Default::default()
     };
 
-    let mut session = client::connect(
-        Arc::new(config),
-        (host.as_str(), port),
-        PinnedHostKey { accepted },
+    let mut session = match tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        client::connect_stream(
+            Arc::new(config),
+            stream,
+            PinnedHostKey { accepted },
+        ),
     )
-    .await?;
+    .await
+    {
+        Ok(Ok(session)) => session,
+        Ok(Err(err)) => return Err(err),
+        Err(_) => return Err(TransportError::io("connect timeout")),
+    };
 
     let hash_alg = session.best_supported_rsa_hash().await?.flatten();
     let auth = session
@@ -249,5 +281,44 @@ mod tests {
         let shown = format!("{err:?}");
         assert!(shown.contains("HostKeyMismatch"));
         assert!(!shown.contains("BEGIN OPENSSH"));
+    }
+
+    fn dummy_fingerprint() -> String {
+        "SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs".into()
+    }
+
+    #[test]
+    fn connect_fails_fast_on_nxdomain() {
+        let key = generate_device_key().unwrap();
+        let started = std::time::Instant::now();
+        let err = crate::runtime::runtime().block_on(SshConnection::connect(
+            "this.host.invalid".into(),
+            22,
+            "luvia".into(),
+            vec![dummy_fingerprint()],
+            key.private_key_openssh,
+        ));
+        assert!(started.elapsed() < Duration::from_secs(4));
+        let shown = format!("{err:?}");
+        assert!(shown.contains("dns failed") || shown.contains("dns timeout"), "{shown}");
+    }
+
+    #[test]
+    fn connect_times_out_on_unroutable_literal() {
+        let key = generate_device_key().unwrap();
+        let started = std::time::Instant::now();
+        let err = crate::runtime::runtime().block_on(SshConnection::connect(
+            "192.0.2.1".into(),
+            22,
+            "luvia".into(),
+            vec![dummy_fingerprint()],
+            key.private_key_openssh,
+        ));
+        assert!(started.elapsed() < Duration::from_secs(8));
+        let shown = format!("{err:?}");
+        assert!(
+            shown.contains("connect timeout") || shown.contains("no route"),
+            "{shown}"
+        );
     }
 }
