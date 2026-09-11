@@ -76,6 +76,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,7 +85,6 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import tech.asahiart.luvia.HostRole
-import tech.asahiart.luvia.stripAnsi
 
 @Composable
 fun HostListPane(
@@ -353,10 +353,16 @@ fun TerminalPane(
     modifier: Modifier = Modifier,
 ) {
     var input by remember { mutableStateOf("") }
+    val defaultFg = Color(0xFFE4E7EC)
+    val defaultBg = Color(0xFF111318)
     val displayed = remember(terminal.text, terminal.isAnsi) {
-        if (terminal.isAnsi) stripAnsi(terminal.text) else terminal.text
+        if (terminal.isAnsi) {
+            ansiAnnotatedString(terminal.text, defaultFg, defaultBg)
+        } else {
+            AnnotatedString(terminal.text)
+        }
     }
-    Column(modifier.background(Color(0xFF111318)).imePadding()) {
+    Column(modifier.background(defaultBg).imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(terminal.title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             if (!terminal.canControl) {
@@ -373,7 +379,7 @@ fun TerminalPane(
         SelectionContainer {
             Text(
                 displayed,
-                color = Color(0xFFE4E7EC),
+                color = defaultFg,
                 fontFamily = FontFamily.Monospace,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f).fillMaxWidth().padding(16.dp),

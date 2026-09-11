@@ -83,7 +83,7 @@ private struct TerminalPane: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    Text(text)
+                    Text(ansiAttributedString(text, defaultForeground: .primary, defaultBackground: Color(uiColor: .systemBackground)))
                         .font(.system(.footnote, design: .monospaced))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)

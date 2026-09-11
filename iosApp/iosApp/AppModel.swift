@@ -239,8 +239,7 @@ final class AppModel {
     private func applyTerminal(_ update: TerminalUpdate) {
         switch onEnum(of: update) {
         case .frame(let wrapped):
-            let raw = wrapped.frame.text
-            terminalText = wrapped.frame.ansi ? stripAnsi(text: raw) : raw
+            terminalText = wrapped.frame.text
             terminalStatus = wrapped.frame.truncated ? "Output truncated." : nil
         case .resyncing(_):
             terminalStatus = "Resyncing…"

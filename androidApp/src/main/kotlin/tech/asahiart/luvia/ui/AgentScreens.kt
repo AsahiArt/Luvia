@@ -20,8 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -307,10 +307,14 @@ fun AgentDetailPane(
     val draft = detail.draft
     var pendingKeys by remember { mutableStateOf<PendingAgentAction?>(null) }
     val transcriptText = detail.transcript?.text.orEmpty()
-    val lines = remember(transcriptText) { transcriptText.split('\n') }
-    val listState = rememberLazyListState()
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val surface = MaterialTheme.colorScheme.surface
+    val transcript = remember(transcriptText, onSurface, surface) {
+        ansiAnnotatedString(transcriptText, onSurface, surface)
+    }
+    val transcriptScroll = rememberScrollState()
     LaunchedEffect(detail.transcript?.revision, transcriptText) {
-        if (lines.isNotEmpty()) listState.scrollToItem(lines.lastIndex)
+        transcriptScroll.scrollTo(transcriptScroll.maxValue)
     }
     val missionRow = state.mission?.rows?.firstOrNull { it.pane == detail.paneId }
     val titleName = listOfNotNull(
@@ -416,16 +420,12 @@ fun AgentDetailPane(
                 Text("Transcript is not available on this host.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 SelectionContainer {
-                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                        items(lines.size) { index ->
-                            Text(
-                                lines[index],
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                    }
+                    Text(
+                        transcript,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.fillMaxSize().verticalScroll(transcriptScroll),
+                    )
                 }
             }
         }

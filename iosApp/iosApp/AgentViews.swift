@@ -214,7 +214,15 @@ struct AgentDetailView: View {
     private var transcriptBlock: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                Text(uhp.transcript.isEmpty ? "No Transcript yet." : uhp.transcript)
+                Text(
+                    uhp.transcript.isEmpty
+                        ? AttributedString("No Transcript yet.")
+                        : ansiAttributedString(
+                            uhp.transcript,
+                            defaultForeground: .primary,
+                            defaultBackground: Color(uiColor: .systemBackground)
+                        )
+                )
                     .font(.system(.footnote, design: .monospaced))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
