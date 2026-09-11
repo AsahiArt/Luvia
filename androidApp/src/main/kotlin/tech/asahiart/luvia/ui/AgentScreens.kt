@@ -313,6 +313,7 @@ fun AgentDetailPane(
         ansiAnnotatedString(transcriptText, onSurface, surface)
     }
     val transcriptScroll = rememberScrollState()
+    val transcriptHorizontal = rememberScrollState()
     LaunchedEffect(detail.transcript?.revision, transcriptText) {
         transcriptScroll.scrollTo(transcriptScroll.maxValue)
     }
@@ -424,7 +425,11 @@ fun AgentDetailPane(
                         transcript,
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.fillMaxSize().verticalScroll(transcriptScroll),
+                        softWrap = false,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(transcriptScroll)
+                            .horizontalScroll(transcriptHorizontal),
                     )
                 }
             }

@@ -56,6 +56,12 @@ struct HostDetailView: View {
 }
 
 
+private enum TerminalChrome {
+    static let background = Color(red: 17 / 255, green: 19 / 255, blue: 24 / 255)
+    static let foreground = Color(red: 228 / 255, green: 231 / 255, blue: 236 / 255)
+    static let muted = Color(red: 154 / 255, green: 164 / 255, blue: 178 / 255)
+}
+
 private struct TerminalPane: View {
     let host: HostViewState
     let text: String
@@ -69,7 +75,7 @@ private struct TerminalPane: View {
             if let status {
                 Text(status)
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(TerminalChrome.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
                     .padding(.bottom, 8)
@@ -80,14 +86,23 @@ private struct TerminalPane: View {
                     systemImage: "terminal",
                     description: Text("Select a live pane to observe or request control.")
                 )
+                .foregroundStyle(TerminalChrome.foreground)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    Text(ansiAttributedString(text, defaultForeground: .primary, defaultBackground: Color(uiColor: .systemBackground)))
-                        .font(.system(.footnote, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                        .padding()
+                ScrollView([.horizontal, .vertical]) {
+                    Text(
+                        ansiAttributedString(
+                            text,
+                            defaultForeground: TerminalChrome.foreground,
+                            defaultBackground: TerminalChrome.background
+                        )
+                    )
+                    .font(.system(.footnote, design: .monospaced))
+                    .foregroundStyle(TerminalChrome.foreground)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding()
                 }
             }
             if host.isController {
@@ -96,15 +111,19 @@ private struct TerminalPane: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .font(.body)
+                        .foregroundStyle(TerminalChrome.foreground)
                     Button("Send") {
                         let payload = input
                         input = ""
                         onSend(payload)
                     }
+                    .foregroundStyle(TerminalChrome.foreground)
                     .disabled(input.isEmpty || host.connection != .live)
                 }
                 .padding()
             }
         }
+        .background(TerminalChrome.background)
+        .colorScheme(.dark)
     }
 }

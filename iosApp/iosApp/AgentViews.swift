@@ -213,7 +213,7 @@ struct AgentDetailView: View {
 
     private var transcriptBlock: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            ScrollView([.horizontal, .vertical]) {
                 Text(
                     uhp.transcript.isEmpty
                         ? AttributedString("No Transcript yet.")
@@ -224,6 +224,7 @@ struct AgentDetailView: View {
                         )
                 )
                     .font(.system(.footnote, design: .monospaced))
+                    .fixedSize(horizontal: true, vertical: false)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
                     .padding()

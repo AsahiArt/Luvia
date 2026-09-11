@@ -135,4 +135,25 @@ class AnsiTest {
         val span = parseAnsi("\u001B[38;2;1;2mx").single()
         assertEquals(AnsiSpan("x"), span)
     }
+
+    @Test
+    fun replacesPowerlineSeparators() {
+        assertEquals(">", replaceTerminalGlyphs("\uE0B0"))
+        assertEquals("<", replaceTerminalGlyphs("\uE0B2"))
+        assertEquals("*", replaceTerminalGlyphs("\uE0A0"))
+        assertEquals("a>b", replaceTerminalGlyphs("a\uE0B0b"))
+    }
+
+    @Test
+    fun replacesOtherPrivateUseWithQuestionMark() {
+        assertEquals("?", replaceTerminalGlyphs("\uE000"))
+        assertEquals("?", replaceTerminalGlyphs("\uF8FF"))
+    }
+
+    @Test
+    fun parseAnsiAppliesGlyphReplacement() {
+        assertEquals(">", parseAnsi("\uE0B0").single().text)
+        assertEquals(">", stripAnsi("\uE0B0"))
+        assertEquals("hello", replaceTerminalGlyphs("hello"))
+    }
 }

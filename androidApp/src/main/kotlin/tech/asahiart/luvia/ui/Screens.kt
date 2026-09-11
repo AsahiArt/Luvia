@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -85,6 +86,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import tech.asahiart.luvia.HostRole
+import tech.asahiart.luvia.replaceTerminalGlyphs
 
 @Composable
 fun HostListPane(
@@ -359,9 +361,11 @@ fun TerminalPane(
         if (terminal.isAnsi) {
             ansiAnnotatedString(terminal.text, defaultFg, defaultBg)
         } else {
-            AnnotatedString(terminal.text)
+            AnnotatedString(replaceTerminalGlyphs(terminal.text))
         }
     }
+    val terminalVertical = rememberScrollState()
+    val terminalHorizontal = rememberScrollState()
     Column(modifier.background(defaultBg).imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(terminal.title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
@@ -376,14 +380,21 @@ fun TerminalPane(
             }
         }
         HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
-        SelectionContainer {
-            Text(
-                displayed,
-                color = defaultFg,
-                fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.weight(1f).fillMaxWidth().padding(16.dp),
-            )
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            SelectionContainer {
+                Text(
+                    displayed,
+                    color = defaultFg,
+                    fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.bodySmall,
+                    softWrap = false,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(terminalVertical)
+                        .horizontalScroll(terminalHorizontal)
+                        .padding(16.dp),
+                )
+            }
         }
         if (terminal.isTruncated) {
             Text("Output truncated", color = Color(0xFFFFC66D), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 16.dp))

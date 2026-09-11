@@ -29,16 +29,68 @@ public data class AnsiSpan(
 )
 
 /**
+ * Maps Powerline / Nerd Font private-use glyphs to ASCII so system
+ * monospace does not render missing-glyph boxes.
+ */
+public fun replaceTerminalGlyphs(text: String): String {
+    if (text.isEmpty()) return text
+    val out = StringBuilder(text.length)
+    var i = 0
+    val n = text.length
+    while (i < n) {
+        val cp: Int
+        val width: Int
+        val c = text[i]
+        if (c.isHighSurrogate() && i + 1 < n && text[i + 1].isLowSurrogate()) {
+            cp = ((c.code - 0xD800) shl 10) + (text[i + 1].code - 0xDC00) + 0x10000
+            width = 2
+        } else {
+            cp = c.code
+            width = 1
+        }
+        val mapped = mapTerminalGlyph(cp)
+        if (mapped != null) out.append(mapped) else out.appendRange(text, i, i + width)
+        i += width
+    }
+    return out.toString()
+}
+
+private fun mapTerminalGlyph(cp: Int): String? =
+    when (cp) {
+        0xE0A0 -> "*"
+        0xE0A1 -> "#"
+        0xE0A2 -> "RO"
+        0xE0A3 -> ":"
+        0xE0B0, 0xE0B1 -> ">"
+        0xE0B2, 0xE0B3 -> "<"
+        0xE0B4, 0xE0B5 -> ")"
+        0xE0B6, 0xE0B7 -> "("
+        0xE0B8, 0xE0B9, 0xE0BC, 0xE0BE -> "/"
+        0xE0BA, 0xE0BD, 0xE0BF -> "\\"
+        0xE0BB -> "|"
+        else ->
+            if (cp in 0xE000..0xF8FF ||
+                cp in 0xF0000..0xFFFFD ||
+                cp in 0x100000..0x10FFFD
+            ) {
+                "?"
+            } else {
+                null
+            }
+    }
+
+/**
  * Parses CSI SGR (including 16 / 256 / 24-bit colors) into styled spans.
  * Unknown CSI, OSC, and other VT sequences are dropped, same as [stripAnsi].
  */
 public fun parseAnsi(text: String): List<AnsiSpan> {
     if (text.isEmpty()) return emptyList()
+    val source = replaceTerminalGlyphs(text)
     val spans = ArrayList<AnsiSpan>()
-    val buf = StringBuilder(text.length)
+    val buf = StringBuilder(source.length)
     var style = SgrStyle()
     var i = 0
-    val n = text.length
+    val n = source.length
 
     fun flush() {
         if (buf.isEmpty()) return
@@ -53,28 +105,28 @@ public fun parseAnsi(text: String): List<AnsiSpan> {
     }
 
     while (i < n) {
-        when (val c = text[i]) {
+        when (val c = source[i]) {
             ESC -> {
-                if (i + 1 < n && text[i + 1] == '[') {
-                    val csi = readCsi(text, i + 2)
+                if (i + 1 < n && source[i + 1] == '[') {
+                    val csi = readCsi(source, i + 2)
                     if (csi.isSgr) {
                         flush()
                         style = applySgr(style, csi.params)
                     }
                     i = csi.end
                 } else {
-                    i = skipEsc(text, i)
+                    i = skipEsc(source, i)
                 }
             }
             CSI_8 -> {
-                val csi = readCsi(text, i + 1)
+                val csi = readCsi(source, i + 1)
                 if (csi.isSgr) {
                     flush()
                     style = applySgr(style, csi.params)
                 }
                 i = csi.end
             }
-            OSC_8, DCS_8, SOS_8, PM_8, APC_8 -> i = skipTerminated(text, i + 1)
+            OSC_8, DCS_8, SOS_8, PM_8, APC_8 -> i = skipTerminated(source, i + 1)
             ST_8 -> i++
             else -> {
                 buf.append(c)
