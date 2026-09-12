@@ -300,6 +300,12 @@ internal fun UhpError.toFailure(): tech.asahiart.luvia.Failure =
                 actual = actual ?: 0L,
                 message = message,
             )
+        "content_revision_conflict" ->
+            tech.asahiart.luvia.Failure.ContentRevisionConflict(
+                expected = expected,
+                actual = actual,
+                message = message,
+            )
         "forbidden" -> tech.asahiart.luvia.Failure.Forbidden(message)
         "not_found" -> tech.asahiart.luvia.Failure.NotFound(message)
         "invalid_params" -> tech.asahiart.luvia.Failure.InvalidParams(message, sequence)

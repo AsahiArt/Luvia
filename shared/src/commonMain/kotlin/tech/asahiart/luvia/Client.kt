@@ -248,15 +248,31 @@ public class LuviaSession internal constructor(
      * `agent.keys` (`dispatch.rs:2553-2582`). Empty `keys` is rejected
      * client-side to match the server (`dispatch.rs:2564-2568`).
      */
-    public suspend fun sendAgentKeys(target: String, keys: List<AgentKey>): Outcome<Unit> {
+    public suspend fun sendAgentKeys(
+        target: String,
+        keys: List<AgentKey>,
+        ifContentRevision: Long? = null,
+        terminalId: String? = null,
+    ): Outcome<Unit> {
         if (keys.isEmpty()) {
             return fail(Failure.InvalidRequest("agent keys needs at least one key"))
+        }
+        if ((ifContentRevision == null) != (terminalId.isNullOrBlank())) {
+            return fail(
+                Failure.InvalidRequest(
+                    "agent.keys fence requires both if_content_revision and terminal_id",
+                ),
+            )
         }
         return engine.unary(
             Methods.AGENT_KEYS,
             buildJsonObject {
                 put("target", target)
                 put("keys", stringArray(keys.map { it.wire }))
+                if (ifContentRevision != null && !terminalId.isNullOrBlank()) {
+                    put("if_content_revision", ifContentRevision)
+                    put("terminal_id", terminalId)
+                }
             },
             mutation = true,
         ) { }

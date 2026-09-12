@@ -314,6 +314,8 @@ final class UhpSurfaceState {
     var header: AgentHeaderState?
     var transcript = ""
     var transcriptRevision: Int64?
+    var transcriptContentRevision: Int64?
+    var transcriptTerminalID: String?
     var composerText = ""
     var isSending = false
     var unconfirmed: UnconfirmedAction?
@@ -366,6 +368,8 @@ final class UhpSurfaceState {
         header = nil
         transcript = ""
         transcriptRevision = nil
+        transcriptContentRevision = nil
+        transcriptTerminalID = nil
         composerText = ""
         isSending = false
         unconfirmed = nil
@@ -519,6 +523,8 @@ extension AppModel {
                 guard let result = ok.value else { return false }
                 uhp.transcript = result.text
                 uhp.transcriptRevision = kotlinInt64(result.revision)
+                uhp.transcriptContentRevision = kotlinInt64(result.contentRevision)
+                uhp.transcriptTerminalID = result.terminalId
                 return true
             case .err(let err):
                 uhp.errorMessage = FailureText.describe(err.failure)
@@ -584,7 +590,15 @@ extension AppModel {
         uhp.isSending = true
         defer { uhp.isSending = false }
         do {
-            let outcome = try await session.sendAgentKeys(target: target, keys: keys)
+            let fenceRevision = uhp.transcriptContentRevision.map { KotlinLong(value: $0) }
+            let fenceTerminal = uhp.transcriptTerminalID
+            let canFence = fenceRevision != nil && !(fenceTerminal?.isEmpty ?? true)
+            let outcome = try await session.sendAgentKeys(
+                target: target,
+                keys: keys,
+                ifContentRevision: canFence ? fenceRevision : nil,
+                terminalId: canFence ? fenceTerminal : nil
+            )
             switch onEnum(of: outcome) {
             case .ok:
                 uhp.errorMessage = nil

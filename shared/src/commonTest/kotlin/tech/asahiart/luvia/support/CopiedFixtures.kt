@@ -50,6 +50,9 @@ internal object CopiedFixtures {
     const val AGENT_READ_RESULT: String =
         """{"type":"agent_read","pane":"7","text":"hello from agent"}"""
 
+    const val AGENT_READ_FENCED_RESULT: String =
+        """{"type":"agent_read","pane":"7","text":"hello from agent","content_revision":12,"terminal_id":"0123456789abcdef0123456789abcdef"}"""
+
     /** dispatch.rs:543-554 agent_prompt_response; evidence timeout still submitted */
     const val AGENT_PROMPT_TIMEOUT_RESULT: String =
         """{"type":"agent_prompt","pane":"7","submitted":true,"matched":false,"status":"working","baseline_revision":11,"content_revision":14,"evidence":"timeout"}"""

@@ -463,6 +463,8 @@ internal fun mapAgentRead(result: JsonObject): AgentReadResult =
         pane = result.optionalWireString("pane") ?: "",
         text = result.optionalString("text") ?: "",
         revision = result.optionalStrictLong("revision"),
+        contentRevision = result.optionalStrictLong("content_revision"),
+        terminalId = result.optionalString("terminal_id"),
     )
 
 internal fun mapAgentPrompt(result: JsonObject): AgentPromptResult =
@@ -1052,6 +1054,7 @@ private fun mapAgentSummary(obj: JsonObject): AgentSummary =
         session = obj.optionalString("session"),
         focused = obj.booleanOrFalse("focused"),
         workspace = obj.optionalWireString("workspace"),
+        workspaceId = obj.optionalString("workspace_id"),
         workspaceName = obj.optionalString("workspace_name"),
         tab = obj.optionalWireString("tab"),
         cwd = obj.optionalString("cwd"),

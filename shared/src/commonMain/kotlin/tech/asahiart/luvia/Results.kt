@@ -352,6 +352,8 @@ public data class AgentReadResult(
     public val pane: String,
     public val text: String,
     public val revision: Long?,
+    public val contentRevision: Long? = null,
+    public val terminalId: String? = null,
 )
 
 public data class AgentPromptResult(

@@ -41,6 +41,17 @@ public sealed class Failure {
     ) : Failure()
 
     /**
+     * `agent.keys` fence (`if_content_revision` + `terminal_id`) did not match
+     * the pane that was read. Nothing was queued. Re-read and reassess;
+     * do not retry the same pair.
+     */
+    public class ContentRevisionConflict(
+        public val expected: Long?,
+        public val actual: Long?,
+        public val message: String,
+    ) : Failure()
+
+    /**
      * Token or scope denied. Do not retry the same credentials; reconnecting
      * will not help until the grant or bridge allow-list changes.
      */

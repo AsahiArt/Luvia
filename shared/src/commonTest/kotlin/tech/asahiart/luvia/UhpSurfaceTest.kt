@@ -43,7 +43,12 @@ class UhpSurfaceTest {
 
         session.readAgent("7", lines = 50, source = AgentReadSource.VISIBLE)
         session.promptAgent("7", "ship it", wait = true, until = AgentStatus.Idle, timeoutSeconds = 12)
-        session.sendAgentKeys("7", listOf(AgentKey.ENTER, AgentKey.Ctrl('c'), AgentKey.Char('y')))
+        session.sendAgentKeys(
+            "7",
+            listOf(AgentKey.ENTER, AgentKey.Ctrl('c'), AgentKey.Char('y')),
+            ifContentRevision = 12L,
+            terminalId = "0123456789abcdef0123456789abcdef",
+        )
         session.listAgentSessions()
         session.missionSnapshot()
         session.listDiff(DiffLayer.WORKTREE)
@@ -78,6 +83,11 @@ class UhpSurfaceTest {
         assertEquals(
             listOf("enter", "ctrl+c", "y"),
             keys.getValue("keys").jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals("12", keys.getValue("if_content_revision").jsonPrimitive.content)
+        assertEquals(
+            "0123456789abcdef0123456789abcdef",
+            keys.getValue("terminal_id").jsonPrimitive.content,
         )
 
         assertTrue(params(Methods.AGENT_SESSIONS).isEmpty())
@@ -142,6 +152,17 @@ class UhpSurfaceTest {
     }
 
     @Test
+    fun sendAgentKeysRejectsPartialFenceClientSide() = runTest {
+        val seen = mutableListOf<UhpRequest>()
+        val session = openSurface(backgroundScope) { seen += it }
+        val result = session.sendAgentKeys("7", listOf(AgentKey.ENTER), ifContentRevision = 12L)
+        val failure = (result as Outcome.Err).failure
+        assertIs<Failure.InvalidRequest>(failure)
+        assertTrue(seen.none { it.method == Methods.AGENT_KEYS })
+        session.close()
+    }
+
+    @Test
     fun sendAgentKeysRejectsEmptyListClientSide() = runTest {
         val seen = mutableListOf<UhpRequest>()
         val session = openSurface(backgroundScope) { seen += it }
@@ -175,6 +196,11 @@ class UhpSurfaceTest {
         assertEquals("7", read.pane)
         assertEquals("hello from agent", read.text)
         assertNull(read.revision)
+        assertNull(read.contentRevision)
+        assertNull(read.terminalId)
+        val fenced = mapAgentRead(parseObject(CopiedFixtures.AGENT_READ_FENCED_RESULT))
+        assertEquals(12L, fenced.contentRevision)
+        assertEquals("0123456789abcdef0123456789abcdef", fenced.terminalId)
 
         val prompt = mapAgentPrompt(parseObject(CopiedFixtures.AGENT_PROMPT_TIMEOUT_RESULT))
         assertTrue(prompt.submitted)

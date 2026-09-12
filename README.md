@@ -160,7 +160,6 @@ Each surface is confined to one class per platform (`LiveActivityController`, `S
 | `shared/` | KMP client (JVM, Android, iOS) |
 | `androidApp/` | Compose app |
 | `iosApp/` | SwiftUI app |
-| `protocol/uhp/v1/` | Vendored UHP schemas and fixtures |
 
 ## License
 

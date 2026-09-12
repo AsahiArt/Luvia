@@ -6,8 +6,7 @@ committed — a live snapshot carries workspace paths and agent names from which
 machine produced it. Regenerate them against your own instance with
 `scripts/verify-e2e.py`, which exercises every method quoted below.
 
-These facts outrank both the vendored `protocol/uhp/v1/` fixtures (which contain only
-4 response lines) and any assumption currently encoded in the Luvia client.
+These facts outrank any assumption currently encoded in the Luvia client.
 
 ## F1. BLOCKER: neither Luvia role can call the two methods the client is built on
 

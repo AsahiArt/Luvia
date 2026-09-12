@@ -156,6 +156,7 @@ public data class AgentSummary(
     public val session: String? = null,
     public val focused: Boolean = false,
     public val workspace: String? = null,
+    public val workspaceId: String? = null,
     public val workspaceName: String? = null,
     public val tab: String? = null,
     public val cwd: String? = null,

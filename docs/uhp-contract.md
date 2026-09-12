@@ -306,8 +306,8 @@ Envelope for every bus event (`src/ipc/api.rs:1009-1011`, `protocol/uhp/v1/schem
 
 ## 5. Delta v0.13.2 → 0.13.4 (`c42b78c`) for the UHP-first surface
 
-Read with ADR 0001. Vendored `protocol/uhp/v1` is synced to this commit
-(`protocol/uhp/UPSTREAM_COMMIT`).
+Read with ADR 0001. Luvia does not vendor the UHP schema tree; live
+`uhp.capabilities.methods` is the method catalog.
 
 ### Authorization
 

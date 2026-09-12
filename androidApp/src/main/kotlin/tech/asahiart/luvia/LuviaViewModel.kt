@@ -417,7 +417,18 @@ class LuviaViewModel(
         if (keys.isEmpty()) return
         updateAgentPane(hostId, paneId) { it.copy(sending = true, errorText = null) }
         viewModelScope.launch {
-            when (val result = session.sendAgentKeys(paneId, keys)) {
+            val fence = state.agentDetail.transcript
+            val canFence =
+                fence?.contentRevision != null && !fence.terminalId.isNullOrBlank()
+            when (
+                val result =
+                    session.sendAgentKeys(
+                        paneId,
+                        keys,
+                        ifContentRevision = if (canFence) fence.contentRevision else null,
+                        terminalId = if (canFence) fence.terminalId else null,
+                    )
+            ) {
                 is Outcome.Ok -> {
                     updateAgentPane(hostId, paneId) { it.copy(sending = false, unconfirmed = null) }
                     loadAgentDetail(hostId, paneId)
@@ -1137,6 +1148,8 @@ internal fun Failure.toUserMessage(): String {
         is Failure.TerminalGone -> message
         is Failure.ResyncRequired -> message
         is Failure.RevisionConflict -> message
+        is Failure.ContentRevisionConflict ->
+            "The agent screen changed. Refresh and send the keys again."
         is Failure.AgentPromptBusy -> "The agent is still handling a previous message. Wait for it to finish."
         is Failure.FrameTooLarge -> message
         is Failure.ServerBusy -> message
