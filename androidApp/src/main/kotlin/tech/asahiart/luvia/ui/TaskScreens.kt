@@ -40,9 +40,12 @@ fun TasksSection(
     onRefresh: () -> Unit,
     onAddTask: (title: String, paths: List<String>) -> Unit,
     onCompleteTask: (String) -> Unit,
+    onClaimTask: (String) -> Unit = {},
+    onDeleteTask: (String) -> Unit = {},
     onCheckUnconfirmed: () -> Unit,
     onShowAddChange: (Boolean) -> Unit,
     onCompleteIdChange: (String?) -> Unit,
+    onDeleteIdChange: (String?) -> Unit = {},
     onAddDraftChange: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -59,9 +62,12 @@ fun TasksSection(
                 onRefresh = onRefresh,
                 onAddTask = onAddTask,
                 onCompleteTask = onCompleteTask,
+                onClaimTask = onClaimTask,
+                onDeleteTask = onDeleteTask,
                 onCheckUnconfirmed = onCheckUnconfirmed,
                 onShowAddChange = onShowAddChange,
                 onCompleteIdChange = onCompleteIdChange,
+                onDeleteIdChange = onDeleteIdChange,
                 onAddDraftChange = onAddDraftChange,
                 modifier = modifier,
             )
@@ -75,14 +81,18 @@ private fun TaskListPane(
     onRefresh: () -> Unit,
     onAddTask: (title: String, paths: List<String>) -> Unit,
     onCompleteTask: (String) -> Unit,
+    onClaimTask: (String) -> Unit,
+    onDeleteTask: (String) -> Unit,
     onCheckUnconfirmed: () -> Unit,
     onShowAddChange: (Boolean) -> Unit,
     onCompleteIdChange: (String?) -> Unit,
+    onDeleteIdChange: (String?) -> Unit,
     onAddDraftChange: (String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val showAdd = state.tasks.showAdd
     val completeId = state.tasks.completeId
+    val deleteId = state.tasks.deleteId
     val grouped = state.tasks.tasks.groupBy { it.status.ifBlank { "unknown" } }
     PullToRefreshBox(
         isRefreshing = state.tasks.loading,
@@ -147,8 +157,17 @@ private fun TaskListPane(
                             state.capabilities.taskDone &&
                             state.tasks.unconfirmed == null &&
                             task.isCompletable(),
+                        canClaim = state.canMutate &&
+                            state.capabilities.taskClaim &&
+                            state.tasks.unconfirmed == null &&
+                            task.isClaimable(),
+                        canDelete = state.canMutate &&
+                            state.capabilities.taskDelete &&
+                            state.tasks.unconfirmed == null,
                         completing = state.tasks.mutating,
                         onComplete = { onCompleteIdChange(task.id) },
+                        onClaim = { onClaimTask(task.id) },
+                        onDelete = { onDeleteIdChange(task.id) },
                     )
                 }
             }
@@ -186,14 +205,37 @@ private fun TaskListPane(
             },
         )
     }
+    deleteId?.let { id ->
+        val title = state.tasks.tasks.firstOrNull { it.id == id }?.title ?: id
+        AlertDialog(
+            onDismissRequest = { onDeleteIdChange(null) },
+            title = { Text("Delete Task?") },
+            text = { Text("Delete \"$title\" from the Host. This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteIdChange(null)
+                        onDeleteTask(id)
+                    },
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { onDeleteIdChange(null) }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 @Composable
 private fun TaskRow(
     task: TaskSummary,
     canComplete: Boolean,
+    canClaim: Boolean,
+    canDelete: Boolean,
     completing: Boolean,
     onComplete: () -> Unit,
+    onClaim: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -210,8 +252,16 @@ private fun TaskRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (canComplete) {
-                FilledTonalButton(onClick = onComplete, enabled = !completing) { Text("Complete") }
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (canClaim) {
+                    FilledTonalButton(onClick = onClaim, enabled = !completing) { Text("Claim") }
+                }
+                if (canComplete) {
+                    FilledTonalButton(onClick = onComplete, enabled = !completing) { Text("Complete") }
+                }
+                if (canDelete) {
+                    TextButton(onClick = onDelete, enabled = !completing) { Text("Delete") }
+                }
             }
         }
     }
@@ -279,4 +329,9 @@ private fun AddTaskSheet(
 private fun TaskSummary.isCompletable(): Boolean {
     val status = status.lowercase()
     return status != "done" && status != "merged" && status != "failed"
+}
+
+private fun TaskSummary.isClaimable(): Boolean {
+    val status = status.lowercase()
+    return status == "queued" || status == "open" || status.isEmpty()
 }

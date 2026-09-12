@@ -51,6 +51,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -210,8 +211,13 @@ fun HostDetailPane(
     onUnpair: () -> Unit = {},
     sections: List<HostSection> = HostSection.entries,
     agentsContent: @Composable (Modifier) -> Unit = { EmptyPane("Agents", "Connect to this host", modifier = it) },
+    filesContent: @Composable (Modifier) -> Unit = { EmptyPane("Files", "Connect to this host", modifier = it) },
+    searchContent: @Composable (Modifier) -> Unit = { EmptyPane("Search", "Connect to this host", modifier = it) },
     reviewContent: @Composable (Modifier) -> Unit = { EmptyPane("Review", "Connect to this host", modifier = it) },
+    worktreesContent: @Composable (Modifier) -> Unit = { EmptyPane("Worktrees", "Connect to this host", modifier = it) },
+    automationsContent: @Composable (Modifier) -> Unit = { EmptyPane("Automations", "Connect to this host", modifier = it) },
     tasksContent: @Composable (Modifier) -> Unit = { EmptyPane("Tasks", "Connect to this host", modifier = it) },
+    layoutContent: @Composable (Modifier) -> Unit = { EmptyPane("Layout", "Connect to this host", modifier = it) },
     modifier: Modifier = Modifier,
 ) {
     var confirmUnpair by remember { mutableStateOf(false) }
@@ -268,7 +274,7 @@ fun HostDetailPane(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        PrimaryTabRow(selectedTabIndex = selectedIndex) {
+        val tab: @Composable () -> Unit = {
             visible.forEach { item ->
                 Tab(
                     selected = item == section,
@@ -277,10 +283,20 @@ fun HostDetailPane(
                 )
             }
         }
+        if (visible.size > 4) {
+            PrimaryScrollableTabRow(selectedTabIndex = selectedIndex, edgePadding = 12.dp, tabs = tab)
+        } else {
+            PrimaryTabRow(selectedTabIndex = selectedIndex, tabs = tab)
+        }
         when (section) {
             HostSection.Agents -> agentsContent(Modifier.weight(1f))
+            HostSection.Files -> filesContent(Modifier.weight(1f))
+            HostSection.Search -> searchContent(Modifier.weight(1f))
             HostSection.Review -> reviewContent(Modifier.weight(1f))
+            HostSection.Worktrees -> worktreesContent(Modifier.weight(1f))
+            HostSection.Automations -> automationsContent(Modifier.weight(1f))
             HostSection.Tasks -> tasksContent(Modifier.weight(1f))
+            HostSection.Layout -> layoutContent(Modifier.weight(1f))
             HostSection.Terminal -> if (terminal == null) {
                 EmptyPane("Terminal unavailable", "Select a live pane to observe or request control.", modifier = Modifier.weight(1f))
             } else {

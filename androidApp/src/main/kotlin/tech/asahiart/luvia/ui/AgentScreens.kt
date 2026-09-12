@@ -64,6 +64,13 @@ fun AgentsSection(
     onDraftChange: (String) -> Unit,
     onSendKeys: (List<AgentKey>) -> Unit,
     onCheckUnconfirmed: () -> Unit,
+    onResumeSession: (String) -> Unit = {},
+    onShowNameChange: (Boolean) -> Unit = {},
+    onNameDraftChange: (String) -> Unit = {},
+    onNameAgent: () -> Unit = {},
+    onShowForkChange: (Boolean) -> Unit = {},
+    onForkDraftChange: (String) -> Unit = {},
+    onForkAgent: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     when {
@@ -84,6 +91,12 @@ fun AgentsSection(
                 onDraftChange = onDraftChange,
                 onSendKeys = onSendKeys,
                 onCheckUnconfirmed = onCheckUnconfirmed,
+                onShowNameChange = onShowNameChange,
+                onNameDraftChange = onNameDraftChange,
+                onNameAgent = onNameAgent,
+                onShowForkChange = onShowForkChange,
+                onForkDraftChange = onForkDraftChange,
+                onForkAgent = onForkAgent,
                 modifier = modifier,
             )
         }
@@ -94,6 +107,7 @@ fun AgentsSection(
                 onRefresh = onRefresh,
                 onOpenAgent = onOpenAgent,
                 onCheckUnconfirmed = onCheckUnconfirmed,
+                onResumeSession = onResumeSession,
                 modifier = modifier,
             )
         }
@@ -107,6 +121,7 @@ fun AgentListPane(
     onRefresh: () -> Unit,
     onOpenAgent: (String) -> Unit,
     onCheckUnconfirmed: () -> Unit,
+    onResumeSession: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     PullToRefreshBox(
@@ -145,6 +160,24 @@ fun AgentListPane(
             } else {
                 items(state.agents, key = { it.paneId }) { agent ->
                     AgentRow(agent = agent, onClick = { onOpenAgent(agent.paneId) })
+                }
+            }
+            if (state.agentSessions.isNotEmpty()) {
+                item {
+                    Text(
+                        "Resumable sessions",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                items(state.agentSessions, key = { it.sessionId }) { session ->
+                    AgentSessionRow(
+                        sessionId = session.sessionId,
+                        agent = session.agent,
+                        cwd = session.cwd,
+                        canResume = state.canMutate && state.capabilities.agentResume,
+                        onResume = { onResumeSession(session.sessionId) },
+                    )
                 }
             }
         }
@@ -291,6 +324,12 @@ fun AgentDetailPane(
     onDraftChange: (String) -> Unit,
     onSendKeys: (List<AgentKey>) -> Unit,
     onCheckUnconfirmed: () -> Unit,
+    onShowNameChange: (Boolean) -> Unit = {},
+    onNameDraftChange: (String) -> Unit = {},
+    onNameAgent: () -> Unit = {},
+    onShowForkChange: (Boolean) -> Unit = {},
+    onForkDraftChange: (String) -> Unit = {},
+    onForkAgent: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val detail = state.agentDetail
@@ -352,6 +391,21 @@ fun AgentDetailPane(
                 }
             }
             FilledTonalButton(onClick = onRefresh) { Text("Refresh") }
+        }
+        val canName = state.canMutate && state.capabilities.agentName && !mutationPending
+        val canFork = state.canMutate && state.capabilities.agentFork && !mutationPending
+        if (canName || canFork) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (canName) {
+                    FilledTonalButton(onClick = { onShowNameChange(true) }) { Text("Name") }
+                }
+                if (canFork) {
+                    FilledTonalButton(onClick = { onShowForkChange(true) }) { Text("Fork") }
+                }
+            }
         }
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -497,6 +551,54 @@ fun AgentDetailPane(
             )
         }
     }
+    if (detail.showName) {
+        AlertDialog(
+            onDismissRequest = { onShowNameChange(false) },
+            title = { Text("Name Agent") },
+            text = {
+                OutlinedTextField(
+                    value = detail.nameDraft,
+                    onValueChange = onNameDraftChange,
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = detail.nameDraft.isNotBlank() && !mutationPending,
+                    onClick = onNameAgent,
+                ) { Text("Name") }
+            },
+            dismissButton = {
+                TextButton(onClick = { onShowNameChange(false) }) { Text("Cancel") }
+            },
+        )
+    }
+    if (detail.showFork) {
+        AlertDialog(
+            onDismissRequest = { onShowForkChange(false) },
+            title = { Text("Fork Agent?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Create a forked Agent from this pane.")
+                    OutlinedTextField(
+                        value = detail.forkDraft,
+                        onValueChange = onForkDraftChange,
+                        label = { Text("Name (optional)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !mutationPending, onClick = onForkAgent) { Text("Fork") }
+            },
+            dismissButton = {
+                TextButton(onClick = { onShowForkChange(false) }) { Text("Cancel") }
+            },
+        )
+    }
     pendingKeys?.let { pending ->
         AlertDialog(
             onDismissRequest = { pendingKeys = null },
@@ -549,6 +651,8 @@ internal fun UnconfirmedBanner(kind: UnconfirmedKind, onCheck: () -> Unit) {
                     UnconfirmedKind.SendNotes -> "Send notes Unconfirmed"
                     UnconfirmedKind.AddTask -> "Add Task Unconfirmed"
                     UnconfirmedKind.CompleteTask -> "Complete Task Unconfirmed"
+                    UnconfirmedKind.ClaimTask -> "Claim Task Unconfirmed"
+                    UnconfirmedKind.DeleteTask -> "Delete Task Unconfirmed"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
@@ -582,6 +686,52 @@ internal fun UhpEmptyPane(
             Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (action != null && onAction != null) {
                 Button(onClick = onAction) { Text(action) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentSessionRow(
+    sessionId: String,
+    agent: String,
+    cwd: String,
+    canResume: Boolean,
+    onResume: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    agent.ifBlank { "Session" },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    sessionId,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (cwd.isNotBlank()) {
+                    Text(
+                        cwd,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (canResume) {
+                FilledTonalButton(onClick = onResume) { Text("Resume") }
             }
         }
     }

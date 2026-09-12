@@ -219,8 +219,16 @@ class LuviaViewModel(
     fun showSection(hostId: String, section: HostSection) {
         when (section) {
             HostSection.Agents -> loadAgents(hostId)
+            HostSection.Files -> loadFiles(hostId)
+            HostSection.Search -> {
+                val query = _uhp.value[hostId]?.search?.query
+                if (!query.isNullOrBlank()) querySearch(hostId)
+            }
             HostSection.Review -> loadDiff(hostId)
+            HostSection.Worktrees -> loadWorktrees(hostId)
+            HostSection.Automations -> loadAutomations(hostId)
             HostSection.Tasks -> loadTasks(hostId)
+            HostSection.Layout -> loadLayout(hostId)
             HostSection.Terminal -> Unit
         }
     }
@@ -279,12 +287,21 @@ class LuviaViewModel(
             } else {
                 null
             }
+            val sessions = if (session.supports(UhpMethods.AGENT_SESSIONS)) {
+                when (val result = session.listAgentSessions()) {
+                    is Outcome.Ok -> result.value
+                    is Outcome.Err -> emptyList()
+                }
+            } else {
+                emptyList()
+            }
             updateHost(hostId) { current ->
                 val agents = listed.ifEmpty { snapshotAgents }.ifEmpty { current.agents }
                 val openPane = current.agentDetail.paneId
                 current.copy(
                     loading = false,
                     agents = agents,
+                    agentSessions = sessions,
                     mission = mission ?: current.mission,
                     capabilities = session.toCaps(),
                     agentDetail = current.agentDetail.copy(
@@ -380,6 +397,65 @@ class LuviaViewModel(
 
     fun setAddTaskDraft(hostId: String, title: String, paths: String) {
         updateHost(hostId) { it.copy(tasks = it.tasks.copy(addTitle = title, addPaths = paths)) }
+    }
+
+    fun setDeleteTaskId(hostId: String, id: String?) {
+        updateHost(hostId) { it.copy(tasks = it.tasks.copy(deleteId = id)) }
+    }
+
+    fun setShowNameAgent(hostId: String, show: Boolean) {
+        updateHost(hostId) {
+            it.copy(agentDetail = it.agentDetail.copy(showName = show, nameDraft = if (show) it.agentDetail.nameDraft else ""))
+        }
+    }
+
+    fun setNameAgentDraft(hostId: String, text: String) {
+        updateHost(hostId) { it.copy(agentDetail = it.agentDetail.copy(nameDraft = text)) }
+    }
+
+    fun setShowForkAgent(hostId: String, show: Boolean) {
+        updateHost(hostId) {
+            it.copy(agentDetail = it.agentDetail.copy(showFork = show, forkDraft = if (show) it.agentDetail.forkDraft else ""))
+        }
+    }
+
+    fun setForkAgentDraft(hostId: String, text: String) {
+        updateHost(hostId) { it.copy(agentDetail = it.agentDetail.copy(forkDraft = text)) }
+    }
+
+    fun setSearchQuery(hostId: String, query: String) {
+        updateHost(hostId) { it.copy(search = it.search.copy(query = query)) }
+    }
+
+    fun setShowCreateWorktree(hostId: String, show: Boolean) {
+        updateHost(hostId) {
+            it.copy(
+                worktrees = when {
+                    show -> it.worktrees.copy(showCreate = true)
+                    else -> it.worktrees.copy(showCreate = false, createBranch = "")
+                },
+            )
+        }
+    }
+
+    fun setCreateWorktreeBranch(hostId: String, branch: String) {
+        updateHost(hostId) { it.copy(worktrees = it.worktrees.copy(createBranch = branch)) }
+    }
+
+    fun setRemoveWorktreePath(hostId: String, path: String?) {
+        updateHost(hostId) { it.copy(worktrees = it.worktrees.copy(removePath = path)) }
+    }
+
+    fun setCloseWorkspace(hostId: String, index: Int?) {
+        updateHost(hostId) { it.copy(layout = it.layout.copy(closeWorkspace = index)) }
+    }
+
+    fun setClosePane(hostId: String, pane: String?) {
+        updateHost(hostId) { it.copy(layout = it.layout.copy(closePane = pane)) }
+    }
+
+    fun setRenamePane(hostId: String, pane: String?, draft: String) {
+        updateHost(hostId) { it.copy(layout = it.layout.copy(renamePane = pane, renameDraft = draft)) }
     }
 
     fun promptAgent(hostId: String, text: String) {
@@ -741,6 +817,319 @@ class LuviaViewModel(
         }
     }
 
+    fun claimTask(hostId: String, taskId: String) {
+        mutateTask(hostId, taskId, UhpMethods.TASK_CLAIM, UnconfirmedKind.ClaimTask) { session, ifRevision ->
+            session.claimTask(taskId, ifRevision = ifRevision)
+        }
+    }
+
+    fun deleteTask(hostId: String, taskId: String) {
+        mutateTask(hostId, taskId, UhpMethods.TASK_DELETE, UnconfirmedKind.DeleteTask) { session, ifRevision ->
+            session.deleteTask(taskId, ifRevision = ifRevision)
+        }
+    }
+
+    fun resumeAgent(hostId: String, sessionId: String) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || !session.supports(UhpMethods.AGENT_RESUME)) return
+        if (sessionId.isBlank()) return
+        updateHost(hostId) { it.copy(loading = true, errorText = null) }
+        viewModelScope.launch {
+            when (val result = session.resumeAgent(sessionId)) {
+                is Outcome.Ok -> {
+                    updateHost(hostId) { it.copy(loading = false, errorText = null) }
+                    loadAgents(hostId)
+                }
+                is Outcome.Err -> updateHost(hostId) {
+                    it.copy(loading = false, errorText = result.failure.toUserMessage())
+                }
+            }
+        }
+    }
+
+    fun nameAgent(hostId: String) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        val paneId = state.agentDetail.paneId ?: return
+        if (!state.canMutate || state.agentDetail.sending || !session.supports(UhpMethods.AGENT_NAME)) return
+        val name = state.agentDetail.nameDraft.trim()
+        if (name.isEmpty()) return
+        updateAgentPane(hostId, paneId) { it.copy(sending = true, errorText = null) }
+        viewModelScope.launch {
+            when (val result = session.nameAgent(pane = paneId, name = name)) {
+                is Outcome.Ok -> {
+                    updateAgentPane(hostId, paneId) {
+                        it.copy(sending = false, showName = false, nameDraft = "")
+                    }
+                    loadAgentDetail(hostId, paneId)
+                    loadAgents(hostId)
+                }
+                is Outcome.Err -> updateAgentPane(hostId, paneId) {
+                    it.copy(sending = false, errorText = result.failure.toUserMessage())
+                }
+            }
+        }
+    }
+
+    fun forkAgent(hostId: String) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        val paneId = state.agentDetail.paneId ?: return
+        if (!state.canMutate || state.agentDetail.sending || !session.supports(UhpMethods.AGENT_FORK)) return
+        val name = state.agentDetail.forkDraft.trim().ifBlank { null }
+        updateAgentPane(hostId, paneId) { it.copy(sending = true, errorText = null) }
+        viewModelScope.launch {
+            when (val result = session.forkAgent(target = paneId, name = name)) {
+                is Outcome.Ok -> {
+                    updateAgentPane(hostId, paneId) {
+                        it.copy(sending = false, showFork = false, forkDraft = "")
+                    }
+                    loadAgents(hostId)
+                }
+                is Outcome.Err -> updateAgentPane(hostId, paneId) {
+                    it.copy(sending = false, errorText = result.failure.toUserMessage())
+                }
+            }
+        }
+    }
+
+    fun loadFiles(hostId: String) {
+        viewModelScope.launch { refreshFilesTree(hostId, invalidate = false) }
+    }
+
+    fun refreshFiles(hostId: String) {
+        viewModelScope.launch { refreshFilesTree(hostId, invalidate = true) }
+    }
+
+    fun openFile(hostId: String, path: String) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || !session.supports(UhpMethods.FILES_OPEN) || path.isBlank()) return
+        updateHost(hostId) { it.copy(files = it.files.copy(mutating = true, errorText = null)) }
+        viewModelScope.launch {
+            when (val result = session.openFile(path, FileOpenTarget.TAB)) {
+                is Outcome.Ok -> updateHost(hostId) { it.copy(files = it.files.copy(mutating = false)) }
+                is Outcome.Err -> updateHost(hostId) {
+                    it.copy(files = it.files.copy(mutating = false, errorText = result.failure.toUserMessage()))
+                }
+            }
+        }
+    }
+
+    fun revealFile(hostId: String, path: String) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || !session.supports(UhpMethods.FILES_REVEAL) || path.isBlank()) return
+        updateHost(hostId) { it.copy(files = it.files.copy(mutating = true, errorText = null)) }
+        viewModelScope.launch {
+            when (val result = session.revealFile(path)) {
+                is Outcome.Ok -> updateHost(hostId) { it.copy(files = it.files.copy(mutating = false)) }
+                is Outcome.Err -> updateHost(hostId) {
+                    it.copy(files = it.files.copy(mutating = false, errorText = result.failure.toUserMessage()))
+                }
+            }
+        }
+    }
+
+    fun querySearch(hostId: String) {
+        viewModelScope.launch { runSearch(hostId) }
+    }
+
+    fun activateSearch(hostId: String, matchId: String) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || !session.supports(UhpMethods.SEARCH_ACTIVATE)) return
+        val match = state.search.matches.firstOrNull { it.id == matchId } ?: return
+        val kind = searchKind(match.kind) ?: return
+        updateHost(hostId) { it.copy(search = it.search.copy(loading = true, errorText = null)) }
+        viewModelScope.launch {
+            when (val result = session.activateSearch(kind, match.target)) {
+                is Outcome.Ok -> updateHost(hostId) { it.copy(search = it.search.copy(loading = false)) }
+                is Outcome.Err -> updateHost(hostId) {
+                    it.copy(search = it.search.copy(loading = false, errorText = result.failure.toUserMessage()))
+                }
+            }
+        }
+    }
+
+    fun loadWorktrees(hostId: String) {
+        viewModelScope.launch { refreshWorktrees(hostId) }
+    }
+
+    fun createWorktree(hostId: String) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || state.worktrees.mutating || !session.supports(UhpMethods.WORKTREE_CREATE)) return
+        val branch = state.worktrees.createBranch.trim()
+        if (branch.isEmpty()) return
+        updateHost(hostId) { it.copy(worktrees = it.worktrees.copy(mutating = true, errorText = null)) }
+        viewModelScope.launch {
+            when (val result = session.createWorktree(branch)) {
+                is Outcome.Ok -> {
+                    updateHost(hostId) {
+                        it.copy(worktrees = it.worktrees.copy(mutating = false, showCreate = false, createBranch = ""))
+                    }
+                    refreshWorktrees(hostId)
+                }
+                is Outcome.Err -> updateHost(hostId) {
+                    it.copy(worktrees = it.worktrees.copy(mutating = false, errorText = result.failure.toUserMessage()))
+                }
+            }
+        }
+    }
+
+    fun openWorktree(hostId: String, path: String) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || !session.supports(UhpMethods.WORKTREE_OPEN) || path.isBlank()) return
+        updateHost(hostId) { it.copy(worktrees = it.worktrees.copy(mutating = true, errorText = null)) }
+        viewModelScope.launch {
+            when (val result = session.openWorktree(path)) {
+                is Outcome.Ok -> {
+                    updateHost(hostId) { it.copy(worktrees = it.worktrees.copy(mutating = false)) }
+                    refreshWorktrees(hostId)
+                }
+                is Outcome.Err -> updateHost(hostId) {
+                    it.copy(worktrees = it.worktrees.copy(mutating = false, errorText = result.failure.toUserMessage()))
+                }
+            }
+        }
+    }
+
+    fun removeWorktree(hostId: String, path: String) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || !session.supports(UhpMethods.WORKTREE_REMOVE) || path.isBlank()) return
+        updateHost(hostId) { it.copy(worktrees = it.worktrees.copy(mutating = true, errorText = null)) }
+        viewModelScope.launch {
+            when (val result = session.removeWorktree(path)) {
+                is Outcome.Ok -> {
+                    updateHost(hostId) { it.copy(worktrees = it.worktrees.copy(mutating = false, removePath = null)) }
+                    refreshWorktrees(hostId)
+                }
+                is Outcome.Err -> updateHost(hostId) {
+                    it.copy(worktrees = it.worktrees.copy(mutating = false, errorText = result.failure.toUserMessage()))
+                }
+            }
+        }
+    }
+
+    fun loadAutomations(hostId: String) {
+        viewModelScope.launch { refreshAutomations(hostId) }
+    }
+
+    fun enableAutomation(hostId: String, id: String) {
+        mutateAutomation(hostId, id, UhpMethods.AUTOMATION_ENABLE) { it.enableAutomation(id) }
+    }
+
+    fun disableAutomation(hostId: String, id: String) {
+        mutateAutomation(hostId, id, UhpMethods.AUTOMATION_DISABLE) { it.disableAutomation(id) }
+    }
+
+    fun runAutomation(hostId: String, id: String) {
+        mutateAutomation(hostId, id, UhpMethods.AUTOMATION_RUN) { it.runAutomation(id) }
+    }
+
+    fun loadLayout(hostId: String) {
+        viewModelScope.launch { refreshLayout(hostId) }
+    }
+
+    fun focusWorkspace(hostId: String, index: Int) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || !session.supports(UhpMethods.WORKSPACE_FOCUS)) return
+        updateHost(hostId) { it.copy(layout = it.layout.copy(mutating = true, errorText = null)) }
+        viewModelScope.launch {
+            when (val result = session.focusWorkspace(index)) {
+                is Outcome.Ok -> {
+                    updateHost(hostId) { it.copy(layout = it.layout.copy(mutating = false)) }
+                    refreshLayout(hostId)
+                }
+                is Outcome.Err -> updateHost(hostId) {
+                    it.copy(layout = it.layout.copy(mutating = false, errorText = result.failure.toUserMessage()))
+                }
+            }
+        }
+    }
+
+    fun closeWorkspace(hostId: String, index: Int) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || !session.supports(UhpMethods.WORKSPACE_CLOSE)) return
+        updateHost(hostId) { it.copy(layout = it.layout.copy(mutating = true, errorText = null)) }
+        viewModelScope.launch {
+            when (val result = session.closeWorkspace(index)) {
+                is Outcome.Ok -> {
+                    updateHost(hostId) { it.copy(layout = it.layout.copy(mutating = false, closeWorkspace = null)) }
+                    refreshLayout(hostId)
+                }
+                is Outcome.Err -> updateHost(hostId) {
+                    it.copy(layout = it.layout.copy(mutating = false, errorText = result.failure.toUserMessage()))
+                }
+            }
+        }
+    }
+
+    fun focusPane(hostId: String, pane: String) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || !session.supports(UhpMethods.PANE_FOCUS) || pane.isBlank()) return
+        updateHost(hostId) { it.copy(layout = it.layout.copy(mutating = true, errorText = null)) }
+        viewModelScope.launch {
+            when (val result = session.focusPane(pane)) {
+                is Outcome.Ok -> {
+                    updateHost(hostId) { it.copy(layout = it.layout.copy(mutating = false)) }
+                    refreshLayout(hostId)
+                }
+                is Outcome.Err -> updateHost(hostId) {
+                    it.copy(layout = it.layout.copy(mutating = false, errorText = result.failure.toUserMessage()))
+                }
+            }
+        }
+    }
+
+    fun closePane(hostId: String, pane: String) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || !session.supports(UhpMethods.PANE_CLOSE) || pane.isBlank()) return
+        updateHost(hostId) { it.copy(layout = it.layout.copy(mutating = true, errorText = null)) }
+        viewModelScope.launch {
+            when (val result = session.closePane(pane)) {
+                is Outcome.Ok -> {
+                    updateHost(hostId) { it.copy(layout = it.layout.copy(mutating = false, closePane = null)) }
+                    refreshLayout(hostId)
+                }
+                is Outcome.Err -> updateHost(hostId) {
+                    it.copy(layout = it.layout.copy(mutating = false, errorText = result.failure.toUserMessage()))
+                }
+            }
+        }
+    }
+
+    fun renamePane(hostId: String) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        val pane = state.layout.renamePane ?: return
+        if (!state.canMutate || !session.supports(UhpMethods.PANE_RENAME)) return
+        val name = state.layout.renameDraft.trim()
+        if (name.isEmpty()) return
+        updateHost(hostId) { it.copy(layout = it.layout.copy(mutating = true, errorText = null)) }
+        viewModelScope.launch {
+            when (val result = session.renamePane(name = name, pane = pane)) {
+                is Outcome.Ok -> {
+                    updateHost(hostId) {
+                        it.copy(layout = it.layout.copy(mutating = false, renamePane = null, renameDraft = ""))
+                    }
+                    refreshLayout(hostId)
+                }
+                is Outcome.Err -> updateHost(hostId) {
+                    it.copy(layout = it.layout.copy(mutating = false, errorText = result.failure.toUserMessage()))
+                }
+            }
+        }
+    }
+
     fun checkTasks(hostId: String) {
         val taskId = _uhp.value[hostId]?.tasks?.unconfirmedTaskId
         viewModelScope.launch {
@@ -1075,6 +1464,275 @@ class LuviaViewModel(
         }
     }
 
+    private fun mutateTask(
+        hostId: String,
+        taskId: String,
+        method: String,
+        kind: UnconfirmedKind,
+        call: suspend (LuviaSession, Long?) -> Outcome<TaskMutationResult>,
+    ) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || state.tasks.mutating || state.tasks.unconfirmed != null) return
+        if (!session.supports(method)) return
+        updateHost(hostId) { it.copy(tasks = it.tasks.copy(mutating = true, errorText = null, boardChanged = false)) }
+        viewModelScope.launch {
+            var ifRevision = _uhp.value[hostId]?.tasks?.revisions?.get(taskId)
+            if (ifRevision == null && session.supports(UhpMethods.TASK_GET)) {
+                when (val got = session.getTask(taskId)) {
+                    is Outcome.Ok -> {
+                        ifRevision = got.value.revision
+                        updateHost(hostId) { current ->
+                            current.copy(
+                                tasks = current.tasks.copy(
+                                    boardRevision = got.value.revision ?: current.tasks.boardRevision,
+                                    revisions = current.tasks.revisions + (taskId to (got.value.revision ?: 0L)),
+                                ),
+                            )
+                        }
+                    }
+                    is Outcome.Err -> {
+                        applyTaskMutationFailure(hostId, kind, taskId, got.failure)
+                        return@launch
+                    }
+                }
+            }
+            when (val result = call(session, ifRevision)) {
+                is Outcome.Ok -> {
+                    updateHost(hostId) { current ->
+                        current.copy(
+                            tasks = current.tasks.copy(
+                                mutating = false,
+                                unconfirmed = null,
+                                unconfirmedTaskId = null,
+                                boardRevision = result.value.revision ?: current.tasks.boardRevision,
+                                deleteId = null,
+                                revisions = current.tasks.revisions + (taskId to (result.value.revision ?: current.tasks.revisions[taskId] ?: 0L)),
+                            ),
+                        )
+                    }
+                    loadTasks(hostId)
+                }
+                is Outcome.Err -> applyTaskMutationFailure(hostId, kind, taskId, result.failure)
+            }
+        }
+    }
+
+    private suspend fun refreshFilesTree(hostId: String, invalidate: Boolean) {
+        val session = manager.session(hostId)
+        if (session == null) {
+            updateHost(hostId) {
+                it.copy(connected = false, files = it.files.copy(loading = false, errorText = "Not connected to this host."))
+            }
+            return
+        }
+        if (!session.supports(UhpMethods.FILES_TREE)) return
+        val canInvalidate = invalidate &&
+            (_uhp.value[hostId]?.canMutate == true) &&
+            session.supports(UhpMethods.FILES_REFRESH)
+        updateHost(hostId) { it.copy(connected = true, files = it.files.copy(loading = true, errorText = null)) }
+        if (canInvalidate) {
+            when (val refreshed = session.refreshFiles()) {
+                is Outcome.Ok -> Unit
+                is Outcome.Err -> {
+                    updateHost(hostId) {
+                        it.copy(files = it.files.copy(loading = false, errorText = refreshed.failure.toUserMessage()))
+                    }
+                    return
+                }
+            }
+        }
+        when (val result = session.fileTree()) {
+            is Outcome.Ok -> updateHost(hostId) {
+                it.copy(
+                    files = it.files.copy(
+                        root = result.value.root,
+                        rows = result.value.rows,
+                        loading = false,
+                        mutating = false,
+                    ),
+                )
+            }
+            is Outcome.Err -> updateHost(hostId) {
+                it.copy(files = it.files.copy(loading = false, errorText = result.failure.toUserMessage()))
+            }
+        }
+    }
+
+    private suspend fun runSearch(hostId: String) {
+        val session = manager.session(hostId)
+        if (session == null) {
+            updateHost(hostId) {
+                it.copy(connected = false, search = it.search.copy(loading = false, errorText = "Not connected to this host."))
+            }
+            return
+        }
+        if (!session.supports(UhpMethods.SEARCH_QUERY)) return
+        val query = _uhp.value[hostId]?.search?.query?.trim().orEmpty()
+        if (query.isEmpty()) return
+        updateHost(hostId) {
+            it.copy(connected = true, search = it.search.copy(loading = true, errorText = null, searched = true))
+        }
+        when (val result = session.querySearch(query)) {
+            is Outcome.Ok -> updateHost(hostId) {
+                it.copy(
+                    search = it.search.copy(
+                        result = result.value,
+                        matches = result.value.matches,
+                        loading = false,
+                        errorText = null,
+                        searched = true,
+                    ),
+                )
+            }
+            is Outcome.Err -> updateHost(hostId) {
+                it.copy(
+                    search = it.search.copy(
+                        loading = false,
+                        errorText = result.failure.toUserMessage(),
+                        searched = true,
+                        matches = emptyList(),
+                        result = null,
+                    ),
+                )
+            }
+        }
+    }
+
+    private suspend fun refreshWorktrees(hostId: String) {
+        val session = manager.session(hostId)
+        if (session == null) {
+            updateHost(hostId) {
+                it.copy(connected = false, worktrees = it.worktrees.copy(loading = false, errorText = "Not connected to this host."))
+            }
+            return
+        }
+        if (!session.supports(UhpMethods.WORKTREE_LIST)) return
+        updateHost(hostId) { it.copy(connected = true, worktrees = it.worktrees.copy(loading = true, errorText = null)) }
+        when (val result = session.listWorktrees()) {
+            is Outcome.Ok -> updateHost(hostId) {
+                it.copy(worktrees = it.worktrees.copy(worktrees = result.value, loading = false, mutating = false))
+            }
+            is Outcome.Err -> updateHost(hostId) {
+                it.copy(worktrees = it.worktrees.copy(loading = false, errorText = result.failure.toUserMessage()))
+            }
+        }
+    }
+
+    private suspend fun refreshAutomations(hostId: String) {
+        val session = manager.session(hostId)
+        if (session == null) {
+            updateHost(hostId) {
+                it.copy(
+                    connected = false,
+                    automations = it.automations.copy(loading = false, errorText = "Not connected to this host."),
+                )
+            }
+            return
+        }
+        if (!session.supports(UhpMethods.AUTOMATION_LIST)) return
+        updateHost(hostId) { it.copy(connected = true, automations = it.automations.copy(loading = true, errorText = null)) }
+        val listed = when (val result = session.listAutomations()) {
+            is Outcome.Ok -> result.value
+            is Outcome.Err -> {
+                updateHost(hostId) {
+                    it.copy(automations = it.automations.copy(loading = false, errorText = result.failure.toUserMessage()))
+                }
+                return
+            }
+        }
+        val health = if (session.supports(UhpMethods.AUTOMATION_HEALTH)) {
+            when (val result = session.automationHealth()) {
+                is Outcome.Ok -> result.value
+                is Outcome.Err -> null
+            }
+        } else {
+            null
+        }
+        updateHost(hostId) {
+            it.copy(
+                automations = it.automations.copy(
+                    automations = listed,
+                    health = health ?: it.automations.health,
+                    loading = false,
+                    mutating = false,
+                ),
+            )
+        }
+    }
+
+    private fun mutateAutomation(
+        hostId: String,
+        id: String,
+        method: String,
+        call: suspend (LuviaSession) -> Outcome<*>,
+    ) {
+        val session = manager.session(hostId) ?: return
+        val state = _uhp.value[hostId] ?: return
+        if (!state.canMutate || state.automations.mutating || !session.supports(method) || id.isBlank()) return
+        updateHost(hostId) { it.copy(automations = it.automations.copy(mutating = true, errorText = null)) }
+        viewModelScope.launch {
+            when (val result = call(session)) {
+                is Outcome.Ok -> {
+                    updateHost(hostId) { it.copy(automations = it.automations.copy(mutating = false)) }
+                    refreshAutomations(hostId)
+                }
+                is Outcome.Err -> updateHost(hostId) {
+                    it.copy(automations = it.automations.copy(mutating = false, errorText = result.failure.toUserMessage()))
+                }
+            }
+        }
+    }
+
+    private suspend fun refreshLayout(hostId: String) {
+        val session = manager.session(hostId)
+        val runtime = manager.hosts.value.firstOrNull { it.profile.id == hostId }
+        if (session == null) {
+            updateHost(hostId) {
+                it.copy(connected = false, layout = it.layout.copy(loading = false, errorText = "Not connected to this host."))
+            }
+            return
+        }
+        val canListWorkspaces = session.supports(UhpMethods.WORKSPACE_LIST)
+        val canListPanes = session.supports(UhpMethods.PANE_LIST)
+        if (!canListWorkspaces && !canListPanes) return
+        updateHost(hostId) { it.copy(connected = true, layout = it.layout.copy(loading = true, errorText = null)) }
+        var error: String? = null
+        val workspaces = if (canListWorkspaces) {
+            when (val result = session.listWorkspaces()) {
+                is Outcome.Ok -> result.value
+                is Outcome.Err -> {
+                    error = result.failure.toUserMessage()
+                    runtime?.snapshot?.workspaces.orEmpty()
+                }
+            }
+        } else {
+            runtime?.snapshot?.workspaces.orEmpty()
+        }
+        val panes = if (canListPanes) {
+            when (val result = session.listPanes()) {
+                is Outcome.Ok -> result.value.panes
+                is Outcome.Err -> {
+                    error = error ?: result.failure.toUserMessage()
+                    emptyList()
+                }
+            }
+        } else {
+            emptyList()
+        }
+        updateHost(hostId) {
+            it.copy(
+                layout = it.layout.copy(
+                    workspaces = workspaces,
+                    panes = panes,
+                    loading = false,
+                    mutating = false,
+                    errorText = error,
+                ),
+            )
+        }
+    }
+
     class Factory(private val context: Context) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -1187,7 +1845,48 @@ private fun LuviaSession.toCaps(): HostCapabilitiesUi = HostCapabilitiesUi(
     taskAdd = supports(UhpMethods.TASK_ADD),
     taskDone = supports(UhpMethods.TASK_DONE),
     taskGet = supports(UhpMethods.TASK_GET),
+    taskClaim = supports(UhpMethods.TASK_CLAIM),
+    taskDelete = supports(UhpMethods.TASK_DELETE),
+    agentSessions = supports(UhpMethods.AGENT_SESSIONS),
+    agentResume = supports(UhpMethods.AGENT_RESUME),
+    agentFork = supports(UhpMethods.AGENT_FORK),
+    agentName = supports(UhpMethods.AGENT_NAME),
+    filesTree = supports(UhpMethods.FILES_TREE),
+    filesOpen = supports(UhpMethods.FILES_OPEN),
+    filesReveal = supports(UhpMethods.FILES_REVEAL),
+    filesRefresh = supports(UhpMethods.FILES_REFRESH),
+    searchQuery = supports(UhpMethods.SEARCH_QUERY),
+    searchActivate = supports(UhpMethods.SEARCH_ACTIVATE),
+    worktreeList = supports(UhpMethods.WORKTREE_LIST),
+    worktreeCreate = supports(UhpMethods.WORKTREE_CREATE),
+    worktreeOpen = supports(UhpMethods.WORKTREE_OPEN),
+    worktreeRemove = supports(UhpMethods.WORKTREE_REMOVE),
+    automationList = supports(UhpMethods.AUTOMATION_LIST),
+    automationEnable = supports(UhpMethods.AUTOMATION_ENABLE),
+    automationDisable = supports(UhpMethods.AUTOMATION_DISABLE),
+    automationRun = supports(UhpMethods.AUTOMATION_RUN),
+    automationHealth = supports(UhpMethods.AUTOMATION_HEALTH),
+    workspaceList = supports(UhpMethods.WORKSPACE_LIST),
+    workspaceFocus = supports(UhpMethods.WORKSPACE_FOCUS),
+    workspaceClose = supports(UhpMethods.WORKSPACE_CLOSE),
+    paneList = supports(UhpMethods.PANE_LIST),
+    paneFocus = supports(UhpMethods.PANE_FOCUS),
+    paneClose = supports(UhpMethods.PANE_CLOSE),
+    paneRename = supports(UhpMethods.PANE_RENAME),
 )
+
+
+private fun searchKind(kind: String): SearchKind? =
+    when (kind.lowercase()) {
+        "session" -> SearchKind.SESSION
+        "folder" -> SearchKind.FOLDER
+        "tab" -> SearchKind.TAB
+        "pane" -> SearchKind.PANE
+        "agent" -> SearchKind.AGENT
+        "file" -> SearchKind.FILE
+        "output" -> SearchKind.OUTPUT
+        else -> null
+    }
 
 private fun Failure.isUnconfirmed(): Boolean =
     this is Failure.IndeterminateMutation ||

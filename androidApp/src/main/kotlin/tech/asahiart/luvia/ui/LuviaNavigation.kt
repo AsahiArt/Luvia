@@ -224,6 +224,34 @@ private fun DetailNav(
                                 onDraftChange = { text -> uhpActions.setAgentDraft(route.id, text) },
                                 onSendKeys = { keys -> uhpActions.sendKeys(route.id, keys) },
                                 onCheckUnconfirmed = { uhpActions.checkAgent(route.id) },
+                                onResumeSession = { sessionId -> uhpActions.resumeAgent(route.id, sessionId) },
+                                onShowNameChange = { show -> uhpActions.setShowNameAgent(route.id, show) },
+                                onNameDraftChange = { text -> uhpActions.setNameAgentDraft(route.id, text) },
+                                onNameAgent = { uhpActions.nameAgent(route.id) },
+                                onShowForkChange = { show -> uhpActions.setShowForkAgent(route.id, show) },
+                                onForkDraftChange = { text -> uhpActions.setForkAgentDraft(route.id, text) },
+                                onForkAgent = { uhpActions.forkAgent(route.id) },
+                                modifier = modifier,
+                            )
+                        },
+                        filesContent = { modifier ->
+                            FilesSection(
+                                host = host,
+                                state = uhp,
+                                onRefresh = { uhpActions.refreshFiles(route.id) },
+                                onOpenFile = { path -> uhpActions.openFile(route.id, path) },
+                                onRevealFile = { path -> uhpActions.revealFile(route.id, path) },
+                                modifier = modifier,
+                            )
+                        },
+                        searchContent = { modifier ->
+                            SearchSection(
+                                host = host,
+                                state = uhp,
+                                onRefresh = { uhpActions.refreshSection(route.id, HostSection.Search) },
+                                onQueryChange = { query -> uhpActions.setSearchQuery(route.id, query) },
+                                onSearch = { uhpActions.querySearch(route.id) },
+                                onActivate = { matchId -> uhpActions.activateSearch(route.id, matchId) },
                                 modifier = modifier,
                             )
                         },
@@ -247,6 +275,31 @@ private fun DetailNav(
                                 modifier = modifier,
                             )
                         },
+                        worktreesContent = { modifier ->
+                            WorktreesSection(
+                                host = host,
+                                state = uhp,
+                                onRefresh = { uhpActions.refreshSection(route.id, HostSection.Worktrees) },
+                                onShowCreateChange = { show -> uhpActions.setShowCreateWorktree(route.id, show) },
+                                onCreateBranchChange = { branch -> uhpActions.setCreateWorktreeBranch(route.id, branch) },
+                                onCreate = { uhpActions.createWorktree(route.id) },
+                                onOpen = { path -> uhpActions.openWorktree(route.id, path) },
+                                onRemoveIdChange = { path -> uhpActions.setRemoveWorktreePath(route.id, path) },
+                                onRemove = { path -> uhpActions.removeWorktree(route.id, path) },
+                                modifier = modifier,
+                            )
+                        },
+                        automationsContent = { modifier ->
+                            AutomationsSection(
+                                host = host,
+                                state = uhp,
+                                onRefresh = { uhpActions.refreshSection(route.id, HostSection.Automations) },
+                                onEnable = { id -> uhpActions.enableAutomation(route.id, id) },
+                                onDisable = { id -> uhpActions.disableAutomation(route.id, id) },
+                                onRun = { id -> uhpActions.runAutomation(route.id, id) },
+                                modifier = modifier,
+                            )
+                        },
                         tasksContent = { modifier ->
                             TasksSection(
                                 host = host,
@@ -255,9 +308,28 @@ private fun DetailNav(
                                 onAddTask = { title, paths -> uhpActions.addTask(route.id, title, paths) },
                                 onShowAddChange = { show -> uhpActions.setShowAddTask(route.id, show) },
                                 onCompleteIdChange = { id -> uhpActions.setCompleteTaskId(route.id, id) },
+                                onDeleteIdChange = { id -> uhpActions.setDeleteTaskId(route.id, id) },
                                 onAddDraftChange = { title, paths -> uhpActions.setAddTaskDraft(route.id, title, paths) },
                                 onCompleteTask = { id -> uhpActions.completeTask(route.id, id) },
+                                onClaimTask = { id -> uhpActions.claimTask(route.id, id) },
+                                onDeleteTask = { id -> uhpActions.deleteTask(route.id, id) },
                                 onCheckUnconfirmed = { uhpActions.checkTasks(route.id) },
+                                modifier = modifier,
+                            )
+                        },
+                        layoutContent = { modifier ->
+                            LayoutSection(
+                                host = host,
+                                state = uhp,
+                                onRefresh = { uhpActions.refreshSection(route.id, HostSection.Layout) },
+                                onFocusWorkspace = { index -> uhpActions.focusWorkspace(route.id, index) },
+                                onCloseWorkspaceChange = { index -> uhpActions.setCloseWorkspace(route.id, index) },
+                                onCloseWorkspace = { index -> uhpActions.closeWorkspace(route.id, index) },
+                                onFocusPane = { pane -> uhpActions.focusPane(route.id, pane) },
+                                onClosePaneChange = { pane -> uhpActions.setClosePane(route.id, pane) },
+                                onClosePane = { pane -> uhpActions.closePane(route.id, pane) },
+                                onRenamePaneChange = { pane, draft -> uhpActions.setRenamePane(route.id, pane, draft) },
+                                onRenamePane = { uhpActions.renamePane(route.id) },
                                 modifier = modifier,
                             )
                         },
