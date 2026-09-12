@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -369,7 +371,9 @@ fun AgentDetailPane(
     ).joinToString(" · ")
     val cwd = detail.detail?.cwd ?: summary?.cwd
 
-    Column(modifier.fillMaxSize().imePadding()) {
+    val bottomInset = systemBottomInset()
+    Box(modifier.fillMaxSize().imePadding()) {
+        Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -485,73 +489,84 @@ fun AgentDetailPane(
                 }
             }
         }
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .systemBottomPadding(),
-        ) {
-        if (canKeys) {
-            Row(
+        }
+        if (canKeys || canPrompt) {
+            Surface(
                 modifier = Modifier
+                    .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(start = 12.dp, end = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(bottom = bottomInset),
+                color = MaterialTheme.colorScheme.surface,
             ) {
-                if (canPrompt) {
-                    AgentKeyButton("y+Enter", enabled = !mutationPending) {
-                        val action = PendingAgentAction("y+Enter", null, "y")
-                        if (blocked) pendingKeys = action else onPrompt("y")
+                Column(Modifier.fillMaxWidth()) {
+                    if (canKeys) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .horizontalScroll(rememberScrollState())
+                                .padding(start = 12.dp, end = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (canPrompt) {
+                                AgentKeyButton("y+Enter", enabled = !mutationPending) {
+                                    val action = PendingAgentAction("y+Enter", null, "y")
+                                    if (blocked) pendingKeys = action else onPrompt("y")
+                                }
+                                AgentKeyButton("n+Enter", enabled = !mutationPending) {
+                                    val action = PendingAgentAction("n+Enter", null, "n")
+                                    if (blocked) pendingKeys = action else onPrompt("n")
+                                }
+                            }
+                            AgentKeyButton("Enter", enabled = !mutationPending) {
+                                val action = PendingAgentAction("Enter", listOf(AgentKey.ENTER), null)
+                                if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
+                            }
+                            AgentKeyButton("Esc", enabled = !mutationPending) {
+                                val action = PendingAgentAction("Esc", listOf(AgentKey.ESC), null)
+                                if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
+                            }
+                            AgentKeyButton("Up", enabled = !mutationPending) {
+                                val action = PendingAgentAction("Up", listOf(AgentKey.UP), null)
+                                if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
+                            }
+                            AgentKeyButton("Down", enabled = !mutationPending) {
+                                val action = PendingAgentAction("Down", listOf(AgentKey.DOWN), null)
+                                if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
+                            }
+                            AgentKeyButton("Tab", enabled = !mutationPending) {
+                                val action = PendingAgentAction("Tab", listOf(AgentKey.TAB), null)
+                                if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
+                            }
+                            Spacer(Modifier.width(8.dp))
+                        }
                     }
-                    AgentKeyButton("n+Enter", enabled = !mutationPending) {
-                        val action = PendingAgentAction("n+Enter", null, "n")
-                        if (blocked) pendingKeys = action else onPrompt("n")
+                    if (canPrompt) {
+                        OutlinedTextField(
+                            value = draft,
+                            onValueChange = onDraftChange,
+                            placeholder = { Text("Agent prompt") },
+                            enabled = !mutationPending,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 56.dp)
+                                .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium,
+                            trailingIcon = {
+                                TextButton(
+                                    enabled = !mutationPending && draft.isNotBlank(),
+                                    onClick = {
+                                        val text = draft.trim()
+                                        onPrompt(text)
+                                    },
+                                ) { Text("Send") }
+                            },
+                        )
                     }
                 }
-                AgentKeyButton("Enter", enabled = !mutationPending) {
-                    val action = PendingAgentAction("Enter", listOf(AgentKey.ENTER), null)
-                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                }
-                AgentKeyButton("Esc", enabled = !mutationPending) {
-                    val action = PendingAgentAction("Esc", listOf(AgentKey.ESC), null)
-                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                }
-                AgentKeyButton("Up", enabled = !mutationPending) {
-                    val action = PendingAgentAction("Up", listOf(AgentKey.UP), null)
-                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                }
-                AgentKeyButton("Down", enabled = !mutationPending) {
-                    val action = PendingAgentAction("Down", listOf(AgentKey.DOWN), null)
-                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                }
-                AgentKeyButton("Tab", enabled = !mutationPending) {
-                    val action = PendingAgentAction("Tab", listOf(AgentKey.TAB), null)
-                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                }
-                Spacer(Modifier.width(8.dp))
             }
-        }
-        if (canPrompt) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = onDraftChange,
-                placeholder = { Text("Agent prompt") },
-                enabled = !mutationPending,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                minLines = 1,
-                maxLines = 3,
-                textStyle = MaterialTheme.typography.bodyMedium,
-                trailingIcon = {
-                    TextButton(
-                        enabled = !mutationPending && draft.isNotBlank(),
-                        onClick = {
-                            val text = draft.trim()
-                            onPrompt(text)
-                        },
-                    ) { Text("Send") }
-                },
-            )
-        }
         }
     }
     if (detail.showName) {

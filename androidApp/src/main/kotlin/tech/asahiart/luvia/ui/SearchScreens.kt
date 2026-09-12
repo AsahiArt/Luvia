@@ -85,7 +85,7 @@ private fun SearchPane(
         }
     }
     val bottomInset = systemBottomInset()
-    Column(modifier.fillMaxSize().imePadding().padding(bottom = bottomInset)) {
+    Column(modifier.fillMaxSize().imePadding()) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -140,11 +140,11 @@ private fun SearchPane(
         PullToRefreshBox(
             isRefreshing = search.loading,
             onRefresh = onRefresh,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+            modifier = Modifier.weight(1f).fillMaxWidth().padding(bottom = bottomInset),
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (search.searched && search.matches.isEmpty() && search.errorText == null && !search.loading) {
