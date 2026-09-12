@@ -47,6 +47,7 @@ extension AppModel {
                 return false
             }
         } catch {
+            if FailureText.isCancellation(error) { return false }
             uhp.errorMessage = error.localizedDescription
             return false
         }
@@ -93,10 +94,10 @@ extension AppModel {
         do {
             let outcome = try await session.querySearch(
                 query: query,
-                scope: nil,
+                scope: .files,
                 caseSensitive: nil,
                 allSessions: nil,
-                limit: nil
+                limit: 50
             )
             switch onEnum(of: outcome) {
             case .ok(let ok):
@@ -121,6 +122,7 @@ extension AppModel {
                 return false
             }
         } catch {
+            if FailureText.isCancellation(error) { return false }
             uhp.errorMessage = error.localizedDescription
             return false
         }
@@ -170,6 +172,7 @@ extension AppModel {
                 return false
             }
         } catch {
+            if FailureText.isCancellation(error) { return false }
             uhp.errorMessage = error.localizedDescription
             return false
         }
@@ -263,7 +266,9 @@ extension AppModel {
                     uhp.errorMessage = FailureText.describe(err.failure)
                 }
             } catch {
-                uhp.errorMessage = error.localizedDescription
+                if !FailureText.isCancellation(error) {
+                    uhp.errorMessage = error.localizedDescription
+                }
             }
         }
         if uhp.caps.automationHealth {
@@ -304,7 +309,7 @@ extension AppModel {
                     listed = true
                 }
             } catch {
-                if !listed {
+                if !listed && !FailureText.isCancellation(error) {
                     uhp.errorMessage = error.localizedDescription
                 }
             }
@@ -382,7 +387,9 @@ extension AppModel {
                     uhp.errorMessage = FailureText.describe(err.failure)
                 }
             } catch {
-                uhp.errorMessage = error.localizedDescription
+                if !FailureText.isCancellation(error) {
+                    uhp.errorMessage = error.localizedDescription
+                }
             }
         }
         if uhp.caps.paneList {
@@ -411,7 +418,7 @@ extension AppModel {
                     }
                 }
             } catch {
-                if !loaded {
+                if !loaded && !FailureText.isCancellation(error) {
                     uhp.errorMessage = error.localizedDescription
                 }
             }

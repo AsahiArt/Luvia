@@ -28,7 +28,14 @@ struct MoreSurfaceSheet: View {
                 }
             }
         }
-        .task { await model.loadMoreSurface(surface) }
+        .task(id: surface) {
+            // Unstructured so SwiftUI sheet identity churn cannot cancel the Kotlin unary.
+            let model = model
+            let surface = surface
+            _Concurrency.Task { @MainActor in
+                await model.loadMoreSurface(surface)
+            }
+        }
     }
 }
 

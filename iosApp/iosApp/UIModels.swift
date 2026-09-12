@@ -583,6 +583,14 @@ func kotlinInt64(_ value: Any?) -> Int64? {
 }
 
 enum FailureText {
+    static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        let text = error.localizedDescription
+        return text.localizedCaseInsensitiveContains("cancelled")
+            || text.localizedCaseInsensitiveContains("canceled")
+            || text.localizedCaseInsensitiveContains("CancellationException")
+    }
+
     static func describe(_ failure: Failure) -> String {
         switch onEnum(of: failure) {
         case .frame(let value):
