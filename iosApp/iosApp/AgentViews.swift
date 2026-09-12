@@ -243,21 +243,36 @@ struct AgentDetailView: View {
 
     private var transcriptBlock: some View {
         ScrollViewReader { proxy in
-            ScrollView([.horizontal, .vertical]) {
-                Text(
-                    uhp.transcript.isEmpty
-                        ? AttributedString("No Transcript yet.")
-                        : ansiAttributedString(
-                            uhp.transcript,
-                            defaultForeground: .primary,
-                            defaultBackground: Color(uiColor: .systemBackground)
-                        )
-                )
-                    .font(.system(.footnote, design: .monospaced))
-                    .fixedSize(horizontal: true, vertical: false)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding()
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 0) {
+                    if uhp.transcript.isEmpty {
+                        Text("No Transcript yet.")
+                            .font(.system(.footnote, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(Array(transcriptSegments(text: uhp.transcript).enumerated()), id: \.offset) { _, segment in
+                            switch onEnum(of: segment) {
+                            case .text(let value):
+                                Text(
+                                    ansiAttributedString(
+                                        value.text,
+                                        defaultForeground: .primary,
+                                        defaultBackground: Color(uiColor: .systemBackground)
+                                    )
+                                )
+                                .font(.system(.footnote, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                            case .rule:
+                                Divider()
+                                    .padding(.vertical, 8)
+                            case .gap:
+                                Color.clear.frame(height: 12)
+                            }
+                        }
+                    }
+                }
+                .padding()
                 Color.clear.frame(height: 1).id("transcript-end")
             }
             .onChange(of: uhp.transcript) { _, _ in

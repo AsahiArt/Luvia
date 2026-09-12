@@ -29,6 +29,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -52,6 +53,8 @@ import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.AgentSummary
 import tech.asahiart.luvia.MissionRowKind
 import tech.asahiart.luvia.MissionSnapshot
+import tech.asahiart.luvia.TranscriptSegment
+import tech.asahiart.luvia.transcriptSegments
 
 @Composable
 fun AgentsSection(
@@ -347,11 +350,8 @@ fun AgentDetailPane(
     val transcriptText = detail.transcript?.text.orEmpty()
     val onSurface = MaterialTheme.colorScheme.onSurface
     val surface = MaterialTheme.colorScheme.surface
-    val transcript = remember(transcriptText, onSurface, surface) {
-        ansiAnnotatedString(transcriptText, onSurface, surface)
-    }
+    val transcriptParts = remember(transcriptText) { transcriptSegments(transcriptText) }
     val transcriptScroll = rememberScrollState()
-    val transcriptHorizontal = rememberScrollState()
     LaunchedEffect(detail.transcript?.revision, transcriptText) {
         transcriptScroll.scrollTo(transcriptScroll.maxValue)
     }
@@ -476,16 +476,37 @@ fun AgentDetailPane(
                 Text("Transcript is not available on this host.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 SelectionContainer {
-                    Text(
-                        transcript,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        softWrap = false,
-                        modifier = Modifier
+                    Column(
+                        Modifier
                             .fillMaxSize()
-                            .verticalScroll(transcriptScroll)
-                            .horizontalScroll(transcriptHorizontal),
-                    )
+                            .verticalScroll(transcriptScroll),
+                    ) {
+                        if (transcriptText.isEmpty()) {
+                            Text(
+                                "No transcript yet.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            transcriptParts.forEach { part ->
+                                when (part) {
+                                    is TranscriptSegment.Text ->
+                                        Text(
+                                            ansiAnnotatedString(part.text, onSurface, surface),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontFamily = FontFamily.Monospace,
+                                        )
+                                    TranscriptSegment.Rule ->
+                                        HorizontalDivider(
+                                            Modifier.padding(vertical = 8.dp),
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                                        )
+                                    TranscriptSegment.Gap ->
+                                        Spacer(Modifier.height(12.dp))
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
