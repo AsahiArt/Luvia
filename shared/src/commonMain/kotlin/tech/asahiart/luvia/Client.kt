@@ -57,7 +57,7 @@ public class LuviaClient internal constructor(
 }
 
 public class LuviaSession internal constructor(
-    private val engine: SessionEngine,
+    internal val engine: SessionEngine,
 ) {
     public val capabilities: Capabilities
         get() = engine.capabilities()
