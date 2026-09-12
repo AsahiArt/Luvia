@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -234,7 +233,7 @@ fun HostDetailPane(
     var confirmUnpair by remember { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
     val visible = sections.ifEmpty { HostSection.entries }
-    Column(modifier.fillMaxSize().navigationBarsPadding()) {
+    Column(modifier.fillMaxSize()) {
         TopAppBar(
             title = {
                 Column {
@@ -411,7 +410,7 @@ fun TerminalPane(
     val terminalVertical = rememberScrollState()
     val terminalHorizontal = rememberScrollState()
     val live = terminal.errorText == null
-    Column(modifier.background(defaultBg).imePadding()) {
+    Column(modifier.background(defaultBg).imePadding().systemBottomPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(terminal.title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             if (!live) {

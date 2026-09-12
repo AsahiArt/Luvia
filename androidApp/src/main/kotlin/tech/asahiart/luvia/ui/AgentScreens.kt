@@ -10,12 +10,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -484,47 +485,50 @@ fun AgentDetailPane(
                 }
             }
         }
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .systemBottomPadding(),
+        ) {
         if (canKeys) {
-            val chips = buildList {
-                if (canPrompt) {
-                    add("y+Enter" to {
-                        val action = PendingAgentAction("y+Enter", null, "y")
-                        if (blocked) pendingKeys = action else onPrompt("y")
-                    })
-                    add("n+Enter" to {
-                        val action = PendingAgentAction("n+Enter", null, "n")
-                        if (blocked) pendingKeys = action else onPrompt("n")
-                    })
-                }
-                add("Enter" to {
-                    val action = PendingAgentAction("Enter", listOf(AgentKey.ENTER), null)
-                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                })
-                add("Esc" to {
-                    val action = PendingAgentAction("Esc", listOf(AgentKey.ESC), null)
-                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                })
-                add("Up" to {
-                    val action = PendingAgentAction("Up", listOf(AgentKey.UP), null)
-                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                })
-                add("Down" to {
-                    val action = PendingAgentAction("Down", listOf(AgentKey.DOWN), null)
-                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                })
-                add("Tab" to {
-                    val action = PendingAgentAction("Tab", listOf(AgentKey.TAB), null)
-                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                })
-            }
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(start = 12.dp, end = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(chips, key = { it.first }) { (label, action) ->
-                    AgentKeyButton(label, enabled = !mutationPending, onClick = action)
+                if (canPrompt) {
+                    AgentKeyButton("y+Enter", enabled = !mutationPending) {
+                        val action = PendingAgentAction("y+Enter", null, "y")
+                        if (blocked) pendingKeys = action else onPrompt("y")
+                    }
+                    AgentKeyButton("n+Enter", enabled = !mutationPending) {
+                        val action = PendingAgentAction("n+Enter", null, "n")
+                        if (blocked) pendingKeys = action else onPrompt("n")
+                    }
                 }
+                AgentKeyButton("Enter", enabled = !mutationPending) {
+                    val action = PendingAgentAction("Enter", listOf(AgentKey.ENTER), null)
+                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
+                }
+                AgentKeyButton("Esc", enabled = !mutationPending) {
+                    val action = PendingAgentAction("Esc", listOf(AgentKey.ESC), null)
+                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
+                }
+                AgentKeyButton("Up", enabled = !mutationPending) {
+                    val action = PendingAgentAction("Up", listOf(AgentKey.UP), null)
+                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
+                }
+                AgentKeyButton("Down", enabled = !mutationPending) {
+                    val action = PendingAgentAction("Down", listOf(AgentKey.DOWN), null)
+                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
+                }
+                AgentKeyButton("Tab", enabled = !mutationPending) {
+                    val action = PendingAgentAction("Tab", listOf(AgentKey.TAB), null)
+                    if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
+                }
+                Spacer(Modifier.width(8.dp))
             }
         }
         if (canPrompt) {
@@ -547,6 +551,7 @@ fun AgentDetailPane(
                     ) { Text("Send") }
                 },
             )
+        }
         }
     }
     if (detail.showName) {

@@ -84,40 +84,46 @@ private fun SearchPane(
             onSearch()
         }
     }
-    Column(modifier.fillMaxSize().imePadding()) {
+    val bottomInset = systemBottomInset()
+    Column(modifier.fillMaxSize().imePadding().padding(bottom = bottomInset)) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text("Search", style = MaterialTheme.typography.titleSmall)
-            OutlinedTextField(
-                value = search.query,
-                onValueChange = onQueryChange,
-                label = { Text("Query") },
-                enabled = !search.loading,
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { submit() }),
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .semantics {
-                            contentDescription = "Query"
-                            setText {
-                                onQueryChange(it.text)
-                                true
-                            }
-                            insertTextAtCursor {
-                                onQueryChange(search.query + it.text)
-                                true
-                            }
-                        },
-            )
-            Button(
-                onClick = submit,
-                enabled = search.query.isNotBlank() && !search.loading,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Search") }
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = search.query,
+                    onValueChange = onQueryChange,
+                    label = { Text("Query") },
+                    enabled = !search.loading,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { submit() }),
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .semantics {
+                                contentDescription = "Query"
+                                setText {
+                                    onQueryChange(it.text)
+                                    true
+                                }
+                                insertTextAtCursor {
+                                    onQueryChange(search.query + it.text)
+                                    true
+                                }
+                            },
+                )
+                Button(
+                    onClick = submit,
+                    enabled = search.query.isNotBlank() && !search.loading,
+                ) { Text("Search") }
+            }
             search.scopeLabel?.takeIf { it.isNotBlank() }?.let { scope ->
                 Text(
                     "In $scope",
@@ -138,7 +144,7 @@ private fun SearchPane(
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (search.searched && search.matches.isEmpty() && search.errorText == null && !search.loading) {
