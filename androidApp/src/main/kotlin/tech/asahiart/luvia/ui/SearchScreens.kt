@@ -118,6 +118,15 @@ private fun SearchPane(
                 enabled = search.query.isNotBlank() && !search.loading,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Search") }
+            search.scopeLabel?.takeIf { it.isNotBlank() }?.let { scope ->
+                Text(
+                    "In $scope",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             search.errorText?.let { error ->
                 Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
@@ -125,11 +134,11 @@ private fun SearchPane(
         PullToRefreshBox(
             isRefreshing = search.loading,
             onRefresh = onRefresh,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.weight(1f).fillMaxWidth(),
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (search.searched && search.matches.isEmpty() && search.errorText == null && !search.loading) {
@@ -141,8 +150,13 @@ private fun SearchPane(
                     if (result.partial || result.total > result.shown) {
                         item {
                             Text(
-                                "Showing ${result.shown} of ${result.total}" +
-                                    if (result.partial) " (partial)" else "",
+                                buildString {
+                                    append("Showing ${result.shown} of ${result.total}")
+                                    if (result.partial) append(" (partial)")
+                                    if (result.total > 200) {
+                                        append(". Narrow the query or focus a project workspace in Layout.")
+                                    }
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

@@ -156,6 +156,7 @@ data class SearchUiState(
     val loading: Boolean = false,
     val errorText: String? = null,
     val searched: Boolean = false,
+    val scopeLabel: String? = null,
 )
 
 @Immutable
@@ -167,6 +168,7 @@ data class WorktreesUiState(
     val showCreate: Boolean = false,
     val createBranch: String = "",
     val removePath: String? = null,
+    val workspace: Int? = null,
 )
 
 @Immutable

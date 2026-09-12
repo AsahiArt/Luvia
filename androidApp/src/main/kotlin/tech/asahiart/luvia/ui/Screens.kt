@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -75,7 +76,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -176,21 +179,29 @@ private fun HostRow(
                 Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
+        val action = when {
+            host.connection == ConnectionBadge.Connecting -> "Cancel"
+            host.connected -> "Disconnect"
+            else -> "Connect"
+        }
         Column(horizontalAlignment = Alignment.End) {
             Text(host.connection.label(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(6.dp))
-            FilledTonalButton(
-                onClick = {
-                    if (host.connected) onDisconnect(host.id) else onConnect(host.id)
-                },
-            ) {
-                Text(
-                    when {
-                        host.connection == ConnectionBadge.Connecting -> "Cancel"
-                        host.connected -> "Disconnect"
-                        else -> "Connect"
-                    },
-                )
+            val onAction = {
+                if (host.connected || host.connection == ConnectionBadge.Connecting) {
+                    onDisconnect(host.id)
+                } else {
+                    onConnect(host.id)
+                }
+            }
+            val buttonModifier = Modifier.semantics(mergeDescendants = true) {
+                contentDescription = action
+                role = Role.Button
+            }
+            if (host.connected && host.connection != ConnectionBadge.Connecting) {
+                FilledTonalButton(onClick = onAction, modifier = buttonModifier) { Text(action) }
+            } else {
+                Button(onClick = onAction, modifier = buttonModifier) { Text(action) }
             }
         }
     }
@@ -208,6 +219,7 @@ fun HostDetailPane(
     onDisconnect: () -> Unit = {},
     onRefresh: () -> Unit = {},
     onUnpair: () -> Unit = {},
+    onSelectTerminalPane: (String) -> Unit = {},
     sections: List<HostSection> = HostSection.entries,
     agentsContent: @Composable (Modifier) -> Unit = { EmptyPane("Agents", "Connect to this host", modifier = it) },
     filesContent: @Composable (Modifier) -> Unit = { EmptyPane("Files", "Connect to this host", modifier = it) },
@@ -222,7 +234,7 @@ fun HostDetailPane(
     var confirmUnpair by remember { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
     val visible = sections.ifEmpty { HostSection.entries }
-    Column(modifier.fillMaxSize()) {
+    Column(modifier.fillMaxSize().navigationBarsPadding()) {
         TopAppBar(
             title = {
                 Column {
@@ -315,7 +327,7 @@ fun HostDetailPane(
             HostSection.Terminal -> if (terminal == null) {
                 EmptyPane("Terminal unavailable", "Select a live pane to observe or request control.", modifier = Modifier.weight(1f))
             } else {
-                TerminalPane(terminal, onRequestControl, onSendText, Modifier.weight(1f))
+                TerminalPane(terminal, onRequestControl, onSendText, onSelectTerminalPane, Modifier.weight(1f))
             }
         }
     }
@@ -383,6 +395,7 @@ fun TerminalPane(
     terminal: TerminalUiModel,
     onRequestControl: () -> Unit,
     onSendText: (String) -> Unit,
+    onSelectPane: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var input by remember { mutableStateOf("") }
@@ -397,10 +410,13 @@ fun TerminalPane(
     }
     val terminalVertical = rememberScrollState()
     val terminalHorizontal = rememberScrollState()
+    val live = terminal.errorText == null
     Column(modifier.background(defaultBg).imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(terminal.title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            if (!terminal.canControl) {
+            if (!live) {
+                Text("Unavailable", color = Color(0xFFFFC66D), style = MaterialTheme.typography.labelLarge)
+            } else if (!terminal.canControl) {
                 Text("Observing", color = Color(0xFF9AA4B2), style = MaterialTheme.typography.labelLarge)
             } else if (terminal.control != TerminalControl.Controlling) {
                 FilledTonalButton(onClick = onRequestControl, enabled = terminal.control != TerminalControl.Requesting) {
@@ -412,25 +428,60 @@ fun TerminalPane(
         }
         HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            SelectionContainer {
-                Text(
-                    displayed,
-                    color = defaultFg,
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall,
-                    softWrap = false,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(terminalVertical)
-                        .horizontalScroll(terminalHorizontal)
-                        .padding(16.dp),
-                )
+            if (!live) {
+                Column(
+                    Modifier.fillMaxSize().padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalAlignment = Alignment.Start,
+                ) {
+                    Text(
+                        terminal.errorText.orEmpty(),
+                        color = Color(0xFFE4E7EC),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    val others = terminal.panes.filter { it.paneId != terminal.paneId }
+                    if (others.isNotEmpty()) {
+                        Text(
+                            "Live panes",
+                            color = Color(0xFF9AA4B2),
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                        others.forEach { pane ->
+                            FilledTonalButton(onClick = { onSelectPane(pane.paneId) }) {
+                                Text(
+                                    buildString {
+                                        append(pane.title)
+                                        pane.cwd?.takeIf { it.isNotBlank() }?.let {
+                                            append(" · ")
+                                            append(it.substringAfterLast('/'))
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                SelectionContainer {
+                    Text(
+                        displayed,
+                        color = defaultFg,
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                        softWrap = false,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(terminalVertical)
+                            .horizontalScroll(terminalHorizontal)
+                            .padding(16.dp),
+                    )
+                }
             }
         }
-        if (terminal.isTruncated) {
+        if (live && terminal.isTruncated) {
             Text("Output truncated", color = Color(0xFFFFC66D), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 16.dp))
         }
-        if (terminal.canControl) {
+        if (live && terminal.canControl) {
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = input,

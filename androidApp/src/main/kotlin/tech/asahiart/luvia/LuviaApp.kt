@@ -160,6 +160,7 @@ fun LuviaApp() {
         onUnpair = viewModel::unpair,
         onRequestControl = viewModel::requestControl,
         onSendTerminalText = viewModel::sendTerminalText,
-        onTerminalShown = viewModel::ensureTerminal,
+        onTerminalShown = { id -> viewModel.ensureTerminal(id) },
+        onSelectTerminalPane = { id, pane -> viewModel.ensureTerminal(id, pane) },
     )
 }

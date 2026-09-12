@@ -261,18 +261,32 @@ public suspend fun LuviaSession.deleteTask(
         mutation = true,
     ) { mapTaskMutation(it.asObjectOrEmpty()) }
 
-public suspend fun LuviaSession.listWorktrees(): Outcome<List<WorktreeEntry>> =
-    engine.unary(OrchMethods.WORKTREE_LIST, JsonObject(emptyMap()), mutation = false) {
+public suspend fun LuviaSession.listWorktrees(workspace: Int? = null): Outcome<List<WorktreeEntry>> {
+    val params =
+        if (workspace == null) {
+            JsonObject(emptyMap())
+        } else {
+            buildJsonObject { put("workspace", workspace) }
+        }
+    return engine.unary(OrchMethods.WORKTREE_LIST, params, mutation = false) {
         it.asObjectOrEmpty().optionalObjectList("worktrees").map { row -> mapWorktree(row) }
     }
+}
 
 public suspend fun LuviaSession.createWorktree(
     branch: String,
     ifRevision: Long? = null,
+    workspace: Int? = null,
 ): Outcome<String> =
     engine.unary(
         OrchMethods.WORKTREE_CREATE,
-        withIfRevision(buildJsonObject { put("branch", branch) }, ifRevision),
+        withIfRevision(
+            buildJsonObject {
+                put("branch", branch)
+                if (workspace != null) put("workspace", workspace)
+            },
+            ifRevision,
+        ),
         mutation = true,
     ) { it.asObjectOrEmpty().optionalString("path") ?: "" }
 

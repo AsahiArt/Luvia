@@ -110,7 +110,7 @@ private fun WorktreeListPane(
             worktrees.errorText?.let { error ->
                 item { Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
-            if (worktrees.worktrees.isEmpty() && !worktrees.loading) {
+            if (worktrees.worktrees.isEmpty() && !worktrees.loading && worktrees.errorText == null) {
                 item {
                     Text("No worktrees on this Host.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

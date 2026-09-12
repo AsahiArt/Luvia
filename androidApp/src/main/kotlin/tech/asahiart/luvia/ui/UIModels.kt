@@ -30,6 +30,13 @@ internal val HostSection.isPrimaryTab: Boolean
             this == HostSection.Terminal
 
 @Immutable
+data class TerminalPaneChoice(
+    val paneId: String,
+    val title: String,
+    val cwd: String? = null,
+)
+
+@Immutable
 data class TerminalUiModel(
     val title: String,
     val text: String,
@@ -37,6 +44,9 @@ data class TerminalUiModel(
     val isTruncated: Boolean,
     val control: TerminalControl,
     val canControl: Boolean = true,
+    val errorText: String? = null,
+    val paneId: String? = null,
+    val panes: List<TerminalPaneChoice> = emptyList(),
 )
 
 enum class TerminalControl { Observing, Requesting, Controlling, Conflict }

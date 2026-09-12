@@ -17,6 +17,7 @@ import tech.asahiart.luvia.ui.HostCapabilitiesUi
 import tech.asahiart.luvia.ui.HostSection
 import tech.asahiart.luvia.ui.HostUhpUiState
 import tech.asahiart.luvia.ui.HostUiModel
+import tech.asahiart.luvia.ui.TerminalPaneChoice
 import tech.asahiart.luvia.ui.TerminalUiModel
 import tech.asahiart.luvia.ui.UnconfirmedKind
 import tech.asahiart.luvia.TerminalControl as SharedTerminalControl
@@ -36,6 +37,7 @@ class LuviaViewModel(
     private val observeJobs = mutableMapOf<String, Job>()
     private val controls = mutableMapOf<String, SharedTerminalControl>()
     private val identities = mutableMapOf<String, TerminalIdentity>()
+    private val triedTerminals = mutableMapOf<String, MutableSet<String>>()
 
     val hosts: StateFlow<List<HostRuntime>> = manager.hosts
 
@@ -138,16 +140,16 @@ class LuviaViewModel(
         }
     }
 
-    fun ensureTerminal(hostId: String) {
+    fun ensureTerminal(hostId: String, paneId: String? = null) {
         val runtime = manager.hosts.value.firstOrNull { it.profile.id == hostId } ?: return
-        val identity = terminalIdentity(runtime) ?: return
-        identities[hostId] = identity
         val observer = runtime.profile.role == HostRole.Observer
-        _terminals.update { current ->
-            if (current.containsKey(hostId)) {
-                current
-            } else {
-                current + (
+        val panes = terminalPaneChoices(runtime)
+        val identity = terminalIdentity(runtime, paneId)
+        if (identity == null) {
+            observeJobs.remove(hostId)?.cancel()
+            identities.remove(hostId)
+            _terminals.update {
+                it + (
                     hostId to TerminalUiModel(
                         title = runtime.snapshot?.sessionName ?: runtime.profile.alias,
                         text = "",
@@ -155,11 +157,56 @@ class LuviaViewModel(
                         isTruncated = false,
                         control = TerminalControlState.Observing,
                         canControl = !observer,
+                        errorText = "No live pane to observe. Focus a pane on the Host, then refresh.",
+                        panes = panes,
                     )
                     )
             }
+            return
         }
-        if (observeJobs[hostId]?.isActive == true) return
+        val currentIdentity = identities[hostId]
+        val jobActive = observeJobs[hostId]?.isActive == true
+        if (paneId == null && currentIdentity == identity && jobActive) {
+            _terminals.update { map ->
+                val current = map[hostId] ?: return@update map
+                map + (hostId to current.copy(panes = panes, paneId = identity.paneId))
+            }
+            return
+        }
+        if (paneId != null) {
+            triedTerminals[hostId] = mutableSetOf(identity.terminalId)
+        }
+        startTerminalObserve(hostId, runtime, identity, observer, panes)
+    }
+
+    private fun startTerminalObserve(
+        hostId: String,
+        runtime: HostRuntime,
+        identity: TerminalIdentity,
+        observer: Boolean,
+        panes: List<TerminalPaneChoice>,
+    ) {
+        observeJobs.remove(hostId)?.cancel()
+        identities[hostId] = identity
+        val title = panes.firstOrNull { it.paneId == identity.paneId }?.title
+            ?: runtime.snapshot?.sessionName
+            ?: runtime.profile.alias
+        _terminals.update { current ->
+            val previous = current[hostId]
+            current + (
+                hostId to TerminalUiModel(
+                    title = title,
+                    text = if (previous?.paneId == identity.paneId) previous.text else "",
+                    isAnsi = if (previous?.paneId == identity.paneId) previous.isAnsi else false,
+                    isTruncated = if (previous?.paneId == identity.paneId) previous.isTruncated else false,
+                    control = TerminalControlState.Observing,
+                    canControl = !observer,
+                    errorText = null,
+                    paneId = identity.paneId,
+                    panes = panes,
+                )
+                )
+        }
         observeJobs[hostId] = viewModelScope.launch {
             manager.observeTerminal(hostId, identity).collect { update ->
                 applyTerminalUpdate(hostId, update)
@@ -965,7 +1012,7 @@ class LuviaViewModel(
         if (branch.isEmpty()) return
         updateHost(hostId) { it.copy(worktrees = it.worktrees.copy(mutating = true, errorText = null)) }
         viewModelScope.launch {
-            when (val result = session.createWorktree(branch)) {
+            when (val result = session.createWorktree(branch, workspace = state.worktrees.workspace)) {
                 is Outcome.Ok -> {
                     updateHost(hostId) {
                         it.copy(worktrees = it.worktrees.copy(mutating = false, showCreate = false, createBranch = ""))
@@ -1195,34 +1242,86 @@ class LuviaViewModel(
         observeJobs.remove(hostId)?.cancel()
         controls.remove(hostId)?.close()
         identities.remove(hostId)
+        triedTerminals.remove(hostId)
         _terminals.update { it - hostId }
     }
 
     private fun applyTerminalUpdate(hostId: String, update: TerminalUpdate) {
-        _terminals.update { map ->
-            val current = map[hostId] ?: return@update map
-            when (update) {
-                is TerminalUpdate.Frame ->
+        when (update) {
+            is TerminalUpdate.Frame -> {
+                triedTerminals.remove(hostId)
+                _terminals.update { map ->
+                    val current = map[hostId] ?: return@update map
                     map + (
                         hostId to current.copy(
                             text = update.frame.text,
                             isAnsi = update.frame.ansi,
                             isTruncated = update.frame.truncated,
+                            errorText = null,
                         )
                         )
-                is TerminalUpdate.Failed ->
+                }
+            }
+            is TerminalUpdate.Failed -> {
+                if (update.failure is Failure.ControlConflict) {
+                    _terminals.update { map ->
+                        val current = map[hostId] ?: return@update map
+                        map + (hostId to current.copy(control = TerminalControlState.Conflict))
+                    }
+                    return
+                }
+                if (isGoneTerminal(update.failure)) {
+                    rebindTerminal(hostId, update.failure)
+                    return
+                }
+                _terminals.update { map ->
+                    val current = map[hostId] ?: return@update map
                     map + (
                         hostId to current.copy(
-                            text = current.text.ifEmpty { update.failure.toUserMessage() },
-                            control = if (update.failure is Failure.ControlConflict) {
-                                TerminalControlState.Conflict
-                            } else {
-                                current.control
-                            },
+                            errorText = update.failure.toUserMessage(),
+                            control = TerminalControlState.Observing,
                         )
                         )
-                is TerminalUpdate.Resyncing -> map
+                }
             }
+            is TerminalUpdate.Resyncing -> Unit
+        }
+    }
+
+    private fun rebindTerminal(hostId: String, failure: Failure) {
+        val runtime = manager.hosts.value.firstOrNull { it.profile.id == hostId }
+        val observer = runtime?.profile?.role == HostRole.Observer
+        val panes = runtime?.let { terminalPaneChoices(it) }.orEmpty()
+        val tried = triedTerminals.getOrPut(hostId) { mutableSetOf() }
+        identities[hostId]?.terminalId?.let { tried += it }
+        val next = runtime?.let { terminalIdentities(it).firstOrNull { identity -> identity.terminalId !in tried } }
+        if (runtime != null && next != null) {
+            tried += next.terminalId
+            startTerminalObserve(hostId, runtime, next, observer, panes)
+            return
+        }
+        observeJobs.remove(hostId)?.cancel()
+        identities.remove(hostId)
+        _terminals.update { map ->
+            val current = map[hostId]
+            map + (
+                hostId to (
+                    current ?: TerminalUiModel(
+                        title = runtime?.snapshot?.sessionName ?: runtime?.profile?.alias ?: "Terminal",
+                        text = "",
+                        isAnsi = false,
+                        isTruncated = false,
+                        control = TerminalControlState.Observing,
+                        canControl = !observer,
+                    )
+                    ).copy(
+                    text = current?.text.orEmpty(),
+                    errorText = failure.toUserMessage(),
+                    panes = panes,
+                    canControl = !observer,
+                    control = TerminalControlState.Observing,
+                )
+                )
         }
     }
 
@@ -1568,12 +1667,23 @@ class LuviaViewModel(
             return
         }
         if (!session.supports(UhpMethods.SEARCH_QUERY)) return
-        val query = _uhp.value[hostId]?.search?.query?.trim().orEmpty()
+        val state = _uhp.value[hostId]
+        val query = state?.search?.query?.trim().orEmpty()
         if (query.isEmpty()) return
+        val runtime = manager.hosts.value.firstOrNull { it.profile.id == hostId }
+        val scopeLabel = searchScopeLabel(runtime, state?.files?.root.orEmpty())
         updateHost(hostId) {
-            it.copy(connected = true, search = it.search.copy(loading = true, errorText = null, searched = true))
+            it.copy(
+                connected = true,
+                search = it.search.copy(
+                    loading = true,
+                    errorText = null,
+                    searched = true,
+                    scopeLabel = scopeLabel,
+                ),
+            )
         }
-        when (val result = session.querySearch(query)) {
+        when (val result = session.querySearch(query, scope = SearchScope.FILES, limit = 50)) {
             is Outcome.Ok -> updateHost(hostId) {
                 it.copy(
                     search = it.search.copy(
@@ -1582,6 +1692,7 @@ class LuviaViewModel(
                         loading = false,
                         errorText = null,
                         searched = true,
+                        scopeLabel = scopeLabel,
                     ),
                 )
             }
@@ -1608,13 +1719,38 @@ class LuviaViewModel(
             return
         }
         if (!session.supports(UhpMethods.WORKTREE_LIST)) return
+        val runtime = manager.hosts.value.firstOrNull { it.profile.id == hostId }
+        val workspace = preferredGitWorkspace(runtime, _uhp.value[hostId]?.files?.root.orEmpty())
         updateHost(hostId) { it.copy(connected = true, worktrees = it.worktrees.copy(loading = true, errorText = null)) }
-        when (val result = session.listWorktrees()) {
+        var usedWorkspace = workspace
+        val result = session.listWorktrees(workspace).let { first ->
+            if (first is Outcome.Err && workspace != null) {
+                usedWorkspace = null
+                session.listWorktrees()
+            } else {
+                first
+            }
+        }
+        when (result) {
             is Outcome.Ok -> updateHost(hostId) {
-                it.copy(worktrees = it.worktrees.copy(worktrees = result.value, loading = false, mutating = false))
+                it.copy(
+                    worktrees = it.worktrees.copy(
+                        worktrees = result.value,
+                        loading = false,
+                        mutating = false,
+                        workspace = usedWorkspace,
+                        errorText = null,
+                    ),
+                )
             }
             is Outcome.Err -> updateHost(hostId) {
-                it.copy(worktrees = it.worktrees.copy(loading = false, errorText = result.failure.toUserMessage()))
+                it.copy(
+                    worktrees = it.worktrees.copy(
+                        loading = false,
+                        workspace = null,
+                        errorText = result.failure.toUserMessage(),
+                    ),
+                )
             }
         }
     }
@@ -1789,7 +1925,7 @@ internal fun Failure.toUserMessage(): String {
     ) {
         return "This pairing code is for a different device key. Run the command shown in this app on the host, then scan the QR it prints — not a code generated for another phone."
     }
-    return when (this) {
+    val raw = when (this) {
         is Failure.ProtocolError -> reason
         is Failure.InvalidRequest -> message
         is Failure.InvalidParams -> message
@@ -1803,7 +1939,8 @@ internal fun Failure.toUserMessage(): String {
         is Failure.ControlConflict -> message
         is Failure.StaleServer -> message
         is Failure.StaleRoute -> message
-        is Failure.TerminalGone -> message
+        is Failure.TerminalGone ->
+            "This pane is no longer available. Pick a live pane below, or refresh."
         is Failure.ResyncRequired -> message
         is Failure.RevisionConflict -> message
         is Failure.ContentRevisionConflict ->
@@ -1815,17 +1952,92 @@ internal fun Failure.toUserMessage(): String {
         is Failure.CapabilityMissing -> "The host does not support $method."
         is Failure.IndeterminateMutation -> "The host may already have applied this change. Do not retry automatically."
     }
+    return raw.sanitizeHostError()
 }
 
-private fun terminalIdentity(runtime: HostRuntime): TerminalIdentity? {
-    val snapshot = runtime.snapshot ?: return null
-    val pane = snapshot.panes.firstOrNull { !it.terminalId.isNullOrBlank() } ?: return null
-    val terminalId = pane.terminalId ?: return null
-    return TerminalIdentity(
-        serverGeneration = snapshot.serverGeneration,
-        terminalId = terminalId,
-        paneId = pane.paneId,
-    )
+internal fun String.sanitizeHostError(): String =
+    when {
+        contains("not a git repository", ignoreCase = true) ->
+            "This workspace is not a git repository. Focus a project workspace in Layout, then refresh."
+        contains("terminal identity no longer exists", ignoreCase = true) ->
+            "This pane is no longer available. Pick a live pane below, or refresh."
+        else -> this
+    }
+
+private fun isGoneTerminal(failure: Failure): Boolean =
+    failure is Failure.TerminalGone ||
+        failure is Failure.StaleRoute ||
+        failure is Failure.StaleServer ||
+        failure.toUserMessage().contains("no longer available", ignoreCase = true)
+
+private fun terminalIdentity(runtime: HostRuntime, paneId: String? = null): TerminalIdentity? {
+    val identities = terminalIdentities(runtime)
+    return if (paneId != null) identities.firstOrNull { it.paneId == paneId } else identities.firstOrNull()
+}
+
+private fun terminalIdentities(runtime: HostRuntime): List<TerminalIdentity> {
+    val snapshot = runtime.snapshot ?: return emptyList()
+    val panes = snapshot.panes.filter { !it.terminalId.isNullOrBlank() }
+    val ordered = panes.filter { it.focused } + panes.filter { !it.focused }
+    return ordered.mapNotNull { pane ->
+        val terminalId = pane.terminalId ?: return@mapNotNull null
+        TerminalIdentity(
+            serverGeneration = snapshot.serverGeneration,
+            terminalId = terminalId,
+            paneId = pane.paneId,
+        )
+    }
+}
+
+private fun terminalPaneChoices(runtime: HostRuntime): List<TerminalPaneChoice> {
+    val snapshot = runtime.snapshot ?: return emptyList()
+    val agents = snapshot.agents.associateBy { it.paneId }
+    return snapshot.panes.filter { !it.terminalId.isNullOrBlank() }.map { pane ->
+        val agent = agents[pane.paneId]
+        TerminalPaneChoice(
+            paneId = pane.paneId,
+            title = listOfNotNull(
+                agent?.name?.takeIf { it.isNotBlank() },
+                agent?.agent?.takeIf { it.isNotBlank() },
+                pane.cwd?.substringAfterLast('/'),
+            ).firstOrNull() ?: "Pane ${pane.paneId}",
+            cwd = pane.cwd ?: agent?.cwd,
+        )
+    }
+}
+
+private fun searchScopeLabel(runtime: HostRuntime?, filesRoot: String): String? {
+    if (filesRoot.isNotBlank()) return filesRoot
+    val workspace = runtime?.snapshot?.workspaces?.firstOrNull { it.active }
+        ?: runtime?.snapshot?.workspaces?.firstOrNull()
+    val name = workspace?.name?.takeIf { it.isNotBlank() }
+    val cwd = workspace?.cwd?.takeIf { it.isNotBlank() }
+    return listOfNotNull(name, cwd).distinct().joinToString(" · ").takeIf { it.isNotBlank() }
+}
+
+private fun preferredGitWorkspace(runtime: HostRuntime?, filesRoot: String): Int? {
+    val workspaces = runtime?.snapshot?.workspaces.orEmpty()
+    if (workspaces.isEmpty()) return null
+    val active = workspaces.firstOrNull { it.active }
+    fun WorkspaceSummary.isGit(): Boolean = !branch.isNullOrBlank()
+    if (active != null && active.isGit()) return null
+    if (filesRoot.isNotBlank()) {
+        val match = workspaces.firstOrNull { workspace ->
+            val cwd = workspace.cwd ?: return@firstOrNull false
+            filesRoot == cwd || filesRoot.startsWith("$cwd/")
+        }
+        if (match != null) return match.index
+    }
+    val focusedCwd = runtime?.snapshot?.panes?.firstOrNull { it.focused }?.cwd
+        ?: runtime?.snapshot?.agents?.firstOrNull { it.focused }?.cwd
+    if (!focusedCwd.isNullOrBlank()) {
+        val match = workspaces.firstOrNull { workspace ->
+            val cwd = workspace.cwd ?: return@firstOrNull false
+            focusedCwd == cwd || focusedCwd.startsWith("$cwd/")
+        }
+        if (match != null) return match.index
+    }
+    return workspaces.firstOrNull { it.isGit() }?.index
 }
 
 private fun LuviaSession.toCaps(): HostCapabilitiesUi = HostCapabilitiesUi(

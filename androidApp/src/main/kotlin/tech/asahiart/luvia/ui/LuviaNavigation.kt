@@ -55,6 +55,7 @@ fun LuviaNavigation(
     onRequestControl: (String) -> Unit,
     onSendTerminalText: (String, String) -> Unit,
     onTerminalShown: (String) -> Unit,
+    onSelectTerminalPane: (String, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     MaterialTheme {
@@ -99,6 +100,7 @@ fun LuviaNavigation(
                             onRequestControl = onRequestControl,
                             onSendTerminalText = onSendTerminalText,
                             onTerminalShown = onTerminalShown,
+                            onSelectTerminalPane = onSelectTerminalPane,
                             showList = false,
                         )
                     }
@@ -122,6 +124,7 @@ fun LuviaNavigation(
                     onRequestControl = onRequestControl,
                     onSendTerminalText = onSendTerminalText,
                     onTerminalShown = onTerminalShown,
+                    onSelectTerminalPane = onSelectTerminalPane,
                     showList = true,
                 )
             }
@@ -148,6 +151,7 @@ private fun DetailNav(
     onRequestControl: (String) -> Unit,
     onSendTerminalText: (String, String) -> Unit,
     onTerminalShown: (String) -> Unit,
+    onSelectTerminalPane: (String, String) -> Unit,
     showList: Boolean,
 ) {
     val context = LocalContext.current
@@ -202,6 +206,7 @@ private fun DetailNav(
                         terminal = terminalForHost(route.id),
                         onRequestControl = { onRequestControl(route.id) },
                         onSendText = { text -> onSendTerminalText(route.id, text) },
+                        onSelectTerminalPane = { pane -> onSelectTerminalPane(route.id, pane) },
                         onConnect = { onConnect(route.id) },
                         onDisconnect = { onDisconnect(route.id) },
                         onRefresh = {
