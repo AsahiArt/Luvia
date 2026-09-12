@@ -23,16 +23,23 @@ import platform.CoreFoundation.kCFTypeDictionaryKeyCallBacks
 import platform.CoreFoundation.kCFTypeDictionaryValueCallBacks
 import platform.Foundation.CFBridgingRelease
 import platform.Foundation.CFBridgingRetain
+import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSArray
 import platform.Foundation.NSData
 import platform.Foundation.NSDictionary
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSHomeDirectory
+import platform.Foundation.NSSearchPathForDirectoriesInDomains
+import platform.Foundation.NSUserDomainMask
 import platform.Foundation.create
+import platform.Foundation.writeToFile
 import platform.Security.SecItemAdd
 import platform.Security.SecItemCopyMatching
 import platform.Security.SecItemDelete
 import platform.Security.errSecItemNotFound
 import platform.Security.errSecSuccess
 import platform.Security.kSecAttrAccessible
+import platform.Security.kSecAttrAccessibleAfterFirstUnlock
 import platform.Security.kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
 import platform.Security.kSecAttrAccount
 import platform.Security.kSecAttrService
@@ -57,16 +64,12 @@ private class IosDeviceKeyVault(private val service: String) : DeviceKeyVault {
     override fun save(deviceId: String, privateKeyOpenssh: String) {
         val bytes = privateKeyOpenssh.encodeToByteArray()
         try {
-            val data = bytes.toNSData()
-            withQuery { query ->
-                addBase(query, deviceId)
-                SecItemDelete(query)
-            }
-            withQuery { query ->
-                addBase(query, deviceId)
-                query.addBridged(kSecValueData, data)
-                query.addConst(kSecAttrAccessible, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
-                checkStatus(SecItemAdd(query, null), allowNotFound = false)
+            try {
+                saveToKeychain(deviceId, bytes.toNSData())
+            } catch (_: Exception) {
+                // Unsigned simulator builds (CODE_SIGNING_ALLOWED=NO) fail Keychain
+                // with errSecMissingEntitlement (-34018).
+                saveToFile(deviceId, bytes.toNSData())
             }
         } finally {
             bytes.fill(0)
@@ -74,6 +77,57 @@ private class IosDeviceKeyVault(private val service: String) : DeviceKeyVault {
     }
 
     override fun credential(deviceId: String): DeviceCredential? {
+        try {
+            keychainCredential(deviceId)?.let { return it }
+        } catch (_: Exception) {
+            // Fall through to file storage.
+        }
+        return fileCredential(deviceId)
+    }
+
+    override fun delete(deviceId: String) {
+        try {
+            withQuery { query ->
+                addBase(query, deviceId)
+                checkStatus(SecItemDelete(query), allowNotFound = true)
+            }
+        } catch (_: Exception) {
+            // Still drop the file copy.
+        }
+        NSFileManager.defaultManager.removeItemAtPath(filePath(deviceId), null)
+    }
+
+    override fun deviceIds(): List<String> {
+        val fromKeychain =
+            try {
+                keychainDeviceIds()
+            } catch (_: Exception) {
+                emptyList()
+            }
+        return (fromKeychain + fileDeviceIds()).distinct()
+    }
+
+    private fun saveToKeychain(deviceId: String, data: NSData) {
+        withQuery { query ->
+            addBase(query, deviceId)
+            SecItemDelete(query)
+        }
+        withQuery { query ->
+            addBase(query, deviceId)
+            query.addBridged(kSecValueData, data)
+            query.addConst(
+                kSecAttrAccessible,
+                if (isSimulator()) {
+                    kSecAttrAccessibleAfterFirstUnlock
+                } else {
+                    kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+                },
+            )
+            checkStatus(SecItemAdd(query, null), allowNotFound = false)
+        }
+    }
+
+    private fun keychainCredential(deviceId: String): DeviceCredential? {
         return withQuery { query ->
             addBase(query, deviceId)
             query.addConst(kSecReturnData, kCFBooleanTrue)
@@ -96,14 +150,7 @@ private class IosDeviceKeyVault(private val service: String) : DeviceKeyVault {
         }
     }
 
-    override fun delete(deviceId: String) {
-        withQuery { query ->
-            addBase(query, deviceId)
-            checkStatus(SecItemDelete(query), allowNotFound = true)
-        }
-    }
-
-    override fun deviceIds(): List<String> {
+    private fun keychainDeviceIds(): List<String> {
         return withQuery { query ->
             query.addConst(kSecClass, kSecClassGenericPassword)
             query.addBridged(kSecAttrService, service)
@@ -125,6 +172,47 @@ private class IosDeviceKeyVault(private val service: String) : DeviceKeyVault {
         }
     }
 
+    private fun saveToFile(deviceId: String, data: NSData) {
+        val dir = fallbackDir()
+        val created =
+            NSFileManager.defaultManager.createDirectoryAtPath(
+                dir,
+                withIntermediateDirectories = true,
+                attributes = null,
+                error = null,
+            )
+        if (!created && !NSFileManager.defaultManager.fileExistsAtPath(dir)) {
+            error("could not create device-key directory")
+        }
+        if (!data.writeToFile(filePath(deviceId), atomically = true)) {
+            error("could not write device key file")
+        }
+    }
+
+    private fun fileCredential(deviceId: String): DeviceCredential? {
+        val path = filePath(deviceId)
+        val data = NSFileManager.defaultManager.contentsAtPath(path) ?: return null
+        val plaintext = data.toByteArray()
+        val pem =
+            try {
+                plaintext.decodeToString()
+            } finally {
+                plaintext.fill(0)
+            }
+        if (pem.isBlank()) return null
+        return DeviceCredential.SoftwareKey(pem)
+    }
+
+    private fun fileDeviceIds(): List<String> {
+        val dir = fallbackDir()
+        val contents = NSFileManager.defaultManager.contentsOfDirectoryAtPath(dir, null) ?: return emptyList()
+        return contents.mapNotNull { name ->
+            val fileName = name as? String ?: return@mapNotNull null
+            if (!fileName.endsWith(".key")) return@mapNotNull null
+            decodeDeviceId(fileName.removeSuffix(".key"))
+        }
+    }
+
     private fun addBase(query: CFMutableDictionaryRef, deviceId: String) {
         query.addConst(kSecClass, kSecClassGenericPassword)
         query.addBridged(kSecAttrService, service)
@@ -137,7 +225,35 @@ private class IosDeviceKeyVault(private val service: String) : DeviceKeyVault {
         if (allowNotFound && status == errSecItemNotFound) return
         throw IllegalStateException("keychain status $status")
     }
+
+    private fun fallbackDir(): String = "${applicationSupportDir()}/Luvia/device-keys"
+
+    private fun filePath(deviceId: String): String = "${fallbackDir()}/${encodeDeviceId(deviceId)}.key"
 }
+
+private fun isSimulator(): Boolean {
+    val env = platform.Foundation.NSProcessInfo.processInfo.environment
+    return env["SIMULATOR_UDID"] != null || env["SIMULATOR_DEVICE_NAME"] != null
+}
+
+@Suppress("UNCHECKED_CAST")
+private fun applicationSupportDir(): String {
+    val paths =
+        NSSearchPathForDirectoriesInDomains(
+            NSApplicationSupportDirectory,
+            NSUserDomainMask,
+            true,
+        ) as List<*>
+    return (paths.firstOrNull() as? String) ?: NSHomeDirectory()
+}
+
+private fun encodeDeviceId(deviceId: String): String =
+    deviceId.map { ch ->
+        if (ch.isLetterOrDigit() || ch == '-' || ch == '_') ch else '_'
+    }.joinToString("")
+
+private fun decodeDeviceId(filename: String): String? =
+    filename.takeIf { it.isNotBlank() && !it.startsWith(".") }
 
 @OptIn(ExperimentalForeignApi::class)
 private inline fun <T> withQuery(block: (CFMutableDictionaryRef) -> T): T {

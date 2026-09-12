@@ -151,7 +151,7 @@ extension AppModel {
     func loadWorktrees() async -> Bool {
         guard uhp.caps.worktreeList, let session = liveSession() else { return false }
         do {
-            let outcome = try await session.listWorktrees()
+            let outcome = try await session.listWorktrees(workspace: nil)
             switch onEnum(of: outcome) {
             case .ok(let ok):
                 let entries: [WorktreeEntry] = KotlinLists.array(ok.value as Any)
@@ -181,7 +181,7 @@ extension AppModel {
         uhp.isSending = true
         defer { uhp.isSending = false }
         do {
-            let outcome = try await session.createWorktree(branch: branch, ifRevision: nil)
+            let outcome = try await session.createWorktree(branch: branch, ifRevision: nil, workspace: nil)
             switch onEnum(of: outcome) {
             case .ok:
                 uhp.isCreateWorktreePresented = false
