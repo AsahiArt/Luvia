@@ -22,6 +22,13 @@ data class HostUiModel(
 enum class ConnectionBadge { Live, Connecting, Stale, Offline }
 enum class HostSection { Agents, Files, Search, Review, Worktrees, Automations, Tasks, Layout, Terminal }
 
+internal val HostSection.isPrimaryTab: Boolean
+    get() =
+        this == HostSection.Agents ||
+            this == HostSection.Review ||
+            this == HostSection.Tasks ||
+            this == HostSection.Terminal
+
 @Immutable
 data class TerminalUiModel(
     val title: String,

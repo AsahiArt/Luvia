@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,7 +25,13 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.insertTextAtCursor
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import tech.asahiart.luvia.SearchMatch
@@ -69,59 +77,85 @@ private fun SearchPane(
 ) {
     val search = state.search
     val canActivate = state.canMutate && state.capabilities.searchActivate
-    PullToRefreshBox(
-        isRefreshing = search.loading,
-        onRefresh = onRefresh,
-        modifier = modifier.fillMaxSize().imePadding(),
-    ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+    val focus = LocalFocusManager.current
+    val submit = {
+        if (search.query.isNotBlank() && !search.loading) {
+            focus.clearFocus()
+            onSearch()
+        }
+    }
+    Column(modifier.fillMaxSize().imePadding()) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Search", style = MaterialTheme.typography.titleSmall)
-                    OutlinedTextField(
-                        value = search.query,
-                        onValueChange = onQueryChange,
-                        label = { Text("Query") },
-                        enabled = !search.loading,
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Button(
-                        onClick = onSearch,
-                        enabled = search.query.isNotBlank() && !search.loading,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Search") }
-                }
-            }
+            Text("Search", style = MaterialTheme.typography.titleSmall)
+            OutlinedTextField(
+                value = search.query,
+                onValueChange = onQueryChange,
+                label = { Text("Query") },
+                enabled = !search.loading,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { submit() }),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            contentDescription = "Query"
+                            setText {
+                                onQueryChange(it.text)
+                                true
+                            }
+                            insertTextAtCursor {
+                                onQueryChange(search.query + it.text)
+                                true
+                            }
+                        },
+            )
+            Button(
+                onClick = submit,
+                enabled = search.query.isNotBlank() && !search.loading,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Search") }
             search.errorText?.let { error ->
-                item { Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
-            if (search.searched && search.matches.isEmpty() && search.errorText == null && !search.loading) {
-                item {
-                    Text("No matches.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            search.result?.let { result ->
-                if (result.partial || result.total > result.shown) {
+        }
+        PullToRefreshBox(
+            isRefreshing = search.loading,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (search.searched && search.matches.isEmpty() && search.errorText == null && !search.loading) {
                     item {
-                        Text(
-                            "Showing ${result.shown} of ${result.total}" + if (result.partial) " (partial)" else "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Text("No matches.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-            }
-            items(search.matches, key = { it.id.ifBlank { it.label } }) { match ->
-                SearchMatchRow(
-                    match = match,
-                    canActivate = canActivate,
-                    onActivate = { onActivate(match.id) },
-                )
+                search.result?.let { result ->
+                    if (result.partial || result.total > result.shown) {
+                        item {
+                            Text(
+                                "Showing ${result.shown} of ${result.total}" +
+                                    if (result.partial) " (partial)" else "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                items(search.matches, key = { it.id.ifBlank { it.label } }) { match ->
+                    SearchMatchRow(
+                        match = match,
+                        canActivate = canActivate,
+                        onActivate = { onActivate(match.id) },
+                    )
+                }
             }
         }
     }

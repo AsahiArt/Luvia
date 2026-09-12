@@ -51,7 +51,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -223,7 +222,6 @@ fun HostDetailPane(
     var confirmUnpair by remember { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
     val visible = sections.ifEmpty { HostSection.entries }
-    val selectedIndex = visible.indexOf(section).coerceAtLeast(0)
     Column(modifier.fillMaxSize()) {
         TopAppBar(
             title = {
@@ -248,6 +246,19 @@ fun HostDetailPane(
                         Text("⋮", style = MaterialTheme.typography.titleLarge)
                     }
                     DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
+                        visible.filter { !it.isPrimaryTab }.forEach { item ->
+                            DropdownMenuItem(
+                                text = { Text(item.name) },
+                                onClick = {
+                                    overflowOpen = false
+                                    onSection(item)
+                                },
+                                modifier = Modifier.semantics { contentDescription = item.name },
+                            )
+                        }
+                        if (visible.any { !it.isPrimaryTab }) {
+                            HorizontalDivider()
+                        }
                         DropdownMenuItem(
                             text = { Text("Refresh") },
                             onClick = {
@@ -274,19 +285,23 @@ fun HostDetailPane(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
-        val tab: @Composable () -> Unit = {
-            visible.forEach { item ->
+        val tabs =
+            visible.filter { it.isPrimaryTab }.let { primary ->
+                if (section.isPrimaryTab || section !in visible) {
+                    primary
+                } else {
+                    primary + section
+                }
+            }
+        val tabIndex = tabs.indexOf(section).coerceAtLeast(0)
+        PrimaryTabRow(selectedTabIndex = tabIndex) {
+            tabs.forEach { item ->
                 Tab(
                     selected = item == section,
                     onClick = { onSection(item) },
                     text = { Text(item.name) },
                 )
             }
-        }
-        if (visible.size > 4) {
-            PrimaryScrollableTabRow(selectedTabIndex = selectedIndex, edgePadding = 12.dp, tabs = tab)
-        } else {
-            PrimaryTabRow(selectedTabIndex = selectedIndex, tabs = tab)
         }
         when (section) {
             HostSection.Agents -> agentsContent(Modifier.weight(1f))
