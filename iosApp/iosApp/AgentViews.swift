@@ -19,6 +19,18 @@ struct AgentsSectionView: View {
                     errorMessage: model.uhp.errorMessage,
                     onRefresh: { await model.loadAgents() }
                 )
+                .toolbar {
+                    if model.uhp.caps.agentSessions {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("Sessions") {
+                                model.uhp.isSessionsPresented = true
+                            }
+                        }
+                    }
+                }
+                .sheet(isPresented: $model.uhp.isSessionsPresented) {
+                    AgentSessionsSheet(model: model)
+                }
                 .navigationDestination(for: String.self) { id in
                     AgentDetailView(model: model, agentID: id)
                         .task { await model.openAgent(id) }
@@ -129,6 +141,18 @@ struct AgentDetailView: View {
         }
         .navigationTitle(header?.name ?? "Agent")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if canMutate && uhp.caps.agentName {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Name") { model.beginNameAgent() }
+                }
+            }
+            if canMutate && uhp.caps.agentFork {
+                ToolbarItem(placement: .secondaryAction) {
+                    Button("Fork") { model.beginForkAgent() }
+                }
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if canMutate {
                 composer
@@ -136,6 +160,12 @@ struct AgentDetailView: View {
         }
         .refreshable {
             await model.refreshOpenAgent()
+        }
+        .sheet(isPresented: $model.uhp.isNameAgentPresented) {
+            NameAgentSheet(model: model)
+        }
+        .sheet(isPresented: $model.uhp.isForkAgentPresented) {
+            ForkAgentSheet(model: model)
         }
         .confirmationDialog(
             confirmTitle,
@@ -366,6 +396,139 @@ struct UnconfirmedBanner: View {
         }
         .padding(12)
         .background(Color.orange.opacity(0.16), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+struct AgentSessionsSheet: View {
+    @Bindable var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var pendingResume: AgentSessionItem?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if !model.uhp.caps.agentSessions {
+                    ContentUnavailableView(
+                        "Sessions",
+                        systemImage: "clock.arrow.circlepath",
+                        description: Text("This Host does not expose Agent sessions.")
+                    )
+                } else if model.uhp.agentSessions.isEmpty {
+                    ContentUnavailableView(
+                        "Sessions",
+                        systemImage: "clock.arrow.circlepath",
+                        description: Text("No resumable Agent sessions.")
+                    )
+                } else {
+                    List(model.uhp.agentSessions) { session in
+                        HStack(alignment: .firstTextBaseline) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(session.agent)
+                                    .font(.headline)
+                                Text(session.sessionId)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                if !session.cwd.isEmpty {
+                                    Text(session.cwd)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
+                            Spacer()
+                            if model.uhp.allowsMutation && model.uhp.caps.agentResume {
+                                Button("Resume") { pendingResume = session }
+                                    .disabled(model.uhp.isSending)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Sessions")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                SurfaceStatusBanner(model: model)
+            }
+            .refreshable { await model.loadAgentSessions() }
+            .confirmationDialog(
+                "Resume this Agent session?",
+                isPresented: Binding(
+                    get: { pendingResume != nil },
+                    set: { if !$0 { pendingResume = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Resume") {
+                    if let id = pendingResume?.sessionId {
+                        pendingResume = nil
+                        _Concurrency.Task { await model.resumeHostAgent(id) }
+                    }
+                }
+                Button("Cancel", role: .cancel) { pendingResume = nil }
+            } message: {
+                Text(pendingResume?.agent ?? "The Host will resume this Agent session.")
+            }
+        }
+        .task { await model.loadAgentSessions() }
+    }
+}
+
+struct NameAgentSheet: View {
+    @Bindable var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Name", text: $model.uhp.nameAgentText)
+            }
+            .navigationTitle("Name Agent")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        _Concurrency.Task { await model.nameOpenAgent() }
+                    }
+                    .disabled(
+                        model.uhp.nameAgentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || !model.uhp.allowsMutation
+                    )
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}
+
+struct ForkAgentSheet: View {
+    @Bindable var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Name (optional)", text: $model.uhp.forkAgentName)
+            }
+            .navigationTitle("Fork Agent")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Fork") {
+                        _Concurrency.Task { await model.forkOpenAgent() }
+                    }
+                    .disabled(!model.uhp.allowsMutation)
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 

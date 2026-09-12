@@ -50,7 +50,31 @@ struct HostDetailView: View {
                 }
                 Button("Refresh", systemImage: "arrow.clockwise", action: onRefresh)
                     .disabled(host.connection != .live)
+                Menu {
+                    Button("Files", systemImage: MoreSurface.files.symbol) {
+                        model.uhp.moreSurface = .files
+                    }
+                    Button("Search", systemImage: MoreSurface.search.symbol) {
+                        model.uhp.moreSurface = .search
+                    }
+                    Button("Worktrees", systemImage: MoreSurface.worktrees.symbol) {
+                        model.uhp.moreSurface = .worktrees
+                    }
+                    Button("Automations", systemImage: MoreSurface.automations.symbol) {
+                        model.uhp.moreSurface = .automations
+                    }
+                    Button("Layout", systemImage: MoreSurface.layout.symbol) {
+                        model.uhp.moreSurface = .layout
+                    }
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
+                }
+                .disabled(host.connection != .live)
+                .accessibilityLabel("More")
             }
+        }
+        .sheet(item: $model.uhp.moreSurface) { surface in
+            MoreSurfaceSheet(model: model, surface: surface)
         }
     }
 }

@@ -108,6 +108,9 @@ final class AppModel {
             terminalStatus = error.localizedDescription
         }
         await loadSelectedSection()
+        if let surface = uhp.moreSurface {
+            await loadMoreSurface(surface)
+        }
     }
 
     func unpair(_ hostId: String) async {
@@ -339,6 +342,32 @@ final class UhpSurfaceState {
     var addTaskPaths = ""
     var boardChangedMessage: String?
 
+    var moreSurface: MoreSurface?
+    var fileRoot: String?
+    var fileRows: [FileTreeRowItem] = []
+    var searchQuery = ""
+    var searchMatches: [SearchMatchItem] = []
+    var searchTotal: Int64 = 0
+    var searchShown: Int64 = 0
+    var searchPartial = false
+    var worktrees: [WorktreeItem] = []
+    var isCreateWorktreePresented = false
+    var createWorktreeBranch = ""
+    var automations: [AutomationItem] = []
+    var automationHealthSummary: String?
+    var workspaces: [WorkspaceItem] = []
+    var panes: [PaneItem] = []
+    var agentSessions: [AgentSessionItem] = []
+    var isSessionsPresented = false
+    var isNameAgentPresented = false
+    var nameAgentText = ""
+    var isForkAgentPresented = false
+    var forkAgentName = ""
+
+    var allowsMutation: Bool {
+        isController && !isSending && unconfirmed == nil
+    }
+
     var canAddNote: Bool {
         isController && caps.diffNoteAdd && !isSending && unconfirmed == nil
     }
@@ -390,11 +419,32 @@ final class UhpSurfaceState {
         addTaskTitle = ""
         addTaskPaths = ""
         boardChangedMessage = nil
+        moreSurface = nil
+        fileRoot = nil
+        fileRows = []
+        searchQuery = ""
+        searchMatches = []
+        searchTotal = 0
+        searchShown = 0
+        searchPartial = false
+        worktrees = []
+        isCreateWorktreePresented = false
+        createWorktreeBranch = ""
+        automations = []
+        automationHealthSummary = nil
+        workspaces = []
+        panes = []
+        agentSessions = []
+        isSessionsPresented = false
+        isNameAgentPresented = false
+        nameAgentText = ""
+        isForkAgentPresented = false
+        forkAgentName = ""
     }
 }
 
 extension AppModel {
-    private func liveSession() -> LuviaSession? {
+    func liveSession() -> LuviaSession? {
         guard let id = selectedHostID else { return nil }
         return manager.session(hostId: id)
     }
@@ -414,7 +464,7 @@ extension AppModel {
         }
     }
 
-    private func refreshCaps() {
+    func refreshCaps() {
         guard let session = liveSession() else {
             hasLiveSession = false
             uhp.caps = UhpCaps()
@@ -426,6 +476,10 @@ extension AppModel {
             agentRead: session.supports(method: methods.AGENT_READ),
             agentPrompt: session.supports(method: methods.AGENT_PROMPT),
             agentKeys: session.supports(method: methods.AGENT_KEYS),
+            agentSessions: session.supports(method: "agent.sessions"),
+            agentResume: session.supports(method: "agent.resume"),
+            agentFork: session.supports(method: "agent.fork"),
+            agentName: session.supports(method: "agent.name"),
             missionSnapshot: session.supports(method: methods.MISSION_SNAPSHOT),
             diffList: session.supports(method: methods.DIFF_LIST),
             diffGet: session.supports(method: methods.DIFF_GET),
@@ -437,7 +491,28 @@ extension AppModel {
             diffNoteRemove: session.supports(method: methods.DIFF_NOTE_REMOVE),
             taskList: session.supports(method: methods.TASK_LIST),
             taskAdd: session.supports(method: methods.TASK_ADD),
-            taskDone: session.supports(method: methods.TASK_DONE)
+            taskDone: session.supports(method: methods.TASK_DONE),
+            taskClaim: session.supports(method: "task.claim"),
+            taskDelete: session.supports(method: "task.delete"),
+            filesTree: session.supports(method: "files.tree"),
+            filesOpen: session.supports(method: "files.open"),
+            filesReveal: session.supports(method: "files.reveal"),
+            searchQuery: session.supports(method: "search.query"),
+            searchActivate: session.supports(method: "search.activate"),
+            worktreeList: session.supports(method: "worktree.list"),
+            worktreeCreate: session.supports(method: "worktree.create"),
+            worktreeOpen: session.supports(method: "worktree.open"),
+            worktreeRemove: session.supports(method: "worktree.remove"),
+            automationList: session.supports(method: "automation.list"),
+            automationEnable: session.supports(method: "automation.enable"),
+            automationDisable: session.supports(method: "automation.disable"),
+            automationRun: session.supports(method: "automation.run"),
+            automationHealth: session.supports(method: "automation.health"),
+            paneList: session.supports(method: "pane.list"),
+            paneFocus: session.supports(method: "pane.focus"),
+            paneClose: session.supports(method: "pane.close"),
+            workspaceList: session.supports(method: "workspace.list"),
+            workspaceClose: session.supports(method: "workspace.close")
         )
         uhp.isController = selectedHost?.isController ?? false
     }
@@ -616,15 +691,19 @@ extension AppModel {
             return
         }
         switch uhp.unconfirmed {
-        case .agentPrompt, .agentKeys:
+        case .agentPrompt, .agentKeys, .nameAgent, .forkAgent:
             guard await refreshOpenAgent() else { return }
+        case .resumeAgent:
+            let sessions = await loadAgentSessions()
+            await loadAgents()
+            guard sessions else { return }
         case .sendNotes, .addNote, .resolveNote, .reopenNote, .removeNote:
             guard uhp.caps.diffNoteList else {
                 uhp.errorMessage = "This Host does not support diff.note.list."
                 return
             }
             guard await loadNotes() else { return }
-        case .addTask, .completeTask:
+        case .addTask, .completeTask, .claimTask, .deleteTask:
             var verified = false
             if let id = uhp.unconfirmedTaskID {
                 verified = await refreshTaskRevision(id)
@@ -638,6 +717,16 @@ extension AppModel {
                 }
                 return
             }
+        case .openFile, .revealFile:
+            guard await loadFileTree() else { return }
+        case .activateSearch:
+            guard await runSearch() else { return }
+        case .createWorktree, .openWorktree, .removeWorktree:
+            guard await loadWorktrees() else { return }
+        case .enableAutomation, .disableAutomation, .runAutomation:
+            guard await loadAutomations() else { return }
+        case .focusPane, .closePane, .closeWorkspace:
+            guard await loadLayout() else { return }
         case nil:
             return
         }
@@ -961,7 +1050,7 @@ extension AppModel {
         }
     }
     @discardableResult
-    private func refreshTaskRevision(_ id: String) async -> Bool {
+    func refreshTaskRevision(_ id: String) async -> Bool {
         guard let session = liveSession() else { return false }
         do {
             let outcome = try await session.getTask(id: id)
@@ -975,7 +1064,7 @@ extension AppModel {
         return false
     }
 
-    private func storeTaskRevision(_ id: String, _ revision: Any?) {
+    func storeTaskRevision(_ id: String, _ revision: Any?) {
         if let value = kotlinInt64(revision) {
             uhp.taskRevisions[id] = value
         }
@@ -1027,7 +1116,7 @@ extension AppModel {
         }
     }
 
-    private func handleMutationFailure(_ failure: Failure, action: UnconfirmedAction) {
+    func handleMutationFailure(_ failure: Failure, action: UnconfirmedAction) {
         if isLostMutation(failure) {
             markUnconfirmed(action, nil)
             return
@@ -1035,7 +1124,7 @@ extension AppModel {
         uhp.errorMessage = FailureText.describe(failure)
     }
 
-    private func handleTaskMutationFailure(_ failure: Failure, action: UnconfirmedAction, taskID: String?) {
+    func handleTaskMutationFailure(_ failure: Failure, action: UnconfirmedAction, taskID: String?) {
         switch onEnum(of: failure) {
         case .revisionConflict:
             uhp.boardChangedMessage = "Board changed, review and try again"
@@ -1048,7 +1137,7 @@ extension AppModel {
         }
     }
 
-    private func markUnconfirmed(_ action: UnconfirmedAction, _ fallback: String?) {
+    func markUnconfirmed(_ action: UnconfirmedAction, _ fallback: String?) {
         uhp.unconfirmed = action
         uhp.errorMessage = fallback
     }

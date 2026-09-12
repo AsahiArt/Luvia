@@ -26,6 +26,8 @@ struct TasksSectionView: View {
 struct TasksListView: View {
     @Bindable var model: AppModel
     @State private var pendingComplete: TaskViewState?
+    @State private var pendingClaim: TaskViewState?
+    @State private var pendingDelete: TaskViewState?
 
     private var grouped: [(status: String, tasks: [TaskViewState])] {
         let order = ["blocked", "running", "claimed", "queued", "review", "failed", "merging", "merged", "done"]
@@ -82,6 +84,10 @@ struct TasksListView: View {
                                         )
                                     }
                                     Spacer()
+                                    if model.uhp.allowsMutation && model.uhp.caps.taskClaim && canClaim(task.status) {
+                                        Button("Claim") { pendingClaim = task }
+                                            .disabled(model.uhp.isSending)
+                                    }
                                     if model.uhp.isController
                                         && model.uhp.caps.taskDone
                                         && model.uhp.unconfirmed == nil
@@ -92,6 +98,12 @@ struct TasksListView: View {
                                     }
                                 }
                                 .padding(.vertical, 4)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    if model.uhp.allowsMutation && model.uhp.caps.taskDelete {
+                                        Button("Delete", role: .destructive) { pendingDelete = task }
+                                            .disabled(model.uhp.isSending)
+                                    }
+                                }
                             }
                         }
                     }
@@ -139,11 +151,51 @@ struct TasksListView: View {
         } message: {
             Text(pendingComplete?.title ?? "This Task will be marked done.")
         }
+        .confirmationDialog(
+            "Claim this Task?",
+            isPresented: Binding(
+                get: { pendingClaim != nil },
+                set: { if !$0 { pendingClaim = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Claim") {
+                if let id = pendingClaim?.id {
+                    pendingClaim = nil
+                    _Concurrency.Task { await model.claimTask(id) }
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingClaim = nil }
+        } message: {
+            Text(pendingClaim?.title ?? "This Task will be claimed on the Host.")
+        }
+        .confirmationDialog(
+            "Delete this Task?",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let id = pendingDelete?.id {
+                    pendingDelete = nil
+                    _Concurrency.Task { await model.deleteTask(id) }
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text(pendingDelete?.title ?? "This Task will be removed from the board.")
+        }
     }
 
     private func canComplete(_ status: String) -> Bool {
         let value = status.lowercased()
         return value != "done" && value != "merged" && value != "failed"
+    }
+
+    private func canClaim(_ status: String) -> Bool {
+        status.lowercased() == "queued"
     }
 
     private func displayStatus(_ status: String) -> String {

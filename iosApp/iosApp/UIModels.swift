@@ -73,6 +73,9 @@ struct TaskViewState: Identifiable, Hashable, Sendable {
 enum UnconfirmedAction: Hashable, Sendable {
     case agentPrompt
     case agentKeys
+    case resumeAgent
+    case forkAgent
+    case nameAgent
     case sendNotes
     case addNote
     case resolveNote
@@ -80,6 +83,20 @@ enum UnconfirmedAction: Hashable, Sendable {
     case removeNote
     case addTask
     case completeTask
+    case claimTask
+    case deleteTask
+    case openFile
+    case revealFile
+    case activateSearch
+    case createWorktree
+    case openWorktree
+    case removeWorktree
+    case enableAutomation
+    case disableAutomation
+    case runAutomation
+    case focusPane
+    case closePane
+    case closeWorkspace
 
     var title: String { "Unconfirmed" }
 
@@ -89,6 +106,12 @@ enum UnconfirmedAction: Hashable, Sendable {
             "This Agent prompt may have been delivered. Check the Transcript."
         case .agentKeys:
             "These Agent keys may have been delivered. Check the Transcript."
+        case .resumeAgent:
+            "This Agent session may have been resumed. Check Agents."
+        case .forkAgent:
+            "This Agent may have been forked. Check Agents."
+        case .nameAgent:
+            "This Agent may have been named. Check Agents."
         case .sendNotes:
             "Send notes may have reached the Agent. Check Review notes."
         case .addNote:
@@ -103,6 +126,34 @@ enum UnconfirmedAction: Hashable, Sendable {
             "The Task may have been added. Check the board."
         case .completeTask:
             "The Task may have been completed. Check the board."
+        case .claimTask:
+            "The Task may have been claimed. Check the board."
+        case .deleteTask:
+            "The Task may have been deleted. Check the board."
+        case .openFile:
+            "This file may have been opened on the Host. Check Files."
+        case .revealFile:
+            "This file may have been revealed on the Host. Check Files."
+        case .activateSearch:
+            "This search result may have been activated. Check Search."
+        case .createWorktree:
+            "The Worktree may have been created. Check Worktrees."
+        case .openWorktree:
+            "The Worktree may have been opened. Check Worktrees."
+        case .removeWorktree:
+            "The Worktree may have been removed. Check Worktrees."
+        case .enableAutomation:
+            "The Automation may have been enabled. Check Automations."
+        case .disableAutomation:
+            "The Automation may have been disabled. Check Automations."
+        case .runAutomation:
+            "The Automation may have been run. Check Automations."
+        case .focusPane:
+            "The Pane may have been focused. Check Layout."
+        case .closePane:
+            "The Pane may have been closed. Check Layout."
+        case .closeWorkspace:
+            "The workspace may have been closed. Check Layout."
         }
     }
 }
@@ -111,6 +162,10 @@ struct UhpCaps: Equatable, Sendable {
     var agentRead = false
     var agentPrompt = false
     var agentKeys = false
+    var agentSessions = false
+    var agentResume = false
+    var agentFork = false
+    var agentName = false
     var missionSnapshot = false
     var diffList = false
     var diffGet = false
@@ -123,6 +178,119 @@ struct UhpCaps: Equatable, Sendable {
     var taskList = false
     var taskAdd = false
     var taskDone = false
+    var taskClaim = false
+    var taskDelete = false
+    var filesTree = false
+    var filesOpen = false
+    var filesReveal = false
+    var searchQuery = false
+    var searchActivate = false
+    var worktreeList = false
+    var worktreeCreate = false
+    var worktreeOpen = false
+    var worktreeRemove = false
+    var automationList = false
+    var automationEnable = false
+    var automationDisable = false
+    var automationRun = false
+    var automationHealth = false
+    var paneList = false
+    var paneFocus = false
+    var paneClose = false
+    var workspaceList = false
+    var workspaceClose = false
+}
+
+enum MoreSurface: String, Identifiable, Hashable, Sendable {
+    case files
+    case search
+    case worktrees
+    case automations
+    case layout
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .files: "Files"
+        case .search: "Search"
+        case .worktrees: "Worktrees"
+        case .automations: "Automations"
+        case .layout: "Layout"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .files: "folder"
+        case .search: "magnifyingglass"
+        case .worktrees: "arrow.triangle.branch"
+        case .automations: "clock.arrow.2.circlepath"
+        case .layout: "rectangle.split.3x1"
+        }
+    }
+}
+
+struct FileTreeRowItem: Identifiable, Hashable, Sendable {
+    var id: String { path }
+    var path: String
+    var name: String
+    var depth: Int
+    var isDirectory: Bool
+    var isExpanded: Bool
+}
+
+struct SearchMatchItem: Identifiable {
+    let id: String
+    var kind: String
+    var label: String
+    var detail: String?
+    let match: SearchMatch
+}
+
+struct WorktreeItem: Identifiable, Hashable, Sendable {
+    var id: String { path }
+    var path: String
+    var branch: String?
+    var head: String?
+    var isMain: Bool
+}
+
+struct AutomationItem: Identifiable, Hashable, Sendable {
+    let id: String
+    var name: String
+    var enabled: Bool
+    var state: String?
+    var nextRun: String?
+    var latestStatus: String?
+    var latestError: String?
+}
+
+struct WorkspaceItem: Identifiable, Hashable, Sendable {
+    var id: String { "ws-\(index)" }
+    var index: Int
+    var name: String
+    var isActive: Bool
+    var isPinned: Bool
+    var cwd: String?
+    var branch: String?
+    var tabCount: Int
+}
+
+struct PaneItem: Identifiable, Hashable, Sendable {
+    var id: String { pane }
+    var pane: String
+    var agent: String?
+    var status: String
+    var isFocused: Bool
+    var cwd: String?
+}
+
+struct AgentSessionItem: Identifiable, Hashable, Sendable {
+    var id: String { sessionId }
+    var agent: String
+    var sessionId: String
+    var cwd: String
 }
 
 struct DiffFileItem: Identifiable, Hashable, Sendable {
