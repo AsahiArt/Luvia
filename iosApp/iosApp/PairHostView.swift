@@ -123,9 +123,16 @@ struct PairHostView: View {
             }
             Section {
                 Button("Continue") { startPairing() }
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, DesignTokens.Space.s)
+                    .luviaGlass(in: Capsule())
                     .disabled(deviceLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .listRowBackground(Color.clear)
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(DesignTokens.canvas)
     }
 
     @ViewBuilder
@@ -142,9 +149,9 @@ struct PairHostView: View {
                         .font(.system(.body, design: .monospaced))
                         .foregroundStyle(DesignTokens.ink)
                         .textSelection(.enabled)
-                        .padding(16)
+                        .padding(DesignTokens.Space.m)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(DesignTokens.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .luviaGlass(in: RoundedRectangle(cornerRadius: DesignTokens.Radius.m, style: .continuous))
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                         .listRowBackground(Color.clear)
                 } header: {
@@ -162,8 +169,11 @@ struct PairHostView: View {
                             systemImage: didCopy ? "checkmark" : "doc.on.doc"
                         )
                         .frame(maxWidth: .infinity)
+                        .padding(.vertical, DesignTokens.Space.s)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.plain)
+                    .luviaGlass(in: Capsule())
+                    .listRowBackground(Color.clear)
                 }
                 Section {
                     Button("I ran the command") {
@@ -173,6 +183,8 @@ struct PairHostView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(DesignTokens.canvas)
         }
     }
 

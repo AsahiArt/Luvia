@@ -34,6 +34,7 @@ struct HostSidebarView: View {
             }
         }
         .navigationTitle("Luvia")
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("Add Host", systemImage: "plus", action: addHost)
@@ -87,6 +88,7 @@ struct HostSidebarView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
+        .listRowBackground(Color.clear)
         .background(DesignTokens.canvas)
         .refreshable { await onRefreshAll() }
         .modifier(ConditionalSearchable(text: $query, enabled: hosts.count >= 8, prompt: "Hosts"))
@@ -96,14 +98,16 @@ struct HostSidebarView: View {
         ContentUnavailableView {
             Label {
                 Text("No Hosts")
-                    .font(.system(.title2, design: .serif))
+                    .font(DesignTokens.Typography.title)
+                    .foregroundStyle(DesignTokens.ink)
             } icon: {
                 Image(systemName: "laptopcomputer.and.iphone")
+                    .foregroundStyle(DesignTokens.accent)
             }
         } description: {
             Text("Install luvia-host on your computer, then pair this phone.")
         } actions: {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: DesignTokens.Space.m) {
                 EmptyHostStep(number: 1, text: "Install luvia-host on the machine that runs Luvus.")
                 EmptyHostStep(number: 2, text: "Pair this Device from the app.")
                 EmptyHostStep(number: 3, text: "Scan the pairing code the Host prints.")
@@ -111,13 +115,16 @@ struct HostSidebarView: View {
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(DesignTokens.ink)
                     .textSelection(.enabled)
-                    .padding(16)
+                    .padding(DesignTokens.Space.m)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(DesignTokens.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .luviaGlass(in: RoundedRectangle(cornerRadius: DesignTokens.Radius.m, style: .continuous))
             }
-            .padding(.top, 8)
+            .padding(.top, DesignTokens.Space.s)
             Button("Add Host", action: addHost)
-                .buttonStyle(.borderedProminent)
+                .font(.headline)
+                .padding(.horizontal, DesignTokens.Space.l)
+                .padding(.vertical, DesignTokens.Space.s)
+                .luviaGlass(in: Capsule())
             Button {
                 UIPasteboard.general.string = Self.installCommand
                 didCopyInstall = true
@@ -127,7 +134,6 @@ struct HostSidebarView: View {
                     systemImage: didCopyInstall ? "checkmark" : "doc.on.doc"
                 )
             }
-            .buttonStyle(.bordered)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(DesignTokens.canvas)
