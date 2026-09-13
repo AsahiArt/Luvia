@@ -151,18 +151,16 @@ async fn connect_inner(
         return Err(TransportError::io("host and user are required"));
     }
 
-    let resolved = match tokio::time::timeout(
-        DNS_TIMEOUT,
-        tokio::net::lookup_host((host.as_str(), port)),
-    )
-    .await
-    {
-        Ok(Ok(mut addrs)) => addrs
-            .next()
-            .ok_or_else(|| TransportError::io("dns failed"))?,
-        Ok(Err(_)) => return Err(TransportError::io("dns failed")),
-        Err(_) => return Err(TransportError::io("dns timeout")),
-    };
+    let resolved =
+        match tokio::time::timeout(DNS_TIMEOUT, tokio::net::lookup_host((host.as_str(), port)))
+            .await
+        {
+            Ok(Ok(mut addrs)) => addrs
+                .next()
+                .ok_or_else(|| TransportError::io("dns failed"))?,
+            Ok(Err(_)) => return Err(TransportError::io("dns failed")),
+            Err(_) => return Err(TransportError::io("dns timeout")),
+        };
 
     let stream = match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(resolved)).await {
         Ok(Ok(stream)) => stream,
@@ -180,11 +178,7 @@ async fn connect_inner(
 
     let mut session = match tokio::time::timeout(
         CONNECT_TIMEOUT,
-        client::connect_stream(
-            Arc::new(config),
-            stream,
-            PinnedHostKey { accepted },
-        ),
+        client::connect_stream(Arc::new(config), stream, PinnedHostKey { accepted }),
     )
     .await
     {
@@ -300,7 +294,10 @@ mod tests {
         ));
         assert!(started.elapsed() < Duration::from_secs(4));
         let shown = format!("{err:?}");
-        assert!(shown.contains("dns failed") || shown.contains("dns timeout"), "{shown}");
+        assert!(
+            shown.contains("dns failed") || shown.contains("dns timeout"),
+            "{shown}"
+        );
     }
 
     #[test]
