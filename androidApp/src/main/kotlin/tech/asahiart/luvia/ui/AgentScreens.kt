@@ -10,11 +10,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,7 +47,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -231,7 +228,7 @@ private fun AgentsHeaderCard(
         if (host.blockedAgents > 0) {
             Card(
                 modifier = Modifier.fillMaxWidth().clickable(onClick = onWaitingClick),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
             ) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
@@ -242,12 +239,12 @@ private fun AgentsHeaderCard(
                         },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                     Text(
                         "Jump to the first Blocked Agent.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                 }
             }
@@ -299,11 +296,18 @@ private fun AgentsHeaderCard(
 private fun MetricChip(label: String, value: Int, loud: Boolean = false) {
     val colors = if (loud) {
         AssistChipDefaults.assistChipColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            labelColor = MaterialTheme.colorScheme.onErrorContainer,
+            containerColor = MaterialTheme.colorScheme.primary,
+            labelColor = MaterialTheme.colorScheme.onPrimary,
+            disabledContainerColor = MaterialTheme.colorScheme.primary,
+            disabledLabelColor = MaterialTheme.colorScheme.onPrimary,
         )
     } else {
-        AssistChipDefaults.assistChipColors()
+        AssistChipDefaults.assistChipColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
     AssistChip(
         onClick = {},
@@ -320,46 +324,36 @@ private fun AgentRow(agent: AgentSummary, onClick: () -> Unit) {
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.cardColors(
             containerColor = if (blocked) {
-                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f)
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
             } else {
-                MaterialTheme.colorScheme.surfaceContainerLow
+                MaterialTheme.colorScheme.surface
             },
         ),
     ) {
-        Row(Modifier.height(IntrinsicSize.Min)) {
-            Box(
-                Modifier
-                    .width(4.dp)
-                    .fillMaxHeight()
-                    .background(
-                        if (blocked) MaterialTheme.colorScheme.error else Color.Transparent,
-                    ),
-            )
-            Column(Modifier.padding(16.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        agent.name ?: agent.agent ?: "Agent",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 2,
-                    )
-                    AgentStatusChip(agent.status)
-                }
-                val kind = agent.agent
-                if (!kind.isNullOrBlank() && kind != agent.name) {
-                    Text(kind, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                val place = listOfNotNull(agent.workspaceName ?: agent.workspace, agent.branch).joinToString(" · ")
-                if (place.isNotBlank()) {
-                    Text(
-                        place,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    agent.name ?: agent.agent ?: "Agent",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                )
+                AgentStatusChip(agent.status)
+            }
+            val kind = agent.agent
+            if (!kind.isNullOrBlank() && kind != agent.name) {
+                Text(kind, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            val place = listOfNotNull(agent.workspaceName ?: agent.workspace, agent.branch).joinToString(" · ")
+            if (place.isNotBlank()) {
+                Text(
+                    place,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -369,14 +363,14 @@ private fun AgentRow(agent: AgentSummary, onClick: () -> Unit) {
 internal fun AgentStatusChip(status: AgentStatus) {
     val blocked = status == AgentStatus.Blocked
     val container = if (blocked) {
-        MaterialTheme.colorScheme.errorContainer
+        MaterialTheme.colorScheme.primary
     } else {
-        MaterialTheme.colorScheme.secondaryContainer
+        MaterialTheme.colorScheme.surfaceContainer
     }
     val label = if (blocked) {
-        MaterialTheme.colorScheme.onErrorContainer
+        MaterialTheme.colorScheme.onPrimary
     } else {
-        MaterialTheme.colorScheme.onSecondaryContainer
+        MaterialTheme.colorScheme.onSurfaceVariant
     }
     AssistChip(
         onClick = {},

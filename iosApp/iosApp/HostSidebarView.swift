@@ -65,6 +65,8 @@ struct HostSidebarView: View {
         List(visibleHosts, selection: $selection) { host in
             HostRow(host: host)
                 .tag(host.id)
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowBackground(DesignTokens.surface)
                 .swipeActions(edge: .leading, allowsFullSwipe: false) {
                     if host.connection == .live || host.connection == .connecting {
                         Button {
@@ -72,7 +74,7 @@ struct HostSidebarView: View {
                         } label: {
                             Label("Disconnect", systemImage: "pause.circle")
                         }
-                        .tint(.orange)
+                        .tint(DesignTokens.stale)
                     }
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -83,26 +85,39 @@ struct HostSidebarView: View {
                     }
                 }
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(DesignTokens.canvas)
         .refreshable { await onRefreshAll() }
         .modifier(ConditionalSearchable(text: $query, enabled: hosts.count >= 8, prompt: "Hosts"))
     }
 
     private var emptyHosts: some View {
         ContentUnavailableView {
-            Label("No Hosts", systemImage: "server.rack")
+            Label {
+                Text("No Hosts")
+                    .font(.system(.title2, design: .serif))
+            } icon: {
+                Image(systemName: "laptopcomputer.and.iphone")
+            }
         } description: {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Pair a Luvus host to begin.")
-                Text("1. Install luvia-host on the machine.")
-                Text("2. Run the pair command and scan the pairing code.")
-                Text("3. Connect and work with Agents.")
+            Text("Install luvia-host on your computer, then pair this phone.")
+        } actions: {
+            VStack(alignment: .leading, spacing: 16) {
+                EmptyHostStep(number: 1, text: "Install luvia-host on the machine that runs Luvus.")
+                EmptyHostStep(number: 2, text: "Pair this Device from the app.")
+                EmptyHostStep(number: 3, text: "Scan the pairing code the Host prints.")
                 Text(Self.installCommand)
                     .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(DesignTokens.ink)
                     .textSelection(.enabled)
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(DesignTokens.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } actions: {
+            .padding(.top, 8)
             Button("Add Host", action: addHost)
+                .buttonStyle(.borderedProminent)
             Button {
                 UIPasteboard.general.string = Self.installCommand
                 didCopyInstall = true
@@ -112,6 +127,28 @@ struct HostSidebarView: View {
                     systemImage: didCopyInstall ? "checkmark" : "doc.on.doc"
                 )
             }
+            .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DesignTokens.canvas)
+    }
+}
+
+private struct EmptyHostStep: View {
+    let number: Int
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(number)")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .background(.fill.tertiary, in: Circle())
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -121,30 +158,25 @@ private struct HostRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: host.connection.symbol)
-                .foregroundStyle(host.connection == .live ? Color.green : Color.secondary)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
-                    Text(host.name)
-                        .font(.headline)
-                    if host.blockedAgents > 0 {
-                        Text("\(host.blockedAgents)")
-                            .font(.caption2.weight(.bold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .foregroundStyle(.white)
-                            .background(Color.orange, in: Capsule())
-                            .accessibilityLabel("\(host.blockedAgents) blocked")
-                    }
-                }
+            ZStack(alignment: .bottomTrailing) {
+                Text(String(host.name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased())
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(DesignTokens.accent, in: Circle())
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 11, height: 11)
+                    .overlay(Circle().stroke(DesignTokens.surface, lineWidth: 2))
+                    .accessibilityHidden(true)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(host.name)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(DesignTokens.ink)
                 Text(statusLine)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Text(host.address)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.subheadline)
+                    .foregroundStyle(DesignTokens.inkMuted)
                     .lineLimit(1)
                 if let failure = host.failureMessage, !failure.isEmpty {
                     Text(failure)
@@ -153,9 +185,29 @@ private struct HostRow: View {
                         .lineLimit(2)
                 }
             }
+            Spacer(minLength: 8)
+            if host.blockedAgents > 0 {
+                Text("\(host.blockedAgents)")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .foregroundStyle(.white)
+                    .background(DesignTokens.accent, in: Capsule())
+                    .accessibilityLabel("\(host.blockedAgents) blocked")
+            }
         }
+        .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText)
+    }
+
+    private var statusColor: Color {
+        switch host.connection {
+        case .live: DesignTokens.live
+        case .connecting: DesignTokens.connecting
+        case .stale: DesignTokens.stale
+        case .offline: DesignTokens.offline
+        }
     }
 
     private var statusLine: String {

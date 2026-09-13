@@ -42,17 +42,18 @@ struct PairHostView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if !connectingAfterPair {
+                    PairingStepRail(step: stepNumber)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 8)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    VStack(spacing: 1) {
-                        Text(title)
-                            .font(.headline)
-                        if !connectingAfterPair {
-                            Text("Step \(stepNumber) of 3")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    Text(title)
+                        .font(.system(.headline, design: .serif))
+                        .foregroundStyle(DesignTokens.ink)
                 }
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -91,10 +92,11 @@ struct PairHostView: View {
         VStack(spacing: 16) {
             ProgressView()
             Text("Paired. Connecting…")
-                .font(.headline)
+                .font(.system(.title2, design: .serif))
+                .foregroundStyle(DesignTokens.ink)
             Text("Landing on this Host once the first snapshot arrives.")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DesignTokens.inkMuted)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -135,10 +137,20 @@ struct PairHostView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                Section("Device key") {
+                Section {
                     Text(draft.deviceKeyFingerprint)
                         .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(DesignTokens.ink)
                         .textSelection(.enabled)
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(DesignTokens.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .listRowBackground(Color.clear)
+                } header: {
+                    Text("Device key")
+                } footer: {
+                    Text("The full ssh-ed25519 key stays in the copied command.")
                 }
                 Section {
                     Button {
@@ -152,8 +164,6 @@ struct PairHostView: View {
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                } footer: {
-                    Text("The full ssh-ed25519 key stays in the copied command.")
                 }
                 Section {
                     Button("I ran the command") {
@@ -194,6 +204,9 @@ struct PairHostView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(DesignTokens.ink)
+                        .padding(8)
+                        .background(DesignTokens.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         .lineLimit(3...8)
                         .accessibilityLabel("luvia1 pairing code")
                     Button("Pair") {
@@ -292,5 +305,21 @@ struct PairHostView: View {
         connectingAfterPair = false
         model.isPairingPresented = false
         dismiss()
+    }
+}
+
+private struct PairingStepRail: View {
+    let step: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(1...3, id: \.self) { index in
+                Capsule()
+                    .fill(index <= step ? DesignTokens.accent : DesignTokens.inkMuted.opacity(0.22))
+                    .frame(height: 4)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Step \(step) of 3")
     }
 }

@@ -38,6 +38,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
@@ -50,6 +53,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -66,6 +70,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -96,6 +101,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import tech.asahiart.luvia.HostRole
 import tech.asahiart.luvia.TerminalKey
+import tech.asahiart.luvia.ui.theme.LuviaTheme
 
 @Composable
 fun HostListPane(
@@ -119,12 +125,16 @@ fun HostListPane(
     }
     Scaffold(
         modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("Luvia") },
+                title = { Text("Luvia", style = MaterialTheme.typography.titleLarge) },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                ),
                 actions = {
                     IconButton(onClick = onAddHost, modifier = Modifier.semantics { contentDescription = "Add host" }) {
-                        Text("+")
+                        Icon(Icons.Filled.Add, contentDescription = null)
                     }
                 },
             )
@@ -150,7 +160,8 @@ fun HostListPane(
             ) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(hosts, key = { it.id }) { host ->
                         HostRow(
@@ -189,77 +200,107 @@ private fun HostRow(
             onConnect(host.id)
         }
     }
-    val buttonModifier = Modifier.semantics(mergeDescendants = true) {
-        contentDescription = action
-        role = Role.Button
-    }
     val freshness = freshnessLabel(host.lastUpdatedEpochMs, nowEpochMs)
-    ListItem(
-        headlineContent = {
-            Text(host.name, fontWeight = FontWeight.SemiBold)
-        },
-        supportingContent = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    host.address,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val statusLine = buildString {
-                    append(host.connection.label())
-                    if (freshness != null) {
-                        append(" · ")
-                        append(freshness)
-                    }
-                }
-                Text(
-                    statusLine,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                host.errorMessage?.let { error ->
-                    Text(
-                        error,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        },
-        leadingContent = {
-            Surface(
-                color = host.connection.color(),
-                shape = RoundedCornerShape(99.dp),
-                modifier = Modifier.size(10.dp),
-            ) {}
-        },
-        trailingContent = {
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (host.blockedAgents > 0) {
-                    Badge {
-                        Text("${host.blockedAgents} blocked")
-                    }
-                }
-                if (host.connected && host.connection != ConnectionBadge.Connecting) {
-                    FilledTonalButton(onClick = onAction, modifier = buttonModifier) { Text(action) }
-                } else {
-                    Button(onClick = onAction, modifier = buttonModifier) { Text(action) }
-                }
-            }
-        },
-        colors = ListItemDefaults.colors(
+    val statusLine = buildString {
+        append(host.connection.label())
+        if (freshness != null) {
+            append(" · ")
+            append(freshness)
+        }
+    }
+    Card(
+        onClick = { onSelect(host.id) },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
             containerColor = if (selected) {
-                MaterialTheme.colorScheme.secondaryContainer
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
             } else {
-                Color.Transparent
+                MaterialTheme.colorScheme.surface
             },
         ),
-        modifier = Modifier.fillMaxWidth().clickable { onSelect(host.id) },
-    )
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        ListItem(
+            headlineContent = {
+                Text(host.name, style = MaterialTheme.typography.titleMedium)
+            },
+            supportingContent = {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        statusLine,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        host.address,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    host.errorMessage?.let { error ->
+                        Text(
+                            error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            },
+            leadingContent = {
+                HostAvatar(name = host.name, connection = host.connection)
+            },
+            trailingContent = {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (host.blockedAgents > 0) {
+                        Badge(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ) {
+                            Text("${host.blockedAgents}")
+                        }
+                    }
+                    TextButton(
+                        onClick = onAction,
+                        modifier = Modifier.semantics(mergeDescendants = true) {
+                            contentDescription = action
+                            role = Role.Button
+                        },
+                    ) { Text(action) }
+                }
+            },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        )
+    }
+}
+
+@Composable
+private fun HostAvatar(name: String, connection: ConnectionBadge) {
+    Box(contentAlignment = Alignment.BottomEnd) {
+        Surface(
+            color = MaterialTheme.colorScheme.primary,
+            shape = RoundedCornerShape(99.dp),
+            modifier = Modifier.size(40.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    name.trim().take(1).ifEmpty { "H" }.uppercase(),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
+            }
+        }
+        Surface(
+            color = connection.color(),
+            shape = RoundedCornerShape(99.dp),
+            modifier = Modifier.size(12.dp).border(2.dp, MaterialTheme.colorScheme.surface, RoundedCornerShape(99.dp)),
+        ) {}
+    }
 }
 
 @Composable
@@ -290,7 +331,7 @@ fun HostDetailPane(
     var confirmUnpair by remember { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
     val visible = sections.ifEmpty { HostSection.entries }
-    Column(modifier.fillMaxSize()) {
+    Column(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         TopAppBar(
             title = {
                 Column {
@@ -298,6 +339,11 @@ fun HostDetailPane(
                     Text(host.sessionName ?: host.address, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
             },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.background,
+                titleContentColor = MaterialTheme.colorScheme.onBackground,
+                actionIconContentColor = MaterialTheme.colorScheme.onBackground,
+            ),
             actions = {
                 if (host.connected) {
                     TextButton(onClick = onDisconnect) {
@@ -311,7 +357,7 @@ fun HostDetailPane(
                         onClick = { overflowOpen = true },
                         modifier = Modifier.semantics { contentDescription = "More" },
                     ) {
-                        Text("⋮", style = MaterialTheme.typography.titleLarge)
+                        Icon(Icons.Filled.MoreVert, contentDescription = null)
                     }
                     DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
                         visible.filter { !it.isPrimaryTab }.forEach { item ->
@@ -362,7 +408,11 @@ fun HostDetailPane(
                 }
             }
         val tabIndex = tabs.indexOf(section).coerceAtLeast(0)
-        PrimaryTabRow(selectedTabIndex = tabIndex) {
+        PrimaryTabRow(
+            selectedTabIndex = tabIndex,
+            containerColor = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.primary,
+        ) {
             tabs.forEach { item ->
                 Tab(
                     selected = item == section,
@@ -411,8 +461,8 @@ fun HostDetailPane(
 private fun OverviewPane(host: HostUiModel, modifier: Modifier = Modifier) {
     val metrics = listOf(
         Triple("Working", host.workingAgents, MaterialTheme.colorScheme.primary),
-        Triple("Blocked", host.blockedAgents, MaterialTheme.colorScheme.tertiary),
-        Triple("Done", host.completedAgents, Color(0xFF2E7D32)),
+        Triple("Blocked", host.blockedAgents, MaterialTheme.colorScheme.primary),
+        Triple("Done", host.completedAgents, LuviaTheme.extended.live),
     )
     LazyVerticalGrid(
         columns = GridCells.Adaptive(160.dp),
@@ -456,8 +506,8 @@ fun TerminalPane(
     modifier: Modifier = Modifier,
 ) {
     var input by remember { mutableStateOf("") }
-    val defaultFg = Color(0xFFE4E7EC)
-    val defaultBg = Color(0xFF111318)
+    val defaultFg = LuviaTheme.extended.terminalFg
+    val defaultBg = LuviaTheme.extended.terminalBg
     val displayed = remember(terminal.text) {
         ansiAnnotatedString(terminal.text, defaultFg, defaultBg)
     }
@@ -532,7 +582,7 @@ fun TerminalPane(
                 ) {
                     Text(
                         terminal.errorText.orEmpty(),
-                        color = Color(0xFFE4E7EC),
+                        color = defaultFg,
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     val others = terminal.panes.filter { it.paneId != terminal.paneId }
@@ -670,64 +720,80 @@ fun PairHostPane(
         !showScan -> 2
         else -> 3
     }
-    val title = if (pairedHostId != null) "Paired. Connecting…" else "Step $step of 3"
+    val title = if (pairedHostId != null) "Paired. Connecting…" else when (step) {
+        1 -> "Name this Device"
+        2 -> "Run on the Host"
+        else -> "Scan pairing code"
+    }
     Scaffold(
         modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             CenterAlignedTopAppBar(
-                title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(title)
-                        if (pairedHostId == null) {
-                            Text(
-                                when (step) {
-                                    1 -> "Name this Device"
-                                    2 -> "Run on the Host"
-                                    else -> "Scan pairing code"
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                },
+                title = { Text(title, style = MaterialTheme.typography.titleLarge) },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                ),
             )
         },
     ) { padding ->
-        when {
-            pairedHostId != null ->
-                PairSuccessStep(
-                    onShowList = onCancel,
-                    modifier = Modifier.padding(padding).fillMaxSize(),
-                )
-            command == null ->
-                PairLabelStep(
-                    errorMessage = errorMessage,
-                    onBegin = { label, role ->
-                        showScan = false
-                        onBegin(label, role)
-                    },
-                    onCancel = onCancel,
-                    modifier = Modifier.padding(padding),
-                )
-            !showScan ->
-                PairCommandStep(
-                    command = command,
-                    fingerprint = fingerprint.orEmpty(),
-                    errorMessage = errorMessage,
-                    onCopyCommand = onCopyCommand,
-                    onScan = { showScan = true },
-                    onBack = onCancel,
-                    modifier = Modifier.padding(padding),
-                )
-            else ->
-                PairScanStep(
-                    errorMessage = errorMessage,
-                    completing = completing,
-                    onComplete = onComplete,
-                    onBack = { showScan = false },
-                    modifier = Modifier.padding(padding).fillMaxSize(),
-                )
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            if (pairedHostId == null) {
+                PairingStepRail(step = step, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            }
+            when {
+                pairedHostId != null ->
+                    PairSuccessStep(
+                        onShowList = onCancel,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                command == null ->
+                    PairLabelStep(
+                        errorMessage = errorMessage,
+                        onBegin = { label, role ->
+                            showScan = false
+                            onBegin(label, role)
+                        },
+                        onCancel = onCancel,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                !showScan ->
+                    PairCommandStep(
+                        command = command,
+                        fingerprint = fingerprint.orEmpty(),
+                        errorMessage = errorMessage,
+                        onCopyCommand = onCopyCommand,
+                        onScan = { showScan = true },
+                        onBack = onCancel,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                else ->
+                    PairScanStep(
+                        errorMessage = errorMessage,
+                        completing = completing,
+                        onComplete = onComplete,
+                        onBack = { showScan = false },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PairingStepRail(step: Int, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        repeat(3) { index ->
+            Box(
+                Modifier
+                    .height(4.dp)
+                    .weight(1f)
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(
+                        if (index < step) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+            )
         }
     }
 }
@@ -743,15 +809,20 @@ private fun PairLabelStep(
     var label by remember { mutableStateOf(defaultDeviceLabel(context)) }
     var role by remember { mutableStateOf(HostRole.Controller) }
     Column(
-        modifier.imePadding().padding(20.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier.imePadding().padding(24.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text("Name this device, then pick whether it may control terminals or only observe.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            "Name this device, then pick whether it may control terminals or only observe.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         OutlinedTextField(
             value = label,
             onValueChange = { label = it },
             label = { Text("Device label") },
             singleLine = true,
+            shape = RoundedCornerShape(16.dp),
             modifier = Modifier.fillMaxWidth(),
         )
         Text("Role", style = MaterialTheme.typography.labelLarge)
@@ -793,23 +864,28 @@ private fun PairCommandStep(
     var copied by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     Column(
-        modifier.imePadding().padding(20.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier.imePadding().padding(24.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
             "Run the pairing command on the Host, then scan the QR it prints.",
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (fingerprint.isNotBlank()) {
             Text("Device key fingerprint", style = MaterialTheme.typography.labelLarge)
-            SelectionContainer {
-                Text(
-                    fingerprint,
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                SelectionContainer {
+                    Text(
+                        fingerprint,
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                    )
+                }
             }
         }
         Button(
@@ -1024,25 +1100,36 @@ private fun EmptyHostsPane(
     var copied by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     Column(
-        modifier.verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Text("No Hosts", style = MaterialTheme.typography.headlineSmall)
+        Text("No Hosts", style = MaterialTheme.typography.headlineMedium)
         Text(
-            "Most people install the app before luvia-host. Pair in three steps.",
+            "Install luvia-host on your computer, then pair this phone.",
+            style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text("1. Install luvia-host on the machine that runs Luvus.")
-        Text("2. Pair this Device from the app.")
-        Text("3. Scan the pairing code the Host prints.")
-        SelectionContainer {
-            Text(
-                INSTALL_HOST_COMMAND,
-                fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall,
-            )
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            EmptyStep(1, "Install luvia-host on the machine that runs Luvus.")
+            EmptyStep(2, "Pair this Device from the app.")
+            EmptyStep(3, "Scan the pairing code the Host prints.")
         }
-        Button(
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            SelectionContainer {
+                Text(
+                    INSTALL_HOST_COMMAND,
+                    fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
+        }
+        FilledTonalButton(
             onClick = {
                 context.getSystemService(ClipboardManager::class.java)
                     ?.setPrimaryClip(ClipData.newPlainText("luvia-host install", INSTALL_HOST_COMMAND))
@@ -1055,6 +1142,30 @@ private fun EmptyHostsPane(
             modifier = Modifier.fillMaxWidth(),
         ) { Text(if (copied) "Copied" else "Copy install command") }
         Button(onClick = onAddHost, modifier = Modifier.fillMaxWidth()) { Text("Add Host") }
+    }
+}
+
+@Composable
+private fun EmptyStep(number: Int, text: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+        Surface(
+            color = MaterialTheme.colorScheme.primaryContainer,
+            shape = RoundedCornerShape(99.dp),
+            modifier = Modifier.size(28.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    number.toString(),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }
 
@@ -1088,9 +1199,10 @@ private fun defaultDeviceLabel(context: Context): String {
     return Build.MODEL.orEmpty()
 }
 
+@Composable
 private fun ConnectionBadge.color() = when (this) {
-    ConnectionBadge.Live -> Color(0xFF2E7D32)
-    ConnectionBadge.Connecting -> Color(0xFF1565C0)
-    ConnectionBadge.Stale -> Color(0xFFEF6C00)
-    ConnectionBadge.Offline -> Color(0xFF757575)
+    ConnectionBadge.Live -> LuviaTheme.extended.live
+    ConnectionBadge.Connecting -> LuviaTheme.extended.connecting
+    ConnectionBadge.Stale -> LuviaTheme.extended.stale
+    ConnectionBadge.Offline -> LuviaTheme.extended.offline
 }

@@ -1,6 +1,5 @@
 package tech.asahiart.luvia.ui
 
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
@@ -12,6 +11,7 @@ import tech.asahiart.luvia.DiffFile
 import tech.asahiart.luvia.DiffLayer
 import tech.asahiart.luvia.DiffListResult
 import tech.asahiart.luvia.TaskSummary
+import tech.asahiart.luvia.ui.theme.LuviaTheme
 
 @Preview(name = "Phone", device = Devices.PHONE, showBackground = true)
 @Preview(name = "Foldable", device = Devices.FOLDABLE, showBackground = true)
@@ -21,7 +21,7 @@ annotation class FormFactorPreviews
 @FormFactorPreviews
 @Composable
 private fun HostListPreview() {
-    MaterialTheme {
+    LuviaTheme {
         HostListPane(
             hosts = listOf(
                 HostUiModel(
@@ -56,7 +56,7 @@ private fun HostListPreview() {
 @Preview(name = "Empty hosts", showBackground = true)
 @Composable
 private fun EmptyHostsPreview() {
-    MaterialTheme {
+    LuviaTheme {
         HostListPane(
             hosts = emptyList(),
             selectedHostId = null,
@@ -69,7 +69,7 @@ private fun EmptyHostsPreview() {
 @FormFactorPreviews
 @Composable
 private fun HostDetailPreview() {
-    MaterialTheme {
+    LuviaTheme {
         HostDetailPane(
             host = previewHost(),
             section = HostSection.Agents,
@@ -98,7 +98,7 @@ private fun HostDetailPreview() {
 @Preview(name = "Pairing command", showBackground = true)
 @Composable
 private fun PairCommandPreview() {
-    MaterialTheme {
+    LuviaTheme {
         PairHostPane(
             command = "luvia-host pair --name 'Pixel 9' --role controller --key 'ssh-ed25519 AAAA...'",
             authorizedKeysLine = "ssh-ed25519 AAAA...",
@@ -116,7 +116,7 @@ private fun PairCommandPreview() {
 @Preview(name = "Pairing label", showBackground = true)
 @Composable
 private fun PairLabelPreview() {
-    MaterialTheme {
+    LuviaTheme {
         PairHostPane(
             command = null,
             authorizedKeysLine = null,
@@ -134,7 +134,7 @@ private fun PairLabelPreview() {
 @FormFactorPreviews
 @Composable
 private fun AgentsListPreview() {
-    MaterialTheme {
+    LuviaTheme {
         AgentsSection(
             host = previewHost(),
             state = previewAgentsState(),
@@ -152,7 +152,7 @@ private fun AgentsListPreview() {
 @FormFactorPreviews
 @Composable
 private fun AgentDetailBlockedPreview() {
-    MaterialTheme {
+    LuviaTheme {
         AgentsSection(
             host = previewHost(),
             state = previewAgentsState().copy(
@@ -192,7 +192,7 @@ private fun AgentDetailBlockedPreview() {
 @FormFactorPreviews
 @Composable
 private fun ReviewFileListPreview() {
-    MaterialTheme {
+    LuviaTheme {
         ReviewSection(
             host = previewHost(),
             state = previewAgentsState().copy(
@@ -241,7 +241,7 @@ private fun ReviewFileListPreview() {
 @FormFactorPreviews
 @Composable
 private fun TasksListPreview() {
-    MaterialTheme {
+    LuviaTheme {
         TasksSection(
             host = previewHost(),
             state = previewAgentsState().copy(

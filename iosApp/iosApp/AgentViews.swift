@@ -108,15 +108,16 @@ struct AgentsListView: View {
             if let first = blocked.first {
                 Section {
                     NavigationLink(value: first.id) {
-                        HStack(spacing: 10) {
+                        HStack(spacing: 8) {
                             Image(systemName: "exclamationmark.circle.fill")
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(DesignTokens.accent)
                             Text(
                                 blocked.count == 1
                                     ? "1 agent waiting for you"
                                     : "\(blocked.count) agents waiting for you"
                             )
                             .font(.headline)
+                            .foregroundStyle(DesignTokens.accent)
                             Spacer()
                         }
                         .padding(.vertical, 4)
@@ -146,34 +147,26 @@ struct AgentRowView: View {
     let agent: AgentViewState
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            if agent.isBlocked {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.orange)
-                    .frame(width: 4)
-                    .padding(.vertical, 2)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(agent.name)
+                    .font(agent.isBlocked ? .headline.weight(.semibold) : .headline)
+                    .lineLimit(2)
+                Spacer(minLength: 8)
+                StatusChip(status: agent.isBlocked ? "Blocked" : agent.status, isBlocked: agent.isBlocked)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(agent.name)
-                        .font(agent.isBlocked ? .headline.weight(.semibold) : .headline)
-                        .lineLimit(2)
-                    Spacer(minLength: 8)
-                    StatusChip(status: agent.isBlocked ? "Blocked" : agent.status, isBlocked: agent.isBlocked)
-                }
-                let subtitle = [agent.kind, agent.workspace].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-                if !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(agent.isBlocked ? Color.primary : Color.secondary)
-                        .lineLimit(2)
-                }
-                if let branch = agent.branch, !branch.isEmpty {
-                    Text(branch)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
+            let subtitle = [agent.kind, agent.workspace].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(agent.isBlocked ? DesignTokens.ink : DesignTokens.inkMuted)
+                    .lineLimit(2)
+            }
+            if let branch = agent.branch, !branch.isEmpty {
+                Text(branch)
+                    .font(.caption)
+                    .foregroundStyle(DesignTokens.inkMuted)
+                    .lineLimit(2)
             }
         }
         .padding(.vertical, 4)
@@ -388,7 +381,7 @@ struct AgentDetailView: View {
                         ForEach(QuickAgentKey.allCases) { key in
                             Button(key.title) { request(key) }
                                 .buttonStyle(.borderedProminent)
-                                .tint(prefersKeys ? Color.accentColor : Color.secondary)
+                                .tint(prefersKeys ? DesignTokens.accent : Color.secondary)
                                 .controlSize(.small)
                                 .disabled(uhp.isSending)
                         }
@@ -409,7 +402,7 @@ struct AgentDetailView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(prefersKeys ? Color.secondary : Color.accentColor)
+                    .tint(prefersKeys ? Color.secondary : DesignTokens.accent)
                     .disabled(uhp.composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || uhp.isSending)
                 }
             }
@@ -503,14 +496,12 @@ struct StatusChip: View {
         Text(status)
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .foregroundStyle(isBlocked ? Color.white : Color.primary)
-            .background(isBlocked ? Color.orange : Color.secondary.opacity(0.16), in: Capsule())
-            .overlay {
-                if isBlocked {
-                    Capsule().strokeBorder(Color.red.opacity(0.85))
-                }
-            }
+            .padding(.vertical, 4)
+            .foregroundStyle(isBlocked ? Color.white : DesignTokens.inkMuted)
+            .background(
+                isBlocked ? DesignTokens.accent : DesignTokens.inkMuted.opacity(0.16),
+                in: Capsule()
+            )
             .accessibilityLabel(isBlocked ? "Blocked" : status)
     }
 }
@@ -520,23 +511,23 @@ struct UnconfirmedBanner: View {
     let onCheck: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(action.title)
                     .font(.headline)
                 Text(action.detail)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DesignTokens.inkMuted)
                 Text("This change is not resent automatically.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DesignTokens.inkMuted)
             }
             Spacer(minLength: 8)
             Button(buttonTitle, action: onCheck)
                 .buttonStyle(.borderedProminent)
         }
-        .padding(12)
-        .background(Color.orange.opacity(0.16), in: RoundedRectangle(cornerRadius: 12))
+        .padding(16)
+        .background(DesignTokens.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var buttonTitle: String {

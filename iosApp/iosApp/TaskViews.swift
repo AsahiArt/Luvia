@@ -6,17 +6,27 @@ struct TasksSectionView: View {
 
     var body: some View {
         if !model.hasLiveSession {
-            ContentUnavailableView(
-                "Connect to this host",
-                systemImage: "bolt.horizontal.circle",
-                description: Text("A live session is required to load Agents, Review, and Tasks.")
-            )
+            ContentUnavailableView {
+                Label {
+                    Text("Connect to this host")
+                        .font(.system(.title2, design: .serif))
+                } icon: {
+                    Image(systemName: "bolt.horizontal.circle")
+                }
+            } description: {
+                Text("A live session is required to load Agents, Review, and Tasks.")
+            }
         } else if !model.uhp.caps.taskList && host.tasks.isEmpty {
-            ContentUnavailableView(
-                "Tasks",
-                systemImage: "checklist",
-                description: Text("This Host does not expose the Task board.")
-            )
+            ContentUnavailableView {
+                Label {
+                    Text("Tasks")
+                        .font(.system(.title2, design: .serif))
+                } icon: {
+                    Image(systemName: "checklist")
+                }
+            } description: {
+                Text("This Host does not expose the Task board.")
+            }
         } else {
             TasksListView(model: model)
         }
@@ -49,11 +59,16 @@ struct TasksListView: View {
     var body: some View {
         Group {
             if model.uhp.tasks.isEmpty {
-                ContentUnavailableView(
-                    "Tasks",
-                    systemImage: "checklist",
-                    description: Text("No Tasks on the board.")
-                )
+                ContentUnavailableView {
+                    Label {
+                        Text("Tasks")
+                            .font(.system(.title2, design: .serif))
+                    } icon: {
+                        Image(systemName: "checklist")
+                    }
+                } description: {
+                    Text("No Tasks on the board.")
+                }
             } else {
                 List {
                     if let message = model.uhp.boardChangedMessage {
@@ -83,6 +98,7 @@ struct TasksListView: View {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(task.title)
                                             .font(.headline)
+                                            .foregroundStyle(DesignTokens.ink)
                                         StatusChip(
                                             status: displayStatus(task.status),
                                             isBlocked: task.status.lowercased() == "blocked"

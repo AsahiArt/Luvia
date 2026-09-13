@@ -17,13 +17,7 @@ struct HostDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Section", selection: $section) {
-                ForEach(HostSection.allCases) { item in
-                    Label(item.rawValue, systemImage: item.symbol).tag(item)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding()
+            HostSectionStrip(section: $section)
 
             Group {
                 switch section {
@@ -47,6 +41,7 @@ struct HostDetailView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .background(DesignTokens.canvas)
         .navigationTitle(host.name)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -86,10 +81,42 @@ struct HostDetailView: View {
     }
 }
 
+private struct HostSectionStrip: View {
+    @Binding var section: HostSection
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(HostSection.allCases) { item in
+                let selected = section == item
+                Button {
+                    section = item
+                } label: {
+                    Text(item.rawValue)
+                        .font(.subheadline.weight(selected ? .semibold : .regular))
+                        .foregroundStyle(selected ? DesignTokens.ink : DesignTokens.inkMuted)
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 44)
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(selected ? DesignTokens.accent : Color.clear)
+                                .frame(height: 2)
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.rawValue)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(.horizontal, 16)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Section")
+    }
+}
+
 private enum TerminalChrome {
-    static let background = Color(red: 17 / 255, green: 19 / 255, blue: 24 / 255)
-    static let foreground = Color(red: 228 / 255, green: 231 / 255, blue: 236 / 255)
-    static let muted = Color(red: 154 / 255, green: 164 / 255, blue: 178 / 255)
+    static let background = DesignTokens.Terminal.background
+    static let foreground = DesignTokens.Terminal.foreground
+    static let muted = DesignTokens.Terminal.muted
 }
 
 private struct TerminalKeySpec: Identifiable {
@@ -132,7 +159,7 @@ private struct TerminalPane: View {
                     .padding(.vertical, 6)
                     .foregroundStyle(holdsControl ? TerminalChrome.background : TerminalChrome.foreground)
                     .background(
-                        holdsControl ? Color.green : TerminalChrome.muted.opacity(0.35),
+                        holdsControl ? DesignTokens.live : TerminalChrome.muted.opacity(0.35),
                         in: Capsule()
                     )
                     .accessibilityLabel(holdsControl ? "Controlling terminal" : "Observing terminal")
@@ -192,7 +219,7 @@ private struct TerminalPane: View {
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(
-                            holdsControl ? Color.green.opacity(0.85) : TerminalChrome.muted.opacity(0.45),
+                            holdsControl ? DesignTokens.live.opacity(0.85) : TerminalChrome.muted.opacity(0.45),
                             lineWidth: 2
                         )
                         .padding(4)
