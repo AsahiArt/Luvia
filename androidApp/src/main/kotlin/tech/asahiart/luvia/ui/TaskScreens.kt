@@ -115,14 +115,15 @@ private fun TaskListPane(
             if (state.tasks.boardChanged) {
                 item {
                     Text(
-                        "Board changed, review and try again",
+                        "Updated by someone else. Showing latest.",
                         color = MaterialTheme.colorScheme.tertiary,
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-            }
-            state.tasks.errorText?.let { error ->
-                item { Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            } else {
+                state.tasks.errorText?.let { error ->
+                    item { Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                }
             }
             state.tasks.unconfirmed?.let { kind ->
                 item { UnconfirmedBanner(kind = kind, onCheck = onCheckUnconfirmed) }

@@ -13,10 +13,12 @@ data class HostUiModel(
     val blockedAgents: Int = 0,
     val completedAgents: Int = 0,
     val activeTask: String? = null,
-    val updatedAt: String? = null,
+    val lastUpdatedEpochMs: Long = 0L,
     val errorMessage: String? = null,
     val isObserver: Boolean = false,
     val connected: Boolean = false,
+    val hasSnapshot: Boolean = false,
+    val firstBlockedPaneId: String? = null,
 )
 
 enum class ConnectionBadge { Live, Connecting, Stale, Offline }
@@ -45,6 +47,7 @@ data class TerminalUiModel(
     val control: TerminalControl,
     val canControl: Boolean = true,
     val errorText: String? = null,
+    val conflictMessage: String? = null,
     val paneId: String? = null,
     val panes: List<TerminalPaneChoice> = emptyList(),
 )

@@ -2,15 +2,19 @@
 
 package tech.asahiart.luvia.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,6 +22,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -44,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -138,7 +144,15 @@ fun AgentListPane(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                AgentsHeaderCard(host = host, mission = state.mission)
+                AgentsHeaderCard(
+                    host = host,
+                    mission = state.mission,
+                    onWaitingClick = {
+                        val pane = host.firstBlockedPaneId
+                            ?: state.agents.firstOrNull { it.status == AgentStatus.Blocked }?.paneId
+                        if (pane != null) onOpenAgent(pane)
+                    },
+                )
             }
             state.errorText?.let { error ->
                 item {
@@ -161,8 +175,28 @@ fun AgentListPane(
                     )
                 }
             } else {
-                items(state.agents, key = { it.paneId }) { agent ->
-                    AgentRow(agent = agent, onClick = { onOpenAgent(agent.paneId) })
+                val blocked = state.agents.filter { it.status == AgentStatus.Blocked }
+                val working = state.agents.filter { it.status == AgentStatus.Working }
+                val idle = state.agents.filter { it.status == AgentStatus.Idle || it.status == AgentStatus.Unknown }
+                val done = state.agents.filter { it.status == AgentStatus.Done }
+                listOf(
+                    "Blocked" to blocked,
+                    "Working" to working,
+                    "Idle" to idle,
+                    "Done" to done,
+                ).forEach { (title, agents) ->
+                    if (agents.isNotEmpty()) {
+                        item(key = "section-$title") {
+                            Text(
+                                title,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                        }
+                        items(agents, key = { it.paneId }) { agent ->
+                            AgentRow(agent = agent, onClick = { onOpenAgent(agent.paneId) })
+                        }
+                    }
                 }
             }
             if (state.agentSessions.isNotEmpty()) {
@@ -188,44 +222,74 @@ fun AgentListPane(
 }
 
 @Composable
-private fun AgentsHeaderCard(host: HostUiModel, mission: MissionSnapshot?) {
-    Card {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Mission", style = MaterialTheme.typography.titleSmall)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetricChip("Working", host.workingAgents)
-                MetricChip("Blocked", host.blockedAgents, loud = host.blockedAgents > 0)
-                MetricChip("Done", host.completedAgents)
+private fun AgentsHeaderCard(
+    host: HostUiModel,
+    mission: MissionSnapshot?,
+    onWaitingClick: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (host.blockedAgents > 0) {
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onWaitingClick),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            ) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        if (host.blockedAgents == 1) {
+                            "1 agent waiting for you"
+                        } else {
+                            "${host.blockedAgents} agents waiting for you"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    Text(
+                        "Jump to the first Blocked Agent.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
             }
-            val summary = mission?.summary
-            if (summary != null) {
-                Text(
-                    buildString {
-                        val live = mission.rows.count { it.kind == MissionRowKind.LIVE }
-                        val resumable = mission.rows.size - live
-                        append(live)
-                        append(" live")
-                        if (resumable > 0) {
-                            append(" · ")
-                            append(resumable)
-                            append(" resumable")
-                        }
-                        if (summary.tokens > 0) {
-                            append(" · ")
-                            append(summary.tokens)
-                            append(" tokens")
-                        }
-                        if (summary.costUsd > 0.0) {
-                            append(" · $")
-                            append("%.2f".format(summary.costUsd))
-                        }
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            host.activeTask?.let { task ->
-                Text(task, style = MaterialTheme.typography.bodyMedium)
+        }
+        Card {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Mission", style = MaterialTheme.typography.titleSmall)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    MetricChip("Working", host.workingAgents)
+                    MetricChip("Blocked", host.blockedAgents, loud = host.blockedAgents > 0)
+                    MetricChip("Done", host.completedAgents)
+                }
+                val summary = mission?.summary
+                if (summary != null) {
+                    Text(
+                        buildString {
+                            val live = mission.rows.count { it.kind == MissionRowKind.LIVE }
+                            val resumable = mission.rows.size - live
+                            append(live)
+                            append(" live")
+                            if (resumable > 0) {
+                                append(" · ")
+                                append(resumable)
+                                append(" resumable")
+                            }
+                            if (summary.tokens > 0) {
+                                append(" · ")
+                                append(summary.tokens)
+                                append(" tokens")
+                            }
+                            if (summary.costUsd > 0.0) {
+                                append(" · $")
+                                append("%.2f".format(summary.costUsd))
+                            }
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                host.activeTask?.let { task ->
+                    Text(task, style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
     }
@@ -251,40 +315,51 @@ private fun MetricChip(label: String, value: Int, loud: Boolean = false) {
 
 @Composable
 private fun AgentRow(agent: AgentSummary, onClick: () -> Unit) {
+    val blocked = agent.status == AgentStatus.Blocked
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.cardColors(
-            containerColor = if (agent.status == AgentStatus.Blocked) {
+            containerColor = if (blocked) {
                 MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f)
             } else {
                 MaterialTheme.colorScheme.surfaceContainerLow
             },
         ),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    agent.name ?: agent.agent ?: "Agent",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 2,
-                )
-                AgentStatusChip(agent.status)
-            }
-            val kind = agent.agent
-            if (!kind.isNullOrBlank() && kind != agent.name) {
-                Text(kind, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            val place = listOfNotNull(agent.workspaceName ?: agent.workspace, agent.branch).joinToString(" · ")
-            if (place.isNotBlank()) {
-                Text(
-                    place,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        Row(Modifier.height(IntrinsicSize.Min)) {
+            Box(
+                Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(
+                        if (blocked) MaterialTheme.colorScheme.error else Color.Transparent,
+                    ),
+            )
+            Column(Modifier.padding(16.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        agent.name ?: agent.agent ?: "Agent",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 2,
+                    )
+                    AgentStatusChip(agent.status)
+                }
+                val kind = agent.agent
+                if (!kind.isNullOrBlank() && kind != agent.name) {
+                    Text(kind, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                val place = listOfNotNull(agent.workspaceName ?: agent.workspace, agent.branch).joinToString(" · ")
+                if (place.isNotBlank()) {
+                    Text(
+                        place,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
@@ -352,8 +427,36 @@ fun AgentDetailPane(
     val surface = MaterialTheme.colorScheme.surface
     val transcriptParts = remember(transcriptText) { transcriptSegments(transcriptText) }
     val transcriptScroll = rememberScrollState()
+    val transcriptHorizontal = rememberScrollState()
+    var pinToBottom by remember { mutableStateOf(true) }
+    val highlight = remember { Animatable(0f) }
+    var addedSuffix by remember { mutableStateOf("") }
+    var lastSeen by remember { mutableStateOf("") }
+    val yesNoPrompt = remember(transcriptText) { transcriptLooksLikeYesNo(transcriptText) }
+    val highlightColor = MaterialTheme.colorScheme.tertiaryContainer
+    LaunchedEffect(transcriptScroll.isScrollInProgress, transcriptScroll.value, transcriptScroll.maxValue) {
+        if (!transcriptScroll.isScrollInProgress) {
+            pinToBottom = transcriptScroll.maxValue == 0 ||
+                transcriptScroll.value >= transcriptScroll.maxValue - 80
+        }
+    }
     LaunchedEffect(detail.transcript?.revision, transcriptText) {
-        transcriptScroll.scrollTo(transcriptScroll.maxValue)
+        if (lastSeen.isNotEmpty() && transcriptText.startsWith(lastSeen) && transcriptText.length > lastSeen.length) {
+            addedSuffix = transcriptText.substring(lastSeen.length)
+            highlight.snapTo(1f)
+            highlight.animateTo(0f, animationSpec = tween(1600))
+        } else {
+            addedSuffix = ""
+        }
+        lastSeen = transcriptText
+        if (pinToBottom) {
+            transcriptScroll.scrollTo(transcriptScroll.maxValue)
+        }
+    }
+    LaunchedEffect(pinToBottom, transcriptScroll.maxValue) {
+        if (pinToBottom) {
+            transcriptScroll.scrollTo(transcriptScroll.maxValue)
+        }
     }
     val missionRow = state.mission?.rows?.firstOrNull { it.pane == detail.paneId }
     val titleName = listOfNotNull(
@@ -479,7 +582,8 @@ fun AgentDetailPane(
                     Column(
                         Modifier
                             .fillMaxSize()
-                            .verticalScroll(transcriptScroll),
+                            .verticalScroll(transcriptScroll)
+                            .horizontalScroll(transcriptHorizontal),
                     ) {
                         if (transcriptText.isEmpty()) {
                             Text(
@@ -488,14 +592,30 @@ fun AgentDetailPane(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         } else {
-                            transcriptParts.forEach { part ->
+                            transcriptParts.forEachIndexed { index, part ->
                                 when (part) {
-                                    is TranscriptSegment.Text ->
-                                        Text(
-                                            ansiAnnotatedString(part.text, onSurface, surface),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontFamily = FontFamily.Monospace,
-                                        )
+                                    is TranscriptSegment.Text -> {
+                                        val isLast = index == transcriptParts.indexOfLast { it is TranscriptSegment.Text }
+                                        val highlightThis = isLast && addedSuffix.isNotEmpty() && part.text.endsWith(addedSuffix)
+                                        val stable = if (highlightThis) part.text.removeSuffix(addedSuffix) else part.text
+                                        if (stable.isNotEmpty()) {
+                                            Text(
+                                                ansiAnnotatedString(stable, onSurface, surface),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontFamily = FontFamily.Monospace,
+                                                softWrap = false,
+                                            )
+                                        }
+                                        if (highlightThis) {
+                                            Text(
+                                                ansiAnnotatedString(addedSuffix, onSurface, surface),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontFamily = FontFamily.Monospace,
+                                                softWrap = false,
+                                                modifier = Modifier.background(highlightColor.copy(alpha = highlight.value)),
+                                            )
+                                        }
+                                    }
                                     TranscriptSegment.Rule ->
                                         HorizontalDivider(
                                             Modifier.padding(vertical = 8.dp),
@@ -508,6 +628,11 @@ fun AgentDetailPane(
                         }
                     }
                 }
+                JumpToLatestPill(
+                    visible = !pinToBottom && transcriptScroll.maxValue > 0,
+                    onClick = { pinToBottom = true },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                )
             }
         }
         }
@@ -520,58 +645,26 @@ fun AgentDetailPane(
                 color = MaterialTheme.colorScheme.surface,
             ) {
                 Column(Modifier.fillMaxWidth()) {
-                    if (canKeys) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp)
-                                .horizontalScroll(rememberScrollState())
-                                .padding(start = 12.dp, end = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            if (canPrompt) {
-                                AgentKeyButton("y+Enter", enabled = !mutationPending) {
-                                    val action = PendingAgentAction("y+Enter", null, "y")
-                                    if (blocked) pendingKeys = action else onPrompt("y")
-                                }
-                                AgentKeyButton("n+Enter", enabled = !mutationPending) {
-                                    val action = PendingAgentAction("n+Enter", null, "n")
-                                    if (blocked) pendingKeys = action else onPrompt("n")
-                                }
-                            }
-                            AgentKeyButton("Enter", enabled = !mutationPending) {
-                                val action = PendingAgentAction("Enter", listOf(AgentKey.ENTER), null)
-                                if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                            }
-                            AgentKeyButton("Esc", enabled = !mutationPending) {
-                                val action = PendingAgentAction("Esc", listOf(AgentKey.ESC), null)
-                                if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                            }
-                            AgentKeyButton("Up", enabled = !mutationPending) {
-                                val action = PendingAgentAction("Up", listOf(AgentKey.UP), null)
-                                if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                            }
-                            AgentKeyButton("Down", enabled = !mutationPending) {
-                                val action = PendingAgentAction("Down", listOf(AgentKey.DOWN), null)
-                                if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                            }
-                            AgentKeyButton("Tab", enabled = !mutationPending) {
-                                val action = PendingAgentAction("Tab", listOf(AgentKey.TAB), null)
-                                if (blocked) pendingKeys = action else onSendKeys(action.keys.orEmpty())
-                            }
-                            Spacer(Modifier.width(8.dp))
-                        }
+                    if (canKeys && yesNoPrompt) {
+                        AgentKeyRow(
+                            canPrompt = canPrompt,
+                            mutationPending = mutationPending,
+                            blocked = blocked,
+                            prominent = true,
+                            onPrompt = onPrompt,
+                            onSendKeys = onSendKeys,
+                            onPending = { pendingKeys = it },
+                        )
                     }
                     if (canPrompt) {
                         OutlinedTextField(
                             value = draft,
                             onValueChange = onDraftChange,
-                            placeholder = { Text("Agent prompt") },
+                            placeholder = { Text(if (yesNoPrompt) "Agent prompt" else "Agent prompt") },
                             enabled = !mutationPending,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 56.dp)
+                                .heightIn(min = if (yesNoPrompt) 48.dp else 64.dp)
                                 .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp),
                             singleLine = true,
                             textStyle = MaterialTheme.typography.bodyMedium,
@@ -584,6 +677,17 @@ fun AgentDetailPane(
                                     },
                                 ) { Text("Send") }
                             },
+                        )
+                    }
+                    if (canKeys && !yesNoPrompt) {
+                        AgentKeyRow(
+                            canPrompt = canPrompt,
+                            mutationPending = mutationPending,
+                            blocked = blocked,
+                            prominent = false,
+                            onPrompt = onPrompt,
+                            onSendKeys = onSendKeys,
+                            onPending = { pendingKeys = it },
                         )
                     }
                 }
@@ -669,42 +773,118 @@ fun AgentDetailPane(
 
 @Composable
 internal fun UnconfirmedBanner(kind: UnconfirmedKind, onCheck: () -> Unit) {
+    val agentKind = kind == UnconfirmedKind.AgentPrompt || kind == UnconfirmedKind.AgentKeys
     Surface(
         color = MaterialTheme.colorScheme.tertiaryContainer,
         shape = MaterialTheme.shapes.medium,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
+        Column(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(
-                when (kind) {
-                    UnconfirmedKind.AgentPrompt -> "Agent prompt Unconfirmed"
-                    UnconfirmedKind.AgentKeys -> "Agent keys Unconfirmed"
-                    UnconfirmedKind.AddReviewNote -> "Add Review note Unconfirmed"
-                    UnconfirmedKind.ResolveReviewNote -> "Resolve Review note Unconfirmed"
-                    UnconfirmedKind.ReopenReviewNote -> "Reopen Review note Unconfirmed"
-                    UnconfirmedKind.RemoveReviewNote -> "Remove Review note Unconfirmed"
-                    UnconfirmedKind.SendNotes -> "Send notes Unconfirmed"
-                    UnconfirmedKind.AddTask -> "Add Task Unconfirmed"
-                    UnconfirmedKind.CompleteTask -> "Complete Task Unconfirmed"
-                    UnconfirmedKind.ClaimTask -> "Claim Task Unconfirmed"
-                    UnconfirmedKind.DeleteTask -> "Delete Task Unconfirmed"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onTertiaryContainer,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = onCheck) { Text("Check") }
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    when (kind) {
+                        UnconfirmedKind.AgentPrompt -> "Agent prompt Unconfirmed"
+                        UnconfirmedKind.AgentKeys -> "Agent keys Unconfirmed"
+                        UnconfirmedKind.AddReviewNote -> "Add Review note Unconfirmed"
+                        UnconfirmedKind.ResolveReviewNote -> "Resolve Review note Unconfirmed"
+                        UnconfirmedKind.ReopenReviewNote -> "Reopen Review note Unconfirmed"
+                        UnconfirmedKind.RemoveReviewNote -> "Remove Review note Unconfirmed"
+                        UnconfirmedKind.SendNotes -> "Send notes Unconfirmed"
+                        UnconfirmedKind.AddTask -> "Add Task Unconfirmed"
+                        UnconfirmedKind.CompleteTask -> "Complete Task Unconfirmed"
+                        UnconfirmedKind.ClaimTask -> "Claim Task Unconfirmed"
+                        UnconfirmedKind.DeleteTask -> "Delete Task Unconfirmed"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    modifier = Modifier.weight(1f),
+                )
+                Button(onClick = onCheck) {
+                    Text(if (agentKind) "Re-read agent" else "Check")
+                }
+            }
+            if (agentKind) {
+                Text(
+                    "The Host may already have it. Re-read Agent state instead of sending again.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun AgentKeyButton(label: String, enabled: Boolean, onClick: () -> Unit) {
-    FilledTonalButton(onClick = onClick, enabled = enabled) { Text(label) }
+private fun AgentKeyRow(
+    canPrompt: Boolean,
+    mutationPending: Boolean,
+    blocked: Boolean,
+    prominent: Boolean,
+    onPrompt: (String) -> Unit,
+    onSendKeys: (List<AgentKey>) -> Unit,
+    onPending: (PendingAgentAction) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .horizontalScroll(rememberScrollState())
+            .padding(start = 12.dp, end = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (canPrompt) {
+            AgentKeyButton("y+Enter", enabled = !mutationPending, prominent = prominent) {
+                val action = PendingAgentAction("y+Enter", null, "y")
+                if (blocked) onPending(action) else onPrompt("y")
+            }
+            AgentKeyButton("n+Enter", enabled = !mutationPending, prominent = prominent) {
+                val action = PendingAgentAction("n+Enter", null, "n")
+                if (blocked) onPending(action) else onPrompt("n")
+            }
+        }
+        AgentKeyButton("Enter", enabled = !mutationPending, prominent = prominent) {
+            val action = PendingAgentAction("Enter", listOf(AgentKey.ENTER), null)
+            if (blocked) onPending(action) else onSendKeys(action.keys.orEmpty())
+        }
+        AgentKeyButton("Esc", enabled = !mutationPending, prominent = prominent) {
+            val action = PendingAgentAction("Esc", listOf(AgentKey.ESC), null)
+            if (blocked) onPending(action) else onSendKeys(action.keys.orEmpty())
+        }
+        AgentKeyButton("Up", enabled = !mutationPending, prominent = prominent) {
+            val action = PendingAgentAction("Up", listOf(AgentKey.UP), null)
+            if (blocked) onPending(action) else onSendKeys(action.keys.orEmpty())
+        }
+        AgentKeyButton("Down", enabled = !mutationPending, prominent = prominent) {
+            val action = PendingAgentAction("Down", listOf(AgentKey.DOWN), null)
+            if (blocked) onPending(action) else onSendKeys(action.keys.orEmpty())
+        }
+        AgentKeyButton("Tab", enabled = !mutationPending, prominent = prominent) {
+            val action = PendingAgentAction("Tab", listOf(AgentKey.TAB), null)
+            if (blocked) onPending(action) else onSendKeys(action.keys.orEmpty())
+        }
+    }
+}
+
+@Composable
+private fun AgentKeyButton(label: String, enabled: Boolean, prominent: Boolean = false, onClick: () -> Unit) {
+    if (prominent) {
+        Button(onClick = onClick, enabled = enabled) { Text(label) }
+    } else {
+        FilledTonalButton(onClick = onClick, enabled = enabled) { Text(label) }
+    }
+}
+
+private fun transcriptLooksLikeYesNo(text: String): Boolean {
+    val tail = text.trim().takeLast(500)
+    return Regex("""(?i)\(y/n\)|\[y/n\]|\by/n\b|\byes\s*/\s*no\b|\(yes/no\)""").containsMatchIn(tail)
 }
 
 @Composable

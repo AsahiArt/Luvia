@@ -3,7 +3,7 @@ import UIKit
 import LuviaShared
 
 struct PairHostView: View {
-    var model: AppModel
+    @Bindable var model: AppModel
     @Environment(\.dismiss) private var dismiss
 
     private enum Step {
@@ -22,35 +22,83 @@ struct PairHostView: View {
     @State private var pasteCode = ""
     @State private var isCompleting = false
     @State private var didCopy = false
+    @State private var connectingAfterPair = false
+    @State private var pairedHostID: String?
 
     var body: some View {
         NavigationStack {
             Group {
-                switch step {
-                case .identity:
-                    identityForm
-                case .command:
-                    commandForm
-                case .code:
-                    codeForm
+                if connectingAfterPair {
+                    connectingForm
+                } else {
+                    switch step {
+                    case .identity:
+                        identityForm
+                    case .command:
+                        commandForm
+                    case .code:
+                        codeForm
+                    }
                 }
             }
-            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 1) {
+                        Text(title)
+                            .font(.headline)
+                        if !connectingAfterPair {
+                            Text("Step \(stepNumber) of 3")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        model.isPairingPresented = false
+                        dismiss()
+                    }
+                }
+            }
+            .onChange(of: model.hosts) { _, _ in
+                settleAfterPair()
+            }
+            .onChange(of: model.hasLiveSession) { _, _ in
+                settleAfterPair()
             }
         }
     }
 
-    private var title: String {
+    private var stepNumber: Int {
         switch step {
-        case .identity: "Add Host"
-        case .command: "Run on Host"
-        case .code: "Scan Pairing Code"
+        case .identity: 1
+        case .command: 2
+        case .code: 3
         }
+    }
+
+    private var title: String {
+        if connectingAfterPair { return "Paired" }
+        switch step {
+        case .identity: return "Add Host"
+        case .command: return "Run on Host"
+        case .code: return "Scan Pairing Code"
+        }
+    }
+
+    private var connectingForm: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+            Text("Paired. Connecting…")
+                .font(.headline)
+            Text("Landing on this Host once the first snapshot arrives.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
     }
 
     private var identityForm: some View {
@@ -83,31 +131,29 @@ struct PairHostView: View {
         if let draft {
             Form {
                 Section {
-                    Text("Run this command on the host machine, then scan the QR it prints.")
+                    Text("Run this command on the Host, then scan the QR it prints.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
-                Section("Command") {
-                    Text(draft.command)
-                        .font(.system(.footnote, design: .monospaced))
+                Section("Device key") {
+                    Text(draft.deviceKeyFingerprint)
+                        .font(.system(.body, design: .monospaced))
                         .textSelection(.enabled)
+                }
+                Section {
                     Button {
                         UIPasteboard.general.string = draft.command
                         didCopy = true
                     } label: {
-                        Label(didCopy ? "Copied" : "Copy command", systemImage: didCopy ? "checkmark" : "doc.on.doc")
-                            .frame(maxWidth: .infinity)
+                        Label(
+                            didCopy ? "Copied. Paste it in a terminal on the host." : "Copy full command",
+                            systemImage: didCopy ? "checkmark" : "doc.on.doc"
+                        )
+                        .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
-                }
-                Section("Public key") {
-                    Text(draft.authorizedKeysLine)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                    Text(draft.deviceKeyFingerprint)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                } footer: {
+                    Text("The full ssh-ed25519 key stays in the copied command.")
                 }
                 Section {
                     Button("I ran the command") {
@@ -221,10 +267,30 @@ struct PairHostView: View {
         let result = await model.completePairing(draft: draft, rawCode: trimmed)
         isCompleting = false
         switch result {
-        case .success:
-            dismiss()
+        case .success(let profile):
+            pairedHostID = profile.id
+            connectingAfterPair = true
+            settleAfterPair()
         case .failure(let error):
             errorMessage = error.message
         }
+    }
+
+    private func settleAfterPair() {
+        guard connectingAfterPair, let id = pairedHostID else { return }
+        guard let host = model.hosts.first(where: { $0.id == id }) else { return }
+        if host.connection == .live || (model.hasLiveSession && model.selectedHostID == id) {
+            finishConnecting()
+            return
+        }
+        if let failure = host.failureMessage, !failure.isEmpty {
+            finishConnecting()
+        }
+    }
+
+    private func finishConnecting() {
+        connectingAfterPair = false
+        model.isPairingPresented = false
+        dismiss()
     }
 }

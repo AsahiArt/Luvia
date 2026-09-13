@@ -31,20 +31,19 @@ struct ReviewSectionView: View {
 
 struct ReviewListView: View {
     @Bindable var model: AppModel
+    @State private var layer = "Worktree"
+    @State private var notesOnly = false
 
-    private var grouped: [(layer: String, files: [DiffFileItem])] {
-        let order = ["Conflict", "Staged", "Worktree", "Untracked", "Other"]
-        let groups = Dictionary(grouping: model.uhp.diffFiles, by: \.layer)
-        return order.compactMap { layer in
-            guard let files = groups[layer], !files.isEmpty else { return nil }
-            return (layer, files)
-        } + groups.keys
-            .filter { !order.contains($0) }
-            .sorted()
-            .compactMap { layer in
-                guard let files = groups[layer] else { return nil }
-                return (layer, files)
+    private let layers = ["Staged", "Worktree", "Untracked", "Conflict"]
+
+    private var visibleFiles: [DiffFileItem] {
+        model.uhp.diffFiles.filter { file in
+            guard file.layer == layer else { return false }
+            if notesOnly {
+                return openNoteCount(for: file) > 0
             }
+            return true
+        }
     }
 
     var body: some View {
@@ -57,6 +56,19 @@ struct ReviewListView: View {
                 )
             } else {
                 List {
+                    Section {
+                        Picker("Layer", selection: $layer) {
+                            ForEach(layers, id: \.self) { item in
+                                Text(item).tag(item)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityLabel("Layer")
+                        Toggle("Files with notes", isOn: $notesOnly)
+                            .font(.subheadline)
+                    } header: {
+                        Text("Layer")
+                    }
                     if let branch = model.uhp.diffBranch, !branch.isEmpty {
                         Section {
                             Text(branch)
@@ -65,9 +77,12 @@ struct ReviewListView: View {
                             Text("Branch")
                         }
                     }
-                    ForEach(grouped, id: \.layer) { group in
-                        Section(group.layer) {
-                            ForEach(group.files) { file in
+                    Section {
+                        if visibleFiles.isEmpty {
+                            Text(notesOnly ? "No files with open Review notes in this layer." : "No files in this layer.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(visibleFiles) { file in
                                 if file.isDirectory {
                                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                                         Text(file.path)
@@ -85,38 +100,31 @@ struct ReviewListView: View {
                                                 .font(.system(.body, design: .monospaced))
                                                 .lineLimit(3)
                                             Spacer(minLength: 8)
+                                            let notes = openNoteCount(for: file)
+                                            if notes > 0 {
+                                                Text("\(notes)")
+                                                    .font(.caption.weight(.semibold))
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 2)
+                                                    .foregroundStyle(.white)
+                                                    .background(Color.orange, in: Capsule())
+                                                    .accessibilityLabel("\(notes) open notes")
+                                            }
                                             Text("+\(file.additions)")
                                                 .font(.caption.monospacedDigit())
-                                                .foregroundStyle(.green)
+                                                .foregroundStyle(DiffPalette.add)
                                             Text("-\(file.deletions)")
                                                 .font(.caption.monospacedDigit())
-                                                .foregroundStyle(.red)
+                                                .foregroundStyle(DiffPalette.remove)
                                         }
                                     }
                                 }
                             }
                         }
+                    } header: {
+                        Text(layer)
                     }
                 }
-            }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if model.uhp.unconfirmed != nil || !(model.uhp.errorMessage ?? "").isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let unconfirmed = model.uhp.unconfirmed {
-                        UnconfirmedBanner(action: unconfirmed) {
-                            _Concurrency.Task { await model.checkUnconfirmed() }
-                        }
-                    }
-                    if let error = model.uhp.errorMessage, !error.isEmpty {
-                        Text(error)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.bottom, 8)
             }
         }
         .toolbar {
@@ -139,37 +147,64 @@ struct ReviewListView: View {
             SendNotesSheet(model: model)
         }
         .overlay(alignment: .bottom) {
-            if let message = model.uhp.sendNotesMessage {
-                Text(message)
-                    .font(.footnote)
-                    .padding(12)
-                    .frame(maxWidth: .infinity)
-                    .background(.ultraThinMaterial)
-                    .onTapGesture { model.uhp.sendNotesMessage = nil }
+            VStack(spacing: 8) {
+                if let unconfirmed = model.uhp.unconfirmed {
+                    UnconfirmedBanner(action: unconfirmed) {
+                        _Concurrency.Task { await model.checkUnconfirmed() }
+                    }
+                }
+                if let error = model.uhp.errorMessage, !error.isEmpty {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+                if let message = model.uhp.sendNotesMessage {
+                    Text(message)
+                        .font(.footnote)
+                        .padding(12)
+                        .frame(maxWidth: .infinity)
+                        .background(.ultraThinMaterial)
+                        .onTapGesture { model.uhp.sendNotesMessage = nil }
+                }
+            }
+            .padding()
+        }
+        .onAppear {
+            if !model.uhp.diffFiles.contains(where: { $0.layer == layer }) {
+                layer = layers.first { candidate in
+                    model.uhp.diffFiles.contains { $0.layer == candidate }
+                } ?? "Worktree"
             }
         }
+    }
+
+    private func openNoteCount(for file: DiffFileItem) -> Int {
+        model.uhp.notes.filter { note in
+            note.isOpen && note.path == file.path
+        }.count
     }
 }
 
 struct DiffFileDetailView: View {
     @Bindable var model: AppModel
     let file: DiffFileItem
+    @State private var collapsedHunks: Set<String> = []
 
     private var detail: DiffFileDetail? {
         model.uhp.selectedDiff?.item.id == file.id ? model.uhp.selectedDiff : nil
     }
 
     var body: some View {
-        ScrollView {
+        ScrollView([.horizontal, .vertical]) {
             LazyVStack(alignment: .leading, spacing: 16) {
                 HStack {
                     Text(file.path)
                         .font(.system(.headline, design: .monospaced))
                     Spacer()
                     Text("+\(file.additions)")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(DiffPalette.add)
                     Text("-\(file.deletions)")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(DiffPalette.remove)
                 }
                 .padding(.horizontal)
                 if let unconfirmed = model.uhp.unconfirmed {
@@ -180,23 +215,39 @@ struct DiffFileDetailView: View {
                 }
                 if let hunks = detail?.hunks, !hunks.isEmpty {
                     ForEach(hunks) { hunk in
-                        VStack(alignment: .leading, spacing: 0) {
+                        DisclosureGroup(
+                            isExpanded: Binding(
+                                get: { !collapsedHunks.contains(hunk.id) },
+                                set: { expanded in
+                                    if expanded {
+                                        collapsedHunks.remove(hunk.id)
+                                    } else {
+                                        collapsedHunks.insert(hunk.id)
+                                    }
+                                }
+                            )
+                        ) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                ForEach(hunk.lines) { line in
+                                    DiffLineRow(line: line)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            guard model.uhp.canAddNote else { return }
+                                            model.beginAddNote(file: file, hunk: hunk, line: line)
+                                        }
+                                }
+                            }
+                            .fixedSize(horizontal: true, vertical: false)
+                        } label: {
                             Text(hunk.header)
                                 .font(.system(.caption, design: .monospaced))
                                 .foregroundStyle(.secondary)
-                                .padding(.horizontal)
-                                .padding(.vertical, 6)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.secondary.opacity(0.12))
-                            ForEach(hunk.lines) { line in
-                                DiffLineRow(line: line)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        guard model.uhp.canAddNote else { return }
-                                        model.beginAddNote(file: file, line: line)
-                                    }
-                            }
                         }
+                        .padding(.horizontal)
+                        .padding(.vertical, 4)
+                        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                        .padding(.horizontal)
                     }
                 } else {
                     Text("No hunks for this file.")
@@ -204,6 +255,7 @@ struct DiffFileDetailView: View {
                         .padding()
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.vertical)
         }
         .navigationTitle(file.layer)
@@ -214,8 +266,14 @@ struct DiffFileDetailView: View {
     }
 }
 
+private enum DiffPalette {
+    static let add = Color(red: 0.12, green: 0.52, blue: 0.30)
+    static let remove = Color(red: 0.72, green: 0.16, blue: 0.18)
+}
+
 private struct DiffLineRow: View {
     let line: DiffLineItem
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -225,11 +283,13 @@ private struct DiffLineRow: View {
                 .frame(width: 56, alignment: .trailing)
             Text(line.text)
                 .font(.system(.footnote, design: .monospaced))
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal)
         .padding(.vertical, 2)
-        .background(tint.opacity(0.18))
+        .background(tint)
     }
 
     private var gutter: String {
@@ -240,8 +300,9 @@ private struct DiffLineRow: View {
 
     private var tint: Color {
         let kind = line.kind.lowercased()
-        if kind.contains("add") || kind == "+" { return .green }
-        if kind.contains("del") || kind == "-" { return .red }
+        let opacity = colorScheme == .dark ? 0.32 : 0.16
+        if kind.contains("add") || kind == "+" { return DiffPalette.add.opacity(opacity) }
+        if kind.contains("del") || kind == "-" { return DiffPalette.remove.opacity(opacity) }
         return .clear
     }
 }
@@ -366,6 +427,7 @@ private struct NoteRow: View {
 struct AddNoteSheet: View {
     @Bindable var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         NavigationStack {
@@ -383,6 +445,25 @@ struct AddNoteSheet: View {
                 LabeledContent("Line") {
                     Text("\(model.uhp.addNote.line)")
                         .font(.body.monospacedDigit())
+                }
+                Section("Anchored line") {
+                    ForEach(Array(model.uhp.addNote.contextBefore.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.system(.footnote, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Text(model.uhp.addNote.anchoredText.isEmpty ? " " : model.uhp.addNote.anchoredText)
+                        .font(.system(.footnote, design: .monospaced).weight(.semibold))
+                        .padding(.vertical, 2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(DiffPalette.add.opacity(colorScheme == .dark ? 0.28 : 0.14))
+                    ForEach(Array(model.uhp.addNote.contextAfter.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.system(.footnote, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 TextField("Review note", text: $model.uhp.addNote.body, axis: .vertical)
                     .lineLimit(3...8)

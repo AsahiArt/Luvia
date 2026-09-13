@@ -25,8 +25,10 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import kotlinx.serialization.Serializable
+import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.HostRole
 import tech.asahiart.luvia.PairingUiState
+import tech.asahiart.luvia.TerminalKey
 
 @Serializable
 private data object HostsRoute : NavKey
@@ -44,6 +46,8 @@ fun LuviaNavigation(
     uhpForHost: (String) -> HostUhpUiState,
     uhpActions: UhpHostActions,
     pairing: PairingUiState,
+    openHostId: String? = null,
+    openFirstBlocked: Boolean = false,
     onBeginPairing: (String, HostRole) -> Unit,
     onCompletePairing: (raw: String, onSuccess: () -> Unit) -> Unit,
     onCancelPairing: () -> Unit,
@@ -54,80 +58,89 @@ fun LuviaNavigation(
     onUnpair: (String) -> Unit,
     onRequestControl: (String) -> Unit,
     onSendTerminalText: (String, String) -> Unit,
+    onSendTerminalKey: (String, TerminalKey) -> Unit = { _, _ -> },
     onTerminalShown: (String) -> Unit,
     onSelectTerminalPane: (String, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
-    MaterialTheme {
-        val backStack = rememberNavBackStack(HostsRoute)
-        BoxWithConstraints(modifier.fillMaxSize()) {
-            val twoPane = maxWidth >= 600.dp
-            if (twoPane) {
-                Row(Modifier.fillMaxSize()) {
-                    HostListPane(
-                        hosts = hosts,
-                        selectedHostId = (backStack.lastOrNull { it is HostRoute } as? HostRoute)?.id,
-                        onSelect = { id ->
-                            backStack.removeAll { it is HostRoute || it is PairHostRoute }
-                            backStack.add(HostRoute(id))
-                        },
-                        onAddHost = {
-                            backStack.removeAll { it is PairHostRoute }
-                            backStack.add(PairHostRoute)
-                        },
-                        onConnect = onConnect,
-                        onDisconnect = onDisconnect,
-                        onRefreshAll = onRefreshAll,
-                        modifier = Modifier.width(320.dp).fillMaxHeight(),
-                    )
-                    VerticalDivider()
-                    Box(Modifier.weight(1f).fillMaxHeight()) {
-                        DetailNav(
-                            backStack = backStack,
-                            hosts = hosts,
-                            terminalForHost = terminalForHost,
-                            uhpForHost = uhpForHost,
-                            uhpActions = uhpActions,
-                            pairing = pairing,
-                            onBeginPairing = onBeginPairing,
-                            onCompletePairing = onCompletePairing,
-                            onCancelPairing = onCancelPairing,
-                            onConnect = onConnect,
-                            onDisconnect = onDisconnect,
-                            onRefresh = onRefresh,
-                            onRefreshAll = onRefreshAll,
-                            onUnpair = onUnpair,
-                            onRequestControl = onRequestControl,
-                            onSendTerminalText = onSendTerminalText,
-                            onTerminalShown = onTerminalShown,
-                            onSelectTerminalPane = onSelectTerminalPane,
-                            showList = false,
-                        )
-                    }
-                }
-            } else {
-                DetailNav(
-                    backStack = backStack,
+    val backStack = rememberNavBackStack(HostsRoute)
+    LaunchedEffect(openHostId) {
+        val id = openHostId ?: return@LaunchedEffect
+        backStack.removeAll { it is PairHostRoute }
+        backStack.removeAll { it is HostRoute }
+        backStack.add(HostRoute(id))
+    }
+    BoxWithConstraints(modifier.fillMaxSize()) {
+        val twoPane = maxWidth >= 600.dp
+        if (twoPane) {
+            Row(Modifier.fillMaxSize()) {
+                HostListPane(
                     hosts = hosts,
-                    terminalForHost = terminalForHost,
-                    uhpForHost = uhpForHost,
-                    uhpActions = uhpActions,
-                    pairing = pairing,
-                    onBeginPairing = onBeginPairing,
-                    onCompletePairing = onCompletePairing,
-                    onCancelPairing = onCancelPairing,
+                    selectedHostId = (backStack.lastOrNull { it is HostRoute } as? HostRoute)?.id,
+                    onSelect = { id ->
+                        backStack.removeAll { it is HostRoute || it is PairHostRoute }
+                        backStack.add(HostRoute(id))
+                    },
+                    onAddHost = {
+                        backStack.removeAll { it is PairHostRoute }
+                        backStack.add(PairHostRoute)
+                    },
                     onConnect = onConnect,
                     onDisconnect = onDisconnect,
-                    onRefresh = onRefresh,
                     onRefreshAll = onRefreshAll,
-                    onUnpair = onUnpair,
-                    onRequestControl = onRequestControl,
-                    onSendTerminalText = onSendTerminalText,
-                    onTerminalShown = onTerminalShown,
-                    onSelectTerminalPane = onSelectTerminalPane,
-                    showList = true,
+                    modifier = Modifier.width(320.dp).fillMaxHeight(),
                 )
+                VerticalDivider()
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    DetailNav(
+                        backStack = backStack,
+                        hosts = hosts,
+                        terminalForHost = terminalForHost,
+                        uhpForHost = uhpForHost,
+                        uhpActions = uhpActions,
+                        pairing = pairing,
+                        openFirstBlocked = openFirstBlocked,
+                        onBeginPairing = onBeginPairing,
+                        onCompletePairing = onCompletePairing,
+                        onCancelPairing = onCancelPairing,
+                        onConnect = onConnect,
+                        onDisconnect = onDisconnect,
+                        onRefresh = onRefresh,
+                        onRefreshAll = onRefreshAll,
+                        onUnpair = onUnpair,
+                        onRequestControl = onRequestControl,
+                        onSendTerminalText = onSendTerminalText,
+                        onSendTerminalKey = onSendTerminalKey,
+                        onTerminalShown = onTerminalShown,
+                        onSelectTerminalPane = onSelectTerminalPane,
+                        showList = false,
+                    )
+                }
             }
+        } else {
+            DetailNav(
+                backStack = backStack,
+                hosts = hosts,
+                terminalForHost = terminalForHost,
+                uhpForHost = uhpForHost,
+                uhpActions = uhpActions,
+                pairing = pairing,
+                openFirstBlocked = openFirstBlocked,
+                onBeginPairing = onBeginPairing,
+                onCompletePairing = onCompletePairing,
+                onCancelPairing = onCancelPairing,
+                onConnect = onConnect,
+                onDisconnect = onDisconnect,
+                onRefresh = onRefresh,
+                onRefreshAll = onRefreshAll,
+                onUnpair = onUnpair,
+                onRequestControl = onRequestControl,
+                onSendTerminalText = onSendTerminalText,
+                onSendTerminalKey = onSendTerminalKey,
+                onTerminalShown = onTerminalShown,
+                onSelectTerminalPane = onSelectTerminalPane,
+                showList = true,
+            )
         }
     }
 }
@@ -140,6 +153,7 @@ private fun DetailNav(
     uhpForHost: (String) -> HostUhpUiState,
     uhpActions: UhpHostActions,
     pairing: PairingUiState,
+    openFirstBlocked: Boolean,
     onBeginPairing: (String, HostRole) -> Unit,
     onCompletePairing: (raw: String, onSuccess: () -> Unit) -> Unit,
     onCancelPairing: () -> Unit,
@@ -150,11 +164,21 @@ private fun DetailNav(
     onUnpair: (String) -> Unit,
     onRequestControl: (String) -> Unit,
     onSendTerminalText: (String, String) -> Unit,
+    onSendTerminalKey: (String, TerminalKey) -> Unit,
     onTerminalShown: (String) -> Unit,
     onSelectTerminalPane: (String, String) -> Unit,
     showList: Boolean,
 ) {
     val context = LocalContext.current
+    LaunchedEffect(pairing.pairedHostId, hosts) {
+        val id = pairing.pairedHostId ?: return@LaunchedEffect
+        val host = hosts.firstOrNull { it.id == id } ?: return@LaunchedEffect
+        if (host.hasSnapshot || host.errorMessage != null) {
+            backStack.removeAll { it is PairHostRoute || it is HostRoute }
+            backStack.add(HostRoute(id))
+            onCancelPairing()
+        }
+    }
     NavDisplay(
         modifier = Modifier.fillMaxSize(),
         backStack = backStack,
@@ -197,6 +221,14 @@ private fun DetailNav(
                     LaunchedEffect(visible, section) {
                         if (section !in visible) uhpActions.setSection(route.id, HostSection.Agents)
                     }
+                    LaunchedEffect(route.id, openFirstBlocked, host.firstBlockedPaneId, uhp.agents) {
+                        if (!openFirstBlocked) return@LaunchedEffect
+                        val pane = host.firstBlockedPaneId
+                            ?: uhp.agents.firstOrNull { it.status == AgentStatus.Blocked }?.paneId
+                            ?: return@LaunchedEffect
+                        uhpActions.setSection(route.id, HostSection.Agents)
+                        uhpActions.openAgent(route.id, pane)
+                    }
                     HostDetailPane(
                         host = host,
                         section = section,
@@ -206,6 +238,7 @@ private fun DetailNav(
                         terminal = terminalForHost(route.id),
                         onRequestControl = { onRequestControl(route.id) },
                         onSendText = { text -> onSendTerminalText(route.id, text) },
+                        onSendKey = { key -> onSendTerminalKey(route.id, key) },
                         onSelectTerminalPane = { pane -> onSelectTerminalPane(route.id, pane) },
                         onConnect = { onConnect(route.id) },
                         onDisconnect = { onDisconnect(route.id) },
@@ -348,15 +381,14 @@ private fun DetailNav(
                     fingerprint = pairing.draft?.deviceKeyFingerprint,
                     errorMessage = pairing.errorMessage,
                     completing = pairing.completing,
+                    pairedHostId = pairing.pairedHostId,
                     onBegin = onBeginPairing,
                     onCopyCommand = { command ->
                         context.getSystemService(ClipboardManager::class.java)
                             ?.setPrimaryClip(ClipData.newPlainText("luvia pair command", command))
                     },
                     onComplete = { raw ->
-                        onCompletePairing(raw) {
-                            backStack.removeAll { it is PairHostRoute }
-                        }
+                        onCompletePairing(raw) { }
                     },
                     onCancel = {
                         onCancelPairing()

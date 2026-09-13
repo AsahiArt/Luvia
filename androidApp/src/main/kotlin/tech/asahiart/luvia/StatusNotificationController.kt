@@ -13,6 +13,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 
 data class AmbientStatus(
+    val hostId: String,
     val hostName: String,
     val sessionName: String,
     val connection: String,
@@ -48,7 +49,10 @@ class StatusNotificationController(context: Context) {
         val openApp = PendingIntent.getActivity(
             appContext,
             0,
-            Intent(appContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            Intent(appContext, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                .putExtra(EXTRA_HOST_ID, status.hostId)
+                .putExtra(EXTRA_OPEN_BLOCKED, status.blockedAgents > 0),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val safeSummary = buildString {
@@ -89,9 +93,11 @@ class StatusNotificationController(context: Context) {
         manager.cancel(NOTIFICATION_ID)
     }
 
-    private companion object {
+    companion object {
         const val CHANNEL_ID = "active_session"
         const val NOTIFICATION_ID = 0x4C55
         const val MAX_SNIPPET_CHARS = 160
+        const val EXTRA_HOST_ID = "tech.asahiart.luvia.HOST_ID"
+        const val EXTRA_OPEN_BLOCKED = "tech.asahiart.luvia.OPEN_BLOCKED"
     }
 }

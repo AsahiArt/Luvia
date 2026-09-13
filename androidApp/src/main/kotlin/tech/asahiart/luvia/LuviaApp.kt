@@ -1,6 +1,7 @@
 package tech.asahiart.luvia
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -23,7 +24,7 @@ import tech.asahiart.luvia.ui.LuviaNavigation
 import tech.asahiart.luvia.ui.UhpHostActions
 
 @Composable
-fun LuviaApp() {
+fun LuviaApp(launchIntent: Intent? = null) {
     val context = LocalContext.current
     val viewModel: LuviaViewModel = viewModel(
         factory = remember(context) { LuviaViewModel.Factory(context.applicationContext) },
@@ -41,7 +42,7 @@ fun LuviaApp() {
         askedNotificationPermission = true
         if (granted) notificationPermissionEpoch++
     }
-    val hosts = runtimes.map { it.toUi() }
+    val hosts = runtimes.toSortedUi()
     val uhpActions = remember(viewModel) {
         UhpHostActions(
             shown = viewModel::ensureUhp,
@@ -128,6 +129,7 @@ fun LuviaApp() {
             ?: "session"
         notifications.show(
             AmbientStatus(
+                hostId = online.profile.id,
                 hostName = online.profile.alias,
                 sessionName = sessionName,
                 connection = online.freshness.name,
@@ -150,6 +152,8 @@ fun LuviaApp() {
         uhpForHost = { id -> uhp[id] ?: HostUhpUiState() },
         uhpActions = uhpActions,
         pairing = pairing,
+        openHostId = launchIntent?.getStringExtra(StatusNotificationController.EXTRA_HOST_ID),
+        openFirstBlocked = launchIntent?.getBooleanExtra(StatusNotificationController.EXTRA_OPEN_BLOCKED, false) == true,
         onBeginPairing = viewModel::beginPairing,
         onCompletePairing = { raw, onSuccess -> viewModel.completePairing(raw, onSuccess) },
         onCancelPairing = viewModel::cancelPairing,
@@ -160,6 +164,7 @@ fun LuviaApp() {
         onUnpair = viewModel::unpair,
         onRequestControl = viewModel::requestControl,
         onSendTerminalText = viewModel::sendTerminalText,
+        onSendTerminalKey = viewModel::sendTerminalKey,
         onTerminalShown = { id -> viewModel.ensureTerminal(id) },
         onSelectTerminalPane = { id, pane -> viewModel.ensureTerminal(id, pane) },
     )

@@ -45,6 +45,37 @@ struct AgentsListView: View {
     var errorMessage: String?
     var onRefresh: (() async -> Void)?
 
+    @State private var query = ""
+
+    private var filtered: [AgentViewState] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return agents }
+        return agents.filter {
+            $0.name.localizedCaseInsensitiveContains(trimmed)
+                || ($0.workspace?.localizedCaseInsensitiveContains(trimmed) ?? false)
+                || ($0.kind?.localizedCaseInsensitiveContains(trimmed) ?? false)
+        }
+    }
+
+    private var blocked: [AgentViewState] {
+        filtered.filter(\.isBlocked)
+    }
+
+    private var grouped: [(title: String, agents: [AgentViewState])] {
+        let order: [(AgentStatusKind, String)] = [
+            (.blocked, "Blocked"),
+            (.working, "Working"),
+            (.idle, "Idle"),
+            (.done, "Done"),
+            (.unknown, "Unknown"),
+        ]
+        return order.compactMap { kind, title in
+            let items = filtered.filter { $0.statusKind == kind }
+            guard !items.isEmpty else { return nil }
+            return (title, items)
+        }
+    }
+
     var body: some View {
         Group {
             if agents.isEmpty {
@@ -54,11 +85,7 @@ struct AgentsListView: View {
                     description: Text("No agents in this session.")
                 )
             } else {
-                List(agents) { agent in
-                    NavigationLink(value: agent.id) {
-                        AgentRowView(agent: agent)
-                    }
-                }
+                agentList
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -75,32 +102,78 @@ struct AgentsListView: View {
             await onRefresh?()
         }
     }
+
+    private var agentList: some View {
+        List {
+            if let first = blocked.first {
+                Section {
+                    NavigationLink(value: first.id) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundStyle(.orange)
+                            Text(
+                                blocked.count == 1
+                                    ? "1 agent waiting for you"
+                                    : "\(blocked.count) agents waiting for you"
+                            )
+                            .font(.headline)
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .accessibilityLabel(
+                        blocked.count == 1
+                            ? "1 agent waiting for you"
+                            : "\(blocked.count) agents waiting for you"
+                    )
+                }
+            }
+            ForEach(grouped, id: \.title) { group in
+                Section(group.title) {
+                    ForEach(group.agents) { agent in
+                        NavigationLink(value: agent.id) {
+                            AgentRowView(agent: agent)
+                        }
+                    }
+                }
+            }
+        }
+        .modifier(ConditionalSearchable(text: $query, enabled: agents.count >= 8, prompt: "Agents"))
+    }
 }
 
 struct AgentRowView: View {
     let agent: AgentViewState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(agent.name)
-                    .font(.headline)
-                    .lineLimit(2)
-                Spacer(minLength: 8)
-                StatusChip(status: agent.status, isBlocked: agent.isBlocked)
+        HStack(alignment: .top, spacing: 10) {
+            if agent.isBlocked {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.orange)
+                    .frame(width: 4)
+                    .padding(.vertical, 2)
             }
-            let subtitle = [agent.kind, agent.workspace].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-            if !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            if let branch = agent.branch, !branch.isEmpty {
-                Text(branch)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(agent.name)
+                        .font(agent.isBlocked ? .headline.weight(.semibold) : .headline)
+                        .lineLimit(2)
+                    Spacer(minLength: 8)
+                    StatusChip(status: agent.isBlocked ? "Blocked" : agent.status, isBlocked: agent.isBlocked)
+                }
+                let subtitle = [agent.kind, agent.workspace].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(agent.isBlocked ? Color.primary : Color.secondary)
+                        .lineLimit(2)
+                }
+                if let branch = agent.branch, !branch.isEmpty {
+                    Text(branch)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
             }
         }
         .padding(.vertical, 4)
@@ -113,11 +186,15 @@ struct AgentDetailView: View {
 
     @State private var pendingKey: QuickAgentKey?
     @State private var confirmPrompt = false
+    @State private var seenTranscript = ""
+    @State private var highlightSuffix = ""
+    @State private var highlightVisible = false
 
     private var uhp: UhpSurfaceState { model.uhp }
     private var header: AgentHeaderState? { uhp.header }
     private var canMutate: Bool { uhp.isController && uhp.unconfirmed == nil }
     private var isBlocked: Bool { header?.isBlocked == true }
+    private var prefersKeys: Bool { transcriptLooksLikeYesNo(uhp.transcript) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -192,6 +269,12 @@ struct AgentDetailView: View {
         } message: {
             Text("The Agent is Blocked and will receive this answer.")
         }
+        .onChange(of: uhp.transcript) { _, newValue in
+            noteNewTranscript(newValue)
+        }
+        .onAppear {
+            seenTranscript = uhp.transcript
+        }
     }
 
     private var confirmTitle: String {
@@ -242,46 +325,59 @@ struct AgentDetailView: View {
     }
 
     private var transcriptBlock: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 0) {
-                    if uhp.transcript.isEmpty {
-                        Text("No Transcript yet.")
-                            .font(.system(.footnote, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(Array(transcriptSegments(text: uhp.transcript).enumerated()), id: \.offset) { _, segment in
-                            switch onEnum(of: segment) {
-                            case .text(let value):
-                                Text(
-                                    ansiAttributedString(
-                                        value.text,
-                                        defaultForeground: .primary,
-                                        defaultBackground: Color(uiColor: .systemBackground)
-                                    )
-                                )
-                                .font(.system(.footnote, design: .monospaced))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
-                            case .rule:
-                                Divider()
-                                    .padding(.vertical, 8)
-                            case .gap:
-                                Color.clear.frame(height: 12)
-                            }
+        JumpToLatestScroll(token: uhp.transcript) {
+            VStack(alignment: .leading, spacing: 0) {
+                if uhp.transcript.isEmpty {
+                    Text("No Transcript yet.")
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(transcriptSegments(text: uhp.transcript).enumerated()), id: \.offset) { _, segment in
+                        switch onEnum(of: segment) {
+                        case .text(let value):
+                            transcriptText(value.text)
+                        case .rule:
+                            Divider()
+                                .padding(.vertical, 8)
+                        case .gap:
+                            Color.clear.frame(height: 12)
                         }
                     }
                 }
-                .padding()
-                Color.clear.frame(height: 1).id("transcript-end")
             }
-            .onChange(of: uhp.transcript) { _, _ in
-                proxy.scrollTo("transcript-end", anchor: .bottom)
-            }
-            .onAppear {
-                proxy.scrollTo("transcript-end", anchor: .bottom)
-            }
+            .fixedSize(horizontal: true, vertical: false)
+            .padding()
         }
+    }
+
+    @ViewBuilder
+    private func transcriptText(_ text: String) -> some View {
+        if highlightVisible, !highlightSuffix.isEmpty, text.hasSuffix(highlightSuffix) {
+            let stable = String(text.dropLast(highlightSuffix.count))
+            VStack(alignment: .leading, spacing: 0) {
+                if !stable.isEmpty {
+                    ansiLine(stable)
+                }
+                ansiLine(highlightSuffix)
+                    .background(Color.yellow.opacity(0.28))
+            }
+        } else {
+            ansiLine(text)
+        }
+    }
+
+    private func ansiLine(_ text: String) -> some View {
+        Text(
+            ansiAttributedString(
+                text,
+                defaultForeground: .primary,
+                defaultBackground: Color(uiColor: .systemBackground)
+            )
+        )
+        .font(.system(.footnote, design: .monospaced))
+        .fixedSize(horizontal: true, vertical: false)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
     }
 
     private var composer: some View {
@@ -291,7 +387,8 @@ struct AgentDetailView: View {
                     HStack(spacing: 8) {
                         ForEach(QuickAgentKey.allCases) { key in
                             Button(key.title) { request(key) }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(.borderedProminent)
+                                .tint(prefersKeys ? Color.accentColor : Color.secondary)
                                 .controlSize(.small)
                                 .disabled(uhp.isSending)
                         }
@@ -311,6 +408,8 @@ struct AgentDetailView: View {
                             _Concurrency.Task { await model.sendAgentPrompt() }
                         }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(prefersKeys ? Color.secondary : Color.accentColor)
                     .disabled(uhp.composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || uhp.isSending)
                 }
             }
@@ -335,7 +434,31 @@ struct AgentDetailView: View {
             await model.sendAgentKeys(key.agentKeys)
         }
     }
+
+    private func noteNewTranscript(_ newValue: String) {
+        let previous = seenTranscript
+        seenTranscript = newValue
+        guard !previous.isEmpty, newValue.hasPrefix(previous), newValue.count > previous.count else {
+            highlightVisible = false
+            highlightSuffix = ""
+            return
+        }
+        highlightSuffix = String(newValue.dropFirst(previous.count))
+        highlightVisible = true
+        _Concurrency.Task { @MainActor in
+            try? await _Concurrency.Task.sleep(for: .seconds(1.6))
+            highlightVisible = false
+        }
+    }
 }
+
+private func transcriptLooksLikeYesNo(_ text: String) -> Bool {
+    let tail = text.split(whereSeparator: \.isNewline).suffix(12).joined(separator: "\n").lowercased()
+    if tail.contains("y/n") || tail.contains("yes/no") { return true }
+    if tail.contains("(y)") && tail.contains("(n)") { return true }
+    return false
+}
+
 enum QuickAgentKey: String, CaseIterable, Identifiable {
     case yes
     case no
@@ -404,13 +527,25 @@ struct UnconfirmedBanner: View {
                 Text(action.detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Text("This change is not resent automatically.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            Button("Check", action: onCheck)
-                .buttonStyle(.bordered)
+            Button(buttonTitle, action: onCheck)
+                .buttonStyle(.borderedProminent)
         }
         .padding(12)
         .background(Color.orange.opacity(0.16), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var buttonTitle: String {
+        switch action {
+        case .agentPrompt, .agentKeys, .resumeAgent, .forkAgent, .nameAgent:
+            "Re-read agent"
+        default:
+            "Check"
+        }
     }
 }
 

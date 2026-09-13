@@ -6,6 +6,8 @@
 package tech.asahiart.luvia.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -17,6 +19,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -28,6 +32,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -122,7 +131,29 @@ private fun ReviewFileListPane(
     modifier: Modifier = Modifier,
 ) {
     val files = state.review.list?.files.orEmpty()
-    val grouped = files.groupBy { it.layer }
+    val layers = DiffLayer.entries
+    var selectedLayer by remember {
+        mutableStateOf(
+            files.firstOrNull { it.layer == DiffLayer.WORKTREE }?.layer
+                ?: files.firstOrNull()?.layer
+                ?: DiffLayer.WORKTREE,
+        )
+    }
+    var notesOnly by remember { mutableStateOf(false) }
+    val openNotesByPath = state.review.notes
+        .filter { it.state == null || it.state == ReviewNoteState.OPEN }
+        .groupingBy { it.path.orEmpty() }
+        .eachCount()
+    fun noteCount(file: DiffFile): Int {
+        val fromList = file.notes?.toInt() ?: 0
+        val fromNotes = openNotesByPath[file.path] ?: 0
+        return maxOf(fromList, fromNotes)
+    }
+    val visible = files.filter { file ->
+        val layerMatch = file.layer == selectedLayer || (selectedLayer == DiffLayer.WORKTREE && file.layer == null)
+        val notesMatch = !notesOnly || noteCount(file) > 0
+        layerMatch && notesMatch
+    }
     PullToRefreshBox(
         isRefreshing = state.review.loading,
         onRefresh = onRefresh,
@@ -140,6 +171,26 @@ private fun ReviewFileListPane(
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+            item {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    layers.forEachIndexed { index, layer ->
+                        SegmentedButton(
+                            selected = selectedLayer == layer,
+                            onClick = { selectedLayer = layer },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = layers.size),
+                        ) {
+                            Text(layerLabel(layer), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+            item {
+                FilterChip(
+                    selected = notesOnly,
+                    onClick = { notesOnly = !notesOnly },
+                    label = { Text("Files with notes") },
                 )
             }
             state.review.errorText?.let { error ->
@@ -163,30 +214,22 @@ private fun ReviewFileListPane(
                     )
                 }
             }
-            if (files.isEmpty() && !state.review.loading) {
+            if (visible.isEmpty() && !state.review.loading) {
                 item {
                     Text("No Diff files.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            grouped.forEach { (layer, layerFiles) ->
-                item {
-                    Text(
-                        layerLabel(layer),
-                        style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
-                items(layerFiles, key = { "${it.layer}-${it.path}" }) { file ->
-                    val directory = isDiffDirectory(file.path)
-                    DiffFileRow(
-                        file = file,
-                        onClick = if (directory) {
-                            null
-                        } else {
-                            { onOpenFile(file.path, file.layer) }
-                        },
-                    )
-                }
+            items(visible, key = { "${it.layer}-${it.path}" }) { file ->
+                val directory = isDiffDirectory(file.path)
+                DiffFileRow(
+                    file = file,
+                    openNotes = noteCount(file),
+                    onClick = if (directory) {
+                        null
+                    } else {
+                        { onOpenFile(file.path, file.layer) }
+                    },
+                )
             }
             item {
                 NotesDrawer(
@@ -208,7 +251,9 @@ private fun ReviewFileListPane(
 }
 
 @Composable
-private fun DiffFileRow(file: DiffFile, onClick: (() -> Unit)?) {
+private fun DiffFileRow(file: DiffFile, openNotes: Int, onClick: (() -> Unit)?) {
+    val addColor = diffAddColor()
+    val delColor = diffDelColor()
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -229,10 +274,17 @@ private fun DiffFileRow(file: DiffFile, onClick: (() -> Unit)?) {
                 val plus = file.additions
                 val minus = file.deletions
                 if (plus != null) {
-                    Text("+$plus", color = Color(0xFF2E7D32), style = MaterialTheme.typography.labelMedium)
+                    Text("+$plus", color = addColor, style = MaterialTheme.typography.labelMedium)
                 }
                 if (minus != null) {
-                    Text("-$minus", color = Color(0xFFC62828), style = MaterialTheme.typography.labelMedium)
+                    Text("-$minus", color = delColor, style = MaterialTheme.typography.labelMedium)
+                }
+                if (openNotes > 0) {
+                    Text(
+                        if (openNotes == 1) "1 open note" else "$openNotes open notes",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
                 }
                 file.status?.let {
                     Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -257,8 +309,9 @@ private fun ReviewFilePane(
     modifier: Modifier = Modifier,
 ) {
     val file = state.review.selectedFile
-    var pendingLine by remember { mutableStateOf<DiffLine?>(null) }
+    var pendingNote by remember { mutableStateOf<PendingReviewNote?>(null) }
     var noteSubmissionPending by remember { mutableStateOf(false) }
+    var expandedHunks by remember { mutableStateOf(setOf<String>()) }
     LaunchedEffect(
         state.review.sending,
         state.review.noteDraft,
@@ -270,7 +323,7 @@ private fun ReviewFilePane(
                 state.review.errorText == null &&
                 state.review.unconfirmed == null
             ) {
-                pendingLine = null
+                pendingNote = null
             }
             noteSubmissionPending = false
         }
@@ -323,25 +376,41 @@ private fun ReviewFilePane(
                 }
             }
             hunks.forEach { hunk ->
-                item {
+                val hunkKey = hunk.id.ifBlank { hunk.header }
+                val expanded = hunkKey in expandedHunks
+                item(key = "hunk-$hunkKey") {
                     Text(
-                        hunk.header.ifBlank { hunk.id },
+                        (if (expanded) "▾ " else "▸ ") + hunk.header.ifBlank { hunk.id },
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(vertical = 6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                expandedHunks = if (expanded) expandedHunks - hunkKey else expandedHunks + hunkKey
+                            }
+                            .padding(vertical = 6.dp),
                     )
                 }
-                items(hunk.lines.size) { index ->
-                    val line = hunk.lines[index]
-                    DiffLineRow(
-                        line = line,
-                        enabled = state.canMutate &&
-                            state.capabilities.diffNoteAdd &&
-                            !state.review.sending &&
-                            state.review.unconfirmed == null,
-                        onClick = { pendingLine = line },
-                    )
+                if (expanded) {
+                    items(hunk.lines.size) { index ->
+                        val line = hunk.lines[index]
+                        DiffLineRow(
+                            line = line,
+                            enabled = state.canMutate &&
+                                state.capabilities.diffNoteAdd &&
+                                !state.review.sending &&
+                                state.review.unconfirmed == null,
+                            onClick = {
+                                val from = (index - 2).coerceAtLeast(0)
+                                val to = (index + 2).coerceAtMost(hunk.lines.lastIndex)
+                                pendingNote = PendingReviewNote(
+                                    line = line,
+                                    context = hunk.lines.subList(from, to + 1),
+                                )
+                            },
+                        )
+                    }
                 }
             }
             item {
@@ -365,10 +434,11 @@ private fun ReviewFilePane(
         }
         }
     }
-    pendingLine?.let { line ->
+    pendingNote?.let { pending ->
         AddReviewNoteSheet(
             path = file?.path ?: state.review.selectedPath.orEmpty(),
-            line = line,
+            line = pending.line,
+            context = pending.context,
             body = state.review.noteDraft,
             sending = state.review.sending,
             errorText = state.review.errorText,
@@ -376,11 +446,11 @@ private fun ReviewFilePane(
             onBodyChange = onNoteDraftChange,
             onCheckUnconfirmed = onCheckUnconfirmed,
             onDismiss = {
-                pendingLine = null
+                pendingNote = null
                 if (state.review.unconfirmed == null) onNoteDraftChange("")
             },
             onSubmit = { body ->
-                val reviewLine = line.toReviewLine() ?: return@AddReviewNoteSheet
+                val reviewLine = pending.line.toReviewLine() ?: return@AddReviewNoteSheet
                 noteSubmissionPending = true
                 onAddNote(
                     file?.path ?: state.review.selectedPath.orEmpty(),
@@ -396,14 +466,14 @@ private fun ReviewFilePane(
 @Composable
 private fun DiffLineRow(line: DiffLine, enabled: Boolean, onClick: () -> Unit) {
     val color = when (line.kind.lowercase()) {
-        "add", "+", "plus" -> Color(0xFF2E7D32)
-        "del", "delete", "-", "minus", "remove" -> Color(0xFFC62828)
+        "add", "+", "plus" -> diffAddColor()
+        "del", "delete", "-", "minus", "remove" -> diffDelColor()
         else -> MaterialTheme.colorScheme.onSurface
     }
     val number = line.newLine ?: line.oldLine
     Row(
         modifier = Modifier
-            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
             .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -413,14 +483,15 @@ private fun DiffLineRow(line: DiffLine, enabled: Boolean, onClick: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             fontFamily = FontFamily.Monospace,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.fillMaxWidth(0.12f),
+            modifier = Modifier.width(48.dp),
         )
         Text(
             line.text,
             style = MaterialTheme.typography.bodySmall,
             fontFamily = FontFamily.Monospace,
             color = color,
-            modifier = Modifier.weight(1f),
+            softWrap = false,
+            maxLines = 1,
         )
     }
 }
@@ -429,6 +500,7 @@ private fun DiffLineRow(line: DiffLine, enabled: Boolean, onClick: () -> Unit) {
 private fun AddReviewNoteSheet(
     path: String,
     line: DiffLine,
+    context: List<DiffLine>,
     body: String,
     sending: Boolean,
     errorText: String?,
@@ -448,6 +520,27 @@ private fun AddReviewNoteSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Review note", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            SelectionContainer {
+                Column(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                    context.forEach { ctx ->
+                        val color = when (ctx.kind.lowercase()) {
+                            "add", "+", "plus" -> diffAddColor()
+                            "del", "delete", "-", "minus", "remove" -> diffDelColor()
+                            else -> MaterialTheme.colorScheme.onSurface
+                        }
+                        val mark = if (ctx === line || (ctx.newLine == line.newLine && ctx.oldLine == line.oldLine && ctx.text == line.text)) "› " else "  "
+                        Text(
+                            mark + ctx.text,
+                            fontFamily = FontFamily.Monospace,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = color,
+                            softWrap = false,
+                            maxLines = 1,
+                            fontWeight = if (mark.startsWith("›")) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                    }
+                }
+            }
             Text(
                 path,
                 fontFamily = FontFamily.Monospace,
@@ -687,3 +780,16 @@ private fun DiffLine.toReviewLine(): ReviewLine? {
     if (old != null) return ReviewLine.Old(old.toInt())
     return null
 }
+
+private data class PendingReviewNote(
+    val line: DiffLine,
+    val context: List<DiffLine>,
+)
+
+@Composable
+private fun diffAddColor(): Color =
+    if (isSystemInDarkTheme()) Color(0xFF81C784) else Color(0xFF0B6E3F)
+
+@Composable
+private fun diffDelColor(): Color =
+    if (isSystemInDarkTheme()) Color(0xFFEF9A9A) else Color(0xFFB71C1C)

@@ -339,6 +339,9 @@ struct AddNoteDraft: Hashable, Sendable {
     var usesNewLine = true
     var line = 1
     var body = ""
+    var anchoredText = ""
+    var contextBefore: [String] = []
+    var contextAfter: [String] = []
 }
 
 struct AgentHeaderState: Hashable, Sendable {
@@ -508,7 +511,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
                 badge: .offline,
                 address: fallbackAddress,
                 sessionName: runtime.snapshot?.sessionName ?? profile.topology?.sessionName,
-                failure: FailureText.describe(failed.failure)
+                failure: FailureText.connectActionable(failed.failure)
             )
         }
     }
@@ -634,7 +637,11 @@ enum FailureText {
         case .resyncRequired(let value):
             return value.message
         case .controlConflict(let value):
-            return value.message
+            let message = value.message
+            if message.localizedCaseInsensitiveContains("observe") {
+                return message
+            }
+            return "\(message) Observe still works."
         case .frameTooLarge(let value):
             return value.message
         case .serverBusy(let value):
@@ -643,13 +650,59 @@ enum FailureText {
     }
 
     static func pairingAware(_ reason: String) -> String {
+        let draftNote = " The draft is still valid."
         if reason == "pairing code is for a different device key" {
-            return "This pairing code belongs to a different device key. Run the command from the previous step on the host, then scan the QR it prints for this device."
+            return "This pairing code is for a different Device key. Run the command from the previous step on the Host, then scan the QR it prints." + draftNote
+        }
+        if reason == "pairing code must start with luvia1:" {
+            return "This is not a luvia1: pairing code. Scan or paste a luvia1: code." + draftNote
+        }
+        if reason == "pairing code has no host key fingerprints" {
+            return "This pairing code has an empty host key (hk) set. Generate a new pairing code on the Host." + draftNote
         }
         if reason.hasPrefix("pairing code") {
-            return "This is not a valid luvia1: pairing code. Scan again or paste a different code. The draft is still valid."
+            return "This pairing code is malformed. Scan again or paste a different luvia1: code." + draftNote
         }
         return reason
+    }
+
+    static func connectActionable(_ failure: Failure) -> String {
+        let raw: String
+        switch onEnum(of: failure) {
+        case .protocolError(let value):
+            raw = value.reason
+        case .transport(let value):
+            raw = value.reason
+        case .bridge(let value):
+            raw = value.reason
+        default:
+            raw = describe(failure)
+        }
+        let lower = raw.lowercased()
+        if lower.contains("host key") || lower.contains("re-pair") {
+            return "Host key changed. Re-pair this Device."
+        }
+        if lower.contains("authentication")
+            || lower.contains("public-key")
+            || lower.contains("permission denied")
+        {
+            return "SSH refused. Check this Device's Grant on the Host."
+        }
+        if lower.contains("timed out")
+            || lower.contains("timeout")
+            || lower.contains("unreachable")
+            || lower.contains("no route")
+            || lower.contains("network is down")
+            || lower.contains("could not connect")
+            || lower.contains("connection refused")
+            || lower.contains("no address")
+            || lower.contains("failed to resolve")
+            || lower.contains("unknown host")
+            || lower.contains("host is down")
+        {
+            return "No address reachable. Check network or Tailscale."
+        }
+        return raw
     }
 }
 
@@ -689,6 +742,24 @@ extension AgentViewState {
 extension TaskViewState {
     init(_ summary: TaskSummary) {
         self.init(id: summary.id, title: summary.title, status: summary.status)
+    }
+}
+
+extension HostViewState {
+    var freshnessLabel: String? {
+        guard let lastUpdated else { return nil }
+        let seconds = max(0, Int(Date().timeIntervalSince(lastUpdated)))
+        let value: String
+        if seconds < 60 {
+            value = "\(seconds)s"
+        } else if seconds < 3600 {
+            value = "\(seconds / 60)m"
+        } else if seconds < 86400 {
+            value = "\(seconds / 3600)h"
+        } else {
+            value = "\(seconds / 86400)d"
+        }
+        return "synced \(value) ago"
     }
 }
 

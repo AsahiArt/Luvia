@@ -156,4 +156,24 @@ class AnsiTest {
         assertEquals(">", stripAnsi("\uE0B0"))
         assertEquals("hello", replaceTerminalGlyphs("hello"))
     }
+
+    @Test
+    fun replacesBlackDiamondWithAscii() {
+        assertEquals("*", replaceTerminalGlyphs("\u25C6"))
+        assertEquals("o", replaceTerminalGlyphs("\u25C7"))
+        assertEquals("*", replaceTerminalGlyphs("\u25C8"))
+        assertEquals("o", replaceTerminalGlyphs("\u25CA"))
+        assertEquals("*", replaceTerminalGlyphs("\u25CF"))
+        assertEquals("*", replaceTerminalGlyphs("\u2022"))
+        assertEquals("a*b", replaceTerminalGlyphs("a\u25C6b"))
+    }
+
+    @Test
+    fun parseAnsiStylesReplacedDiamond() {
+        val spans = parseAnsi("\u001B[1m\u25C6\u001B[0m")
+        assertEquals(1, spans.size)
+        assertEquals("*", spans.single().text)
+        assertTrue(spans.single().bold)
+        assertEquals(">", replaceTerminalGlyphs("\uE0B0"))
+    }
 }

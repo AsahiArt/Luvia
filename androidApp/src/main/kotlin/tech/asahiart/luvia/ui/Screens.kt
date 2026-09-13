@@ -13,7 +13,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,25 +34,28 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -60,9 +65,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -79,7 +87,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,7 +95,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import tech.asahiart.luvia.HostRole
-import tech.asahiart.luvia.replaceTerminalGlyphs
+import tech.asahiart.luvia.TerminalKey
 
 @Composable
 fun HostListPane(
@@ -103,6 +110,13 @@ fun HostListPane(
 ) {
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
+    var nowEpochMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            nowEpochMs = System.currentTimeMillis()
+        }
+    }
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -117,11 +131,8 @@ fun HostListPane(
         },
     ) { padding ->
         if (hosts.isEmpty()) {
-            EmptyPane(
-                title = "No hosts",
-                message = "Pair a Luvus host to begin.",
-                action = "Add host",
-                onAction = onAddHost,
+            EmptyHostsPane(
+                onAddHost = onAddHost,
                 modifier = Modifier.fillMaxSize().padding(padding),
             )
         } else {
@@ -145,6 +156,7 @@ fun HostListPane(
                         HostRow(
                             host = host,
                             selected = selectedHostId == host.id,
+                            nowEpochMs = nowEpochMs,
                             onSelect = onSelect,
                             onConnect = onConnect,
                             onDisconnect = onDisconnect,
@@ -160,50 +172,94 @@ fun HostListPane(
 private fun HostRow(
     host: HostUiModel,
     selected: Boolean,
+    nowEpochMs: Long,
     onSelect: (String) -> Unit,
     onConnect: (String) -> Unit,
     onDisconnect: (String) -> Unit,
 ) {
-    val container = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
-    Row(
-        modifier = Modifier.fillMaxWidth().background(container).clickable { onSelect(host.id) }.padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Surface(color = host.connection.color(), shape = RoundedCornerShape(99.dp), modifier = Modifier.size(10.dp)) {}
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(host.name, fontWeight = FontWeight.SemiBold)
-            Text(host.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            host.errorMessage?.let { error ->
-                Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        val action = when {
-            host.connection == ConnectionBadge.Connecting -> "Cancel"
-            host.connected -> "Disconnect"
-            else -> "Connect"
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(host.connection.label(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(6.dp))
-            val onAction = {
-                if (host.connected || host.connection == ConnectionBadge.Connecting) {
-                    onDisconnect(host.id)
-                } else {
-                    onConnect(host.id)
-                }
-            }
-            val buttonModifier = Modifier.semantics(mergeDescendants = true) {
-                contentDescription = action
-                role = Role.Button
-            }
-            if (host.connected && host.connection != ConnectionBadge.Connecting) {
-                FilledTonalButton(onClick = onAction, modifier = buttonModifier) { Text(action) }
-            } else {
-                Button(onClick = onAction, modifier = buttonModifier) { Text(action) }
-            }
+    val action = when {
+        host.connection == ConnectionBadge.Connecting -> "Cancel"
+        host.connected -> "Disconnect"
+        else -> "Connect"
+    }
+    val onAction = {
+        if (host.connected || host.connection == ConnectionBadge.Connecting) {
+            onDisconnect(host.id)
+        } else {
+            onConnect(host.id)
         }
     }
+    val buttonModifier = Modifier.semantics(mergeDescendants = true) {
+        contentDescription = action
+        role = Role.Button
+    }
+    val freshness = freshnessLabel(host.lastUpdatedEpochMs, nowEpochMs)
+    ListItem(
+        headlineContent = {
+            Text(host.name, fontWeight = FontWeight.SemiBold)
+        },
+        supportingContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    host.address,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                val statusLine = buildString {
+                    append(host.connection.label())
+                    if (freshness != null) {
+                        append(" · ")
+                        append(freshness)
+                    }
+                }
+                Text(
+                    statusLine,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                host.errorMessage?.let { error ->
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        },
+        leadingContent = {
+            Surface(
+                color = host.connection.color(),
+                shape = RoundedCornerShape(99.dp),
+                modifier = Modifier.size(10.dp),
+            ) {}
+        },
+        trailingContent = {
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (host.blockedAgents > 0) {
+                    Badge {
+                        Text("${host.blockedAgents} blocked")
+                    }
+                }
+                if (host.connected && host.connection != ConnectionBadge.Connecting) {
+                    FilledTonalButton(onClick = onAction, modifier = buttonModifier) { Text(action) }
+                } else {
+                    Button(onClick = onAction, modifier = buttonModifier) { Text(action) }
+                }
+            }
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = if (selected) {
+                MaterialTheme.colorScheme.secondaryContainer
+            } else {
+                Color.Transparent
+            },
+        ),
+        modifier = Modifier.fillMaxWidth().clickable { onSelect(host.id) },
+    )
 }
 
 @Composable
@@ -214,6 +270,7 @@ fun HostDetailPane(
     terminal: TerminalUiModel?,
     onRequestControl: () -> Unit,
     onSendText: (String) -> Unit,
+    onSendKey: (TerminalKey) -> Unit = {},
     onConnect: () -> Unit = {},
     onDisconnect: () -> Unit = {},
     onRefresh: () -> Unit = {},
@@ -326,7 +383,7 @@ fun HostDetailPane(
             HostSection.Terminal -> if (terminal == null) {
                 EmptyPane("Terminal unavailable", "Select a live pane to observe or request control.", modifier = Modifier.weight(1f))
             } else {
-                TerminalPane(terminal, onRequestControl, onSendText, onSelectTerminalPane, Modifier.weight(1f))
+                TerminalPane(terminal, onRequestControl, onSendText, onSelectTerminalPane, onSendKey, Modifier.weight(1f))
             }
         }
     }
@@ -395,37 +452,77 @@ fun TerminalPane(
     onRequestControl: () -> Unit,
     onSendText: (String) -> Unit,
     onSelectPane: (String) -> Unit = {},
+    onSendKey: (TerminalKey) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var input by remember { mutableStateOf("") }
     val defaultFg = Color(0xFFE4E7EC)
     val defaultBg = Color(0xFF111318)
-    val displayed = remember(terminal.text, terminal.isAnsi) {
-        if (terminal.isAnsi) {
-            ansiAnnotatedString(terminal.text, defaultFg, defaultBg)
-        } else {
-            AnnotatedString(replaceTerminalGlyphs(terminal.text))
-        }
+    val displayed = remember(terminal.text) {
+        ansiAnnotatedString(terminal.text, defaultFg, defaultBg)
     }
     val terminalVertical = rememberScrollState()
     val terminalHorizontal = rememberScrollState()
+    var pinToBottom by remember { mutableStateOf(true) }
     val live = terminal.errorText == null
-    Column(modifier.background(defaultBg).imePadding().systemBottomPadding()) {
+    LaunchedEffect(terminalVertical.isScrollInProgress, terminalVertical.value, terminalVertical.maxValue) {
+        if (!terminalVertical.isScrollInProgress) {
+            pinToBottom = terminalVertical.maxValue == 0 ||
+                terminalVertical.value >= terminalVertical.maxValue - 80
+        }
+    }
+    LaunchedEffect(terminal.text) {
+        if (pinToBottom) {
+            terminalVertical.scrollTo(terminalVertical.maxValue)
+        }
+    }
+    val chrome = when {
+        !live -> Color(0xFFFFC66D)
+        terminal.control == TerminalControl.Controlling -> Color(0xFF75D69C)
+        terminal.control == TerminalControl.Conflict -> Color(0xFFFFC66D)
+        else -> Color(0xFF9AA4B2)
+    }
+    val fieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = defaultFg,
+        unfocusedTextColor = defaultFg,
+        disabledTextColor = defaultFg.copy(alpha = 0.5f),
+        focusedLabelColor = Color(0xFF9AA4B2),
+        unfocusedLabelColor = Color(0xFF9AA4B2),
+        cursorColor = defaultFg,
+        focusedBorderColor = Color(0xFF75D69C),
+        unfocusedBorderColor = Color.White.copy(alpha = 0.24f),
+        disabledBorderColor = Color.White.copy(alpha = 0.12f),
+    )
+    Column(
+        modifier
+            .background(defaultBg)
+            .border(2.dp, chrome.copy(alpha = 0.85f))
+            .imePadding()
+            .systemBottomPadding(),
+    ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(terminal.title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             if (!live) {
                 Text("Unavailable", color = Color(0xFFFFC66D), style = MaterialTheme.typography.labelLarge)
             } else if (!terminal.canControl) {
                 Text("Observing", color = Color(0xFF9AA4B2), style = MaterialTheme.typography.labelLarge)
-            } else if (terminal.control != TerminalControl.Controlling) {
+            } else if (terminal.control == TerminalControl.Controlling) {
+                Text("Controlling", color = Color(0xFF75D69C), style = MaterialTheme.typography.labelLarge)
+            } else {
                 FilledTonalButton(onClick = onRequestControl, enabled = terminal.control != TerminalControl.Requesting) {
                     Text(if (terminal.control == TerminalControl.Conflict) "Request control" else "Control")
                 }
-            } else {
-                Text("Controlling", color = Color(0xFF75D69C), style = MaterialTheme.typography.labelLarge)
             }
         }
         HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
+        if (live && terminal.conflictMessage != null) {
+            Text(
+                terminal.conflictMessage,
+                color = Color(0xFFFFC66D),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (!live) {
                 Column(
@@ -475,10 +572,36 @@ fun TerminalPane(
                             .padding(16.dp),
                     )
                 }
+                JumpToLatestPill(
+                    visible = !pinToBottom && terminalVertical.maxValue > 0,
+                    onClick = {
+                        pinToBottom = true
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                )
             }
         }
         if (live && terminal.isTruncated) {
             Text("Output truncated", color = Color(0xFFFFC66D), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 16.dp))
+        }
+        if (live && terminal.canControl && terminal.control == TerminalControl.Controlling) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TerminalKeyChip("Esc") { onSendKey(TerminalKey.Escape) }
+                TerminalKeyChip("Tab") { onSendKey(TerminalKey.Tab) }
+                TerminalKeyChip("Ctrl-C") { onSendKey(TerminalKey.CtrlC) }
+                TerminalKeyChip("Ctrl-D") { onSendKey(TerminalKey.CtrlD) }
+                TerminalKeyChip("↑") { onSendKey(TerminalKey.Up) }
+                TerminalKeyChip("↓") { onSendKey(TerminalKey.Down) }
+                TerminalKeyChip("←") { onSendKey(TerminalKey.Left) }
+                TerminalKeyChip("→") { onSendKey(TerminalKey.Right) }
+                TerminalKeyChip("Enter") { onSendKey(TerminalKey.Enter) }
+            }
         }
         if (live && terminal.canControl) {
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -488,6 +611,7 @@ fun TerminalPane(
                     label = { Text("Exact input") },
                     enabled = terminal.control == TerminalControl.Controlling,
                     singleLine = true,
+                    colors = fieldColors,
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
@@ -501,6 +625,28 @@ fun TerminalPane(
             }
         }
     }
+    LaunchedEffect(pinToBottom, terminalVertical.maxValue) {
+        if (pinToBottom) {
+            terminalVertical.scrollTo(terminalVertical.maxValue)
+        }
+    }
+}
+
+@Composable
+private fun TerminalKeyChip(label: String, onClick: () -> Unit) {
+    FilledTonalButton(onClick = onClick) { Text(label) }
+}
+
+@Composable
+internal fun JumpToLatestPill(
+    visible: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (!visible) return
+    FilledTonalButton(onClick = onClick, modifier = modifier) {
+        Text("Jump to latest")
+    }
 }
 
 @Composable
@@ -510,6 +656,7 @@ fun PairHostPane(
     fingerprint: String?,
     errorMessage: String?,
     completing: Boolean,
+    pairedHostId: String? = null,
     onBegin: (String, HostRole) -> Unit,
     onCopyCommand: (String) -> Unit,
     onComplete: (String) -> Unit,
@@ -517,11 +664,42 @@ fun PairHostPane(
     modifier: Modifier = Modifier,
 ) {
     var showScan by remember { mutableStateOf(false) }
+    val step = when {
+        pairedHostId != null -> 3
+        command == null -> 1
+        !showScan -> 2
+        else -> 3
+    }
+    val title = if (pairedHostId != null) "Paired. Connecting…" else "Step $step of 3"
     Scaffold(
         modifier = modifier,
-        topBar = { CenterAlignedTopAppBar(title = { Text("Pair host") }) },
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(title)
+                        if (pairedHostId == null) {
+                            Text(
+                                when (step) {
+                                    1 -> "Name this Device"
+                                    2 -> "Run on the Host"
+                                    else -> "Scan pairing code"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                },
+            )
+        },
     ) { padding ->
         when {
+            pairedHostId != null ->
+                PairSuccessStep(
+                    onShowList = onCancel,
+                    modifier = Modifier.padding(padding).fillMaxSize(),
+                )
             command == null ->
                 PairLabelStep(
                     errorMessage = errorMessage,
@@ -535,7 +713,6 @@ fun PairHostPane(
             !showScan ->
                 PairCommandStep(
                     command = command,
-                    authorizedKeysLine = authorizedKeysLine.orEmpty(),
                     fingerprint = fingerprint.orEmpty(),
                     errorMessage = errorMessage,
                     onCopyCommand = onCopyCommand,
@@ -606,7 +783,6 @@ private fun PairLabelStep(
 @Composable
 private fun PairCommandStep(
     command: String,
-    authorizedKeysLine: String,
     fingerprint: String,
     errorMessage: String?,
     onCopyCommand: (String) -> Unit,
@@ -620,14 +796,21 @@ private fun PairCommandStep(
         modifier.imePadding().padding(20.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text("Run this command on the host machine, then scan the QR it prints.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        SelectionContainer {
-            Text(
-                command,
-                fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            )
+        Text(
+            "Run the pairing command on the Host, then scan the QR it prints.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (fingerprint.isNotBlank()) {
+            Text("Device key fingerprint", style = MaterialTheme.typography.labelLarge)
+            SelectionContainer {
+                Text(
+                    fingerprint,
+                    fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
         Button(
             onClick = {
@@ -639,31 +822,31 @@ private fun PairCommandStep(
                 }
             },
             modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (copied) "Copied" else "Copy command") }
-        if (authorizedKeysLine.isNotBlank()) {
-            Text("Public key", style = MaterialTheme.typography.labelLarge)
-            SelectionContainer {
-                Text(
-                    authorizedKeysLine,
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-        if (fingerprint.isNotBlank()) {
-            Text(
-                "Device key $fingerprint",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontFamily = FontFamily.Monospace,
-            )
-        }
+        ) { Text(if (copied) "Copied. Paste it in a terminal on the host." else "Copy full command") }
         errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             FilledTonalButton(onClick = onBack) { Text("Back") }
             Spacer(Modifier.width(8.dp))
             Button(onClick = onScan) { Text("Scan QR code") }
+        }
+    }
+}
+
+@Composable
+private fun PairSuccessStep(onShowList: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.padding(24.dp),
+        ) {
+            CircularProgressIndicator()
+            Text("Paired. Connecting…", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Opening this Host once the first snapshot arrives.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = onShowList) { Text("Show Host list") }
         }
     }
 }
@@ -774,7 +957,7 @@ private fun PairScanStep(
         }
         errorMessage?.let {
             Text(
-                "$it Scan again or paste a different code. The draft is still valid.",
+                it,
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -826,6 +1009,63 @@ private fun EmptyPane(
             Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (action != null && onAction != null) Button(onClick = onAction) { Text(action) }
         }
+    }
+}
+
+internal const val INSTALL_HOST_COMMAND =
+    "curl -fsSL https://raw.githubusercontent.com/AsahiArt/Luvia/main/scripts/install-host.sh | sh"
+
+@Composable
+private fun EmptyHostsPane(
+    onAddHost: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    var copied by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    Column(
+        modifier.verticalScroll(rememberScrollState()).padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Text("No Hosts", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            "Most people install the app before luvia-host. Pair in three steps.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text("1. Install luvia-host on the machine that runs Luvus.")
+        Text("2. Pair this Device from the app.")
+        Text("3. Scan the pairing code the Host prints.")
+        SelectionContainer {
+            Text(
+                INSTALL_HOST_COMMAND,
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        Button(
+            onClick = {
+                context.getSystemService(ClipboardManager::class.java)
+                    ?.setPrimaryClip(ClipData.newPlainText("luvia-host install", INSTALL_HOST_COMMAND))
+                copied = true
+                scope.launch {
+                    delay(2_000)
+                    copied = false
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(if (copied) "Copied" else "Copy install command") }
+        Button(onClick = onAddHost, modifier = Modifier.fillMaxWidth()) { Text("Add Host") }
+    }
+}
+
+internal fun freshnessLabel(epochMs: Long, nowEpochMs: Long): String? {
+    if (epochMs <= 0L) return null
+    val seconds = ((nowEpochMs - epochMs) / 1000L).coerceAtLeast(0L)
+    return when {
+        seconds < 60L -> "synced ${seconds}s ago"
+        seconds < 3600L -> "synced ${seconds / 60L}m ago"
+        seconds < 86_400L -> "synced ${seconds / 3600L}h ago"
+        else -> "synced ${seconds / 86_400L}d ago"
     }
 }
 

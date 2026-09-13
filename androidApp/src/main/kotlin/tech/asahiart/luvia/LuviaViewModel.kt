@@ -27,6 +27,7 @@ data class PairingUiState(
     val draft: PairingDraft? = null,
     val errorMessage: String? = null,
     val completing: Boolean = false,
+    val pairedHostId: String? = null,
 )
 
 class LuviaViewModel(
@@ -83,7 +84,7 @@ class LuviaViewModel(
         }
         when (val result = manager.beginPairing(label, role)) {
             is Outcome.Ok -> _pairing.value = PairingUiState(draft = result.value)
-            is Outcome.Err -> _pairing.update { it.copy(errorMessage = result.failure.toUserMessage()) }
+            is Outcome.Err -> _pairing.update { it.copy(errorMessage = result.failure.toPairingMessage()) }
         }
     }
 
@@ -94,12 +95,12 @@ class LuviaViewModel(
             _pairing.update { it.copy(completing = true, errorMessage = null) }
             when (val result = manager.completePairing(draft, rawCode.trim())) {
                 is Outcome.Ok -> {
-                    _pairing.value = PairingUiState()
+                    _pairing.value = PairingUiState(pairedHostId = result.value.id)
                     onSuccess()
                 }
                 is Outcome.Err ->
                     _pairing.update {
-                        it.copy(completing = false, errorMessage = result.failure.toUserMessage())
+                        it.copy(completing = false, errorMessage = result.failure.toPairingMessage())
                     }
             }
         }
@@ -234,16 +235,17 @@ class LuviaViewModel(
                     }
                 }
                 is Outcome.Err -> {
-                    val conflict = result.failure is Failure.ControlConflict
+                    val conflict = result.failure as? Failure.ControlConflict
                     _terminals.update { map ->
                         val current = map[hostId] ?: return@update map
                         map + (
                             hostId to current.copy(
-                                control = if (conflict) {
+                                control = if (conflict != null) {
                                     TerminalControlState.Conflict
                                 } else {
                                     TerminalControlState.Observing
                                 },
+                                conflictMessage = conflict?.toConflictMessage(),
                             )
                             )
                     }
@@ -256,6 +258,13 @@ class LuviaViewModel(
         val control = controls[hostId] ?: return
         viewModelScope.launch {
             control.typeLiteral(text)
+        }
+    }
+
+    fun sendTerminalKey(hostId: String, key: TerminalKey) {
+        val control = controls[hostId] ?: return
+        viewModelScope.launch {
+            control.sendKey(key)
         }
     }
 
@@ -751,7 +760,7 @@ class LuviaViewModel(
         viewModelScope.launch { refreshTasks(hostId) }
     }
 
-    private suspend fun refreshTasks(hostId: String): Boolean {
+    private suspend fun refreshTasks(hostId: String, preserveUserState: Boolean = false): Boolean {
         val session = manager.session(hostId)
         if (session == null) {
             updateHost(hostId) {
@@ -764,7 +773,14 @@ class LuviaViewModel(
         }
         if (!session.supports(UhpMethods.TASK_LIST)) return false
         updateHost(hostId) {
-            it.copy(connected = true, tasks = it.tasks.copy(loading = true, errorText = null, boardChanged = false))
+            it.copy(
+                connected = true,
+                tasks = it.tasks.copy(
+                    loading = true,
+                    errorText = if (preserveUserState) it.tasks.errorText else null,
+                    boardChanged = if (preserveUserState) it.tasks.boardChanged else false,
+                ),
+            )
         }
         return when (val result = session.listTasks()) {
             is Outcome.Ok -> {
@@ -1263,10 +1279,16 @@ class LuviaViewModel(
                 }
             }
             is TerminalUpdate.Failed -> {
-                if (update.failure is Failure.ControlConflict) {
+                val conflict = update.failure as? Failure.ControlConflict
+                if (conflict != null) {
                     _terminals.update { map ->
                         val current = map[hostId] ?: return@update map
-                        map + (hostId to current.copy(control = TerminalControlState.Conflict))
+                        map + (
+                            hostId to current.copy(
+                                control = TerminalControlState.Conflict,
+                                conflictMessage = conflict.toConflictMessage(),
+                            )
+                            )
                     }
                     return
                 }
@@ -1518,15 +1540,22 @@ class LuviaViewModel(
     ) {
         if (failure is Failure.RevisionConflict) {
             updateHost(hostId) {
+                val revisions = if (taskId != null) {
+                    it.tasks.revisions + (taskId to failure.actual)
+                } else {
+                    it.tasks.revisions
+                }
                 it.copy(
                     tasks = it.tasks.copy(
                         mutating = false,
                         boardChanged = true,
-                        errorText = "Board changed, review and try again",
+                        errorText = "Updated by someone else. Showing latest.",
+                        boardRevision = failure.actual,
+                        revisions = revisions,
                     ),
                 )
             }
-            loadTasks(hostId)
+            viewModelScope.launch { refreshTasks(hostId, preserveUserState = true) }
             return
         }
         updateHost(hostId) {
@@ -1912,10 +1941,12 @@ internal fun HostRuntime.toUi(): HostUiModel {
         blockedAgents = agents.count { it.status == AgentStatus.Blocked },
         completedAgents = agents.count { it.status == AgentStatus.Done },
         activeTask = taskList.firstOrNull { !it.status.equals("done", ignoreCase = true) }?.title,
-        updatedAt = profile.lastUpdatedEpochMs.takeIf { it > 0 }?.toString(),
-        errorMessage = (link as? HostLink.Failed)?.failure?.toUserMessage(),
+        lastUpdatedEpochMs = profile.lastUpdatedEpochMs,
+        errorMessage = (link as? HostLink.Failed)?.failure?.toConnectMessage(),
         isObserver = profile.role == HostRole.Observer,
         connected = connected,
+        hasSnapshot = snapshot != null,
+        firstBlockedPaneId = agents.firstOrNull { it.status == AgentStatus.Blocked }?.paneId,
     )
 }
 
@@ -1954,6 +1985,69 @@ internal fun Failure.toUserMessage(): String {
     }
     return raw.sanitizeHostError()
 }
+
+internal fun Failure.toPairingMessage(): String {
+    val reason = (this as? Failure.ProtocolError)?.reason ?: return toUserMessage()
+    val draftStays = "The draft is still valid."
+    return when {
+        reason.contains("must start with luvia1") ->
+            "This is not a luvia1: pairing code. Scan again or paste a different code. $draftStays"
+        reason.contains("different device key") ->
+            "This pairing code is for a different Device key. Run the command shown in this app on the Host, then scan the QR it prints. $draftStays"
+        reason.contains("no host key fingerprints") ->
+            "This pairing code has an empty host-key (hk) set and cannot be trusted. Scan again or paste a different code. $draftStays"
+        reason.startsWith("pairing code") ->
+            "This pairing code is malformed. Scan again or paste a different code. $draftStays"
+        else -> toUserMessage()
+    }
+}
+
+internal fun Failure.toConnectMessage(): String {
+    val raw = when (this) {
+        is Failure.Transport -> reason
+        is Failure.ProtocolError -> reason
+        is Failure.Bridge -> reason
+        else -> return toUserMessage()
+    }
+    val lower = raw.lowercase()
+    return when {
+        lower.contains("host key mismatch") || lower.contains("re-pair") ->
+            "Host key changed. Re-pair this Host."
+        lower.contains("public-key authentication") ||
+            lower.contains("authentication failed") ||
+            lower.contains("permission denied") ->
+            "SSH refused. Check the Grant on the Host."
+        lower.contains("incomplete host endpoint") ||
+            lower.contains("connect timeout") ||
+            lower.contains("no route") ||
+            lower.contains("connection refused") ||
+            lower.contains("ssh transport failure") ||
+            lower.contains("disconnected") ->
+            "No address reachable. Check network or Tailscale."
+        else -> toUserMessage()
+    }
+}
+internal fun Failure.ControlConflict.toConflictMessage(): String {
+    val base = message.trim().ifBlank { "Another client holds Terminal control." }
+    return if (base.contains("Observe still works", ignoreCase = true)) {
+        base
+    } else {
+        "$base Observe still works."
+    }
+}
+
+internal fun List<HostRuntime>.toSortedUi(): List<HostUiModel> =
+    mapIndexed { index, runtime -> index to runtime.toUi() }
+        .sortedWith(
+            compareBy<Pair<Int, HostUiModel>> { (_, host) ->
+                when {
+                    host.blockedAgents > 0 -> 0
+                    host.connection == ConnectionBadge.Live -> 1
+                    else -> 2
+                }
+            }.thenBy { it.first },
+        )
+        .map { it.second }
 
 internal fun String.sanitizeHostError(): String =
     when {

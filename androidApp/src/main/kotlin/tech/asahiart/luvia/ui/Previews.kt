@@ -33,6 +33,7 @@ private fun HostListPreview() {
                     workingAgents = 2,
                     blockedAgents = 1,
                     completedAgents = 5,
+                    lastUpdatedEpochMs = System.currentTimeMillis() - 3_000,
                     connected = true,
                 ),
                 HostUiModel(
@@ -41,10 +42,24 @@ private fun HostListPreview() {
                     address = "192.168.1.24",
                     sessionName = null,
                     connection = ConnectionBadge.Stale,
-                    errorMessage = "Host key changed",
+                    lastUpdatedEpochMs = System.currentTimeMillis() - 120_000,
+                    errorMessage = "Host key changed. Re-pair this Host.",
                 ),
             ),
             selectedHostId = "studio",
+            onSelect = {},
+            onAddHost = {},
+        )
+    }
+}
+
+@Preview(name = "Empty hosts", showBackground = true)
+@Composable
+private fun EmptyHostsPreview() {
+    MaterialTheme {
+        HostListPane(
+            hosts = emptyList(),
+            selectedHostId = null,
             onSelect = {},
             onAddHost = {},
         )
@@ -259,6 +274,7 @@ private fun previewHost() = HostUiModel(
     blockedAgents = 1,
     completedAgents = 5,
     activeTask = "Build the UHP-first phone surface",
+    lastUpdatedEpochMs = System.currentTimeMillis() - 8_000,
     connected = true,
 )
 

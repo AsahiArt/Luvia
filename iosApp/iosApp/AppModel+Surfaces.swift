@@ -619,7 +619,7 @@ extension AppModel {
                 uhp.errorMessage = nil
                 await loadTasks()
             case .err(let err):
-                handleTaskMutationFailure(err.failure, action: .claimTask, taskID: id)
+                await handleTaskMutationFailure(err.failure, action: .claimTask, taskID: id)
             }
         } catch {
             uhp.unconfirmedTaskID = id
@@ -646,7 +646,7 @@ extension AppModel {
                 uhp.errorMessage = nil
                 await loadTasks()
             case .err(let err):
-                handleTaskMutationFailure(err.failure, action: .deleteTask, taskID: id)
+                await handleTaskMutationFailure(err.failure, action: .deleteTask, taskID: id)
             }
         } catch {
             uhp.unconfirmedTaskID = id

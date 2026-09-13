@@ -58,8 +58,13 @@ struct TasksListView: View {
                 List {
                     if let message = model.uhp.boardChangedMessage {
                         Section {
-                            Text(message)
-                                .foregroundStyle(.orange)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(message)
+                                    .foregroundStyle(.orange)
+                                Text("Your edit is still available. Submit it again if it still applies.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                     if let unconfirmed = model.uhp.unconfirmed {
@@ -211,6 +216,15 @@ struct AddTaskSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if let message = model.uhp.boardChangedMessage {
+                    Section {
+                        Text(message)
+                            .foregroundStyle(.orange)
+                        Text("Your edit is still available. Submit it again if it still applies.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 TextField("Title", text: $model.uhp.addTaskTitle)
                 TextField("Paths (comma separated)", text: $model.uhp.addTaskPaths, axis: .vertical)
                     .font(.system(.body, design: .monospaced))

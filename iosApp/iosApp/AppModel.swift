@@ -20,6 +20,7 @@ final class AppModel {
     var isPairingPresented = false
     var terminalText = ""
     var terminalStatus: String?
+    private(set) var holdsTerminalControl = false
     var hasLiveSession = false
     var uhp = UhpSurfaceState()
 
@@ -79,7 +80,7 @@ final class AppModel {
                     return .failure(UserFacingError(message: "Pairing did not return a host."))
                 }
                 selectedHostID = profile.id
-                isPairingPresented = false
+                selectedSection = .agents
                 return .success(profile)
             case .err(let err):
                 return .failure(UserFacingError(message: FailureText.describe(err.failure)))
@@ -149,18 +150,72 @@ final class AppModel {
         do {
             let outcome = try await terminalControl.submitText(text: text)
             if case .err(let err) = onEnum(of: outcome) {
-                terminalStatus = FailureText.describe(err.failure)
+                applyControlFailure(err.failure)
             }
         } catch {
             terminalStatus = error.localizedDescription
         }
     }
 
+    func sendTerminalKey(_ key: TerminalKey) async {
+        guard let terminalControl else { return }
+        do {
+            let outcome = try await terminalControl.sendKey(key: key)
+            if case .err(let err) = onEnum(of: outcome) {
+                applyControlFailure(err.failure)
+            }
+        } catch {
+            terminalStatus = error.localizedDescription
+        }
+    }
+
+    func requestTerminalControl() {
+        guard let host = selectedHost, host.isController else { return }
+        guard let locator = host.terminalLocator else { return }
+        let hostId = host.id
+        let identity = locator.identity()
+        let managerRef = manager
+        _Concurrency.Task { [weak self] in
+            do {
+                let outcome = try await managerRef.openTerminal(hostId: hostId, identity: identity)
+                await MainActor.run {
+                    switch onEnum(of: outcome) {
+                    case .ok(let ok):
+                        self?.terminalControl?.close()
+                        self?.terminalControl = ok.value
+                        self?.holdsTerminalControl = true
+                        if self?.terminalStatus?.contains("control") == true {
+                            self?.terminalStatus = nil
+                        }
+                    case .err(let err):
+                        self?.applyControlFailure(err.failure)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self?.terminalStatus = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func refreshAll() async {
+        let ids = hosts.map(\.id)
+        for id in ids {
+            do {
+                _ = try await manager.refresh(hostId: id)
+            } catch {
+                continue
+            }
+        }
+        await loadSelectedSection()
+    }
+
     private func replaceHosts(_ states: [HostViewState]) {
         let previousAgents = selectedHost?.agents ?? []
         let openID = uhp.selectedAgentID
         let wasLive = hasLiveSession
-        hosts = states
+        hosts = Self.sortedHosts(states)
         if let selectedHostID, !states.contains(where: { $0.id == selectedHostID }) {
             self.selectedHostID = nil
         }
@@ -204,25 +259,6 @@ final class AppModel {
         let hostId = host.id
         let identity = locator.identity()
         let managerRef = manager
-        if host.isController {
-            _Concurrency.Task { [weak self] in
-                do {
-                    let outcome = try await managerRef.openTerminal(hostId: hostId, identity: identity)
-                    await MainActor.run {
-                        switch onEnum(of: outcome) {
-                        case .ok(let ok):
-                            self?.terminalControl = ok.value
-                        case .err(let err):
-                            self?.terminalStatus = FailureText.describe(err.failure)
-                        }
-                    }
-                } catch {
-                    await MainActor.run {
-                        self?.terminalStatus = error.localizedDescription
-                    }
-                }
-            }
-        }
         terminalTask = _Concurrency.Task { [weak self] in
             for await update in managerRef.observeTerminal(hostId: hostId, identity: identity) {
                 await MainActor.run {
@@ -237,17 +273,36 @@ final class AppModel {
         terminalTask = nil
         terminalControl?.close()
         terminalControl = nil
+        holdsTerminalControl = false
     }
+
+    private func applyControlFailure(_ failure: Failure) {
+        if case .controlConflict = onEnum(of: failure) {
+            terminalControl?.close()
+            terminalControl = nil
+            holdsTerminalControl = false
+            terminalStatus = "\(FailureText.describe(failure)) Observe still works."
+        } else {
+            terminalStatus = FailureText.describe(failure)
+        }
+    }
+
 
     private func applyTerminal(_ update: TerminalUpdate) {
         switch onEnum(of: update) {
         case .frame(let wrapped):
             terminalText = wrapped.frame.text
-            terminalStatus = wrapped.frame.truncated ? "Output truncated." : nil
+            if holdsTerminalControl {
+                terminalStatus = wrapped.frame.truncated ? "Output truncated." : nil
+            } else if wrapped.frame.truncated, terminalStatus == nil {
+                terminalStatus = "Output truncated."
+            }
         case .resyncing(_):
-            terminalStatus = "Resyncing…"
+            if holdsTerminalControl {
+                terminalStatus = "Resyncing…"
+            }
         case .failed(let wrapped):
-            terminalStatus = FailureText.describe(wrapped.failure)
+            applyControlFailure(wrapped.failure)
         }
     }
 
@@ -301,6 +356,23 @@ final class AppModel {
         let directory = root.appendingPathComponent("Luvia", isDirectory: true)
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent("hosts.json").path
+    }
+
+    private static func sortedHosts(_ states: [HostViewState]) -> [HostViewState] {
+        states.enumerated()
+            .sorted { lhs, rhs in
+                let left = sortGroup(lhs.element)
+                let right = sortGroup(rhs.element)
+                if left != right { return left < right }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
+    }
+
+    private static func sortGroup(_ host: HostViewState) -> Int {
+        if host.blockedAgents > 0 { return 0 }
+        if host.connection == .live { return 1 }
+        return 2
     }
 }
 
@@ -788,14 +860,20 @@ extension AppModel {
         }
     }
 
-    func beginAddNote(file: DiffFileItem, line: DiffLineItem) {
+    func beginAddNote(file: DiffFileItem, hunk: DiffHunkItem, line: DiffLineItem) {
         guard uhp.canAddNote else { return }
+        let index = hunk.lines.firstIndex(where: { $0.id == line.id }) ?? 0
+        let before = Array(hunk.lines.prefix(index).suffix(2).map(\.text))
+        let after = Array(hunk.lines.dropFirst(index + 1).prefix(2).map(\.text))
         uhp.addNote = AddNoteDraft(
             file: file.path,
             layer: file.layer,
             usesNewLine: line.newLine != nil,
             line: line.newLine ?? line.oldLine ?? 1,
-            body: ""
+            body: "",
+            anchoredText: line.text,
+            contextBefore: before,
+            contextAfter: after
         )
         uhp.isAddNotePresented = true
     }
@@ -974,7 +1052,7 @@ extension AppModel {
                 uhp.errorMessage = nil
                 await loadTasks()
             case .err(let err):
-                handleTaskMutationFailure(err.failure, action: .addTask, taskID: nil)
+                await handleTaskMutationFailure(err.failure, action: .addTask, taskID: nil)
             }
         } catch {
             markUnconfirmed(.addTask, error.localizedDescription)
@@ -1005,7 +1083,7 @@ extension AppModel {
                 uhp.errorMessage = nil
                 await loadTasks()
             case .err(let err):
-                handleTaskMutationFailure(err.failure, action: .completeTask, taskID: id)
+                await handleTaskMutationFailure(err.failure, action: .completeTask, taskID: id)
             }
         } catch {
             uhp.unconfirmedTaskID = id
@@ -1124,11 +1202,15 @@ extension AppModel {
         uhp.errorMessage = FailureText.describe(failure)
     }
 
-    func handleTaskMutationFailure(_ failure: Failure, action: UnconfirmedAction, taskID: String?) {
+    func handleTaskMutationFailure(_ failure: Failure, action: UnconfirmedAction, taskID: String?) async {
         switch onEnum(of: failure) {
         case .revisionConflict:
-            uhp.boardChangedMessage = "Board changed, review and try again"
-            _Concurrency.Task { await self.loadTasks() }
+            uhp.boardChangedMessage = "Updated by someone else. Showing latest."
+            uhp.errorMessage = nil
+            await loadTasks()
+            if let taskID {
+                _ = await refreshTaskRevision(taskID)
+            }
         case .indeterminateMutation, .transport, .bridge, .closed:
             uhp.unconfirmedTaskID = taskID
             markUnconfirmed(action, nil)
