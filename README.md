@@ -56,36 +56,51 @@ Roles: `observer` (read) or `controller` (read plus workspace / agent / terminal
 
 ## Build
 
-From the repository root.
+From the repository root. Prefer `make`; CI runs the same targets. `make android` / `make ios` install and launch on a **physical device** when one is connected, and fall back to emulator / Simulator otherwise.
+
+```sh
+make help
+make android          # physical phone first, else AVD
+make ios              # connected iPhone first, else Simulator (macOS)
+make ios-device       # fail if no iPhone is connected
+make host             # release luvia-host
+make test             # Rust workspace + Kotlin JVM tests
+```
 
 **Shared Kotlin + Rust transport**
 
 ```sh
-./gradlew :shared:jvmTest
+make shared-test      # ./gradlew :shared:jvmTest
 ```
 
 **Android**
 
 ```sh
-./gradlew :androidApp:assembleDebug
+make android-build    # ./gradlew :androidApp:assembleDebug
+make test-android     # debug assemble + unit tests (CI)
+make android-release  # R8
 ```
 
 Release (`assembleRelease`) enables R8. Signing is optional: set `LUVIA_STORE_FILE`, `LUVIA_STORE_PASSWORD`, `LUVIA_KEY_ALIAS`, and `LUVIA_KEY_PASSWORD`, or a gitignored `keystore.properties` with the same keys. An unconfigured checkout still builds `debug`.
 
+Pin a device with `ANDROID_SERIAL=…`.
+
 **iOS**
 
 ```sh
-./gradlew :shared:linkDebugFrameworkIosSimulatorArm64
-open iosApp/iosApp.xcodeproj
+make ios-compile      # commonMain metadata + iosArm64
+make ios-framework    # linkDebugFrameworkIosSimulatorArm64
+make ios-build        # unsigned Simulator app (CI)
+make ios-open         # open iosApp/iosApp.xcodeproj
 ```
 
-Xcode runs `:shared:embedAndSignAppleFrameworkForXcode` in a Run Script phase. Set `TEAM_ID` in `iosApp/Configuration/Config.xcconfig`.
+Xcode runs `:shared:embedAndSignAppleFrameworkForXcode` in a Run Script phase. Physical-device runs use Automatic signing (`DEVELOPMENT_TEAM` in the Xcode project). Override with `TEAM_ID` in `iosApp/Configuration/Config.xcconfig` if needed. Pin a phone or simulator with `IOS_UDID=…`.
 
 **Host**
 
 ```sh
-cargo test -p luvia-host
-cargo build --release -p luvia-host
+make host-test        # cargo test -p luvia-host
+make host             # cargo build --release -p luvia-host
 ```
 
 ## ABI and platform support

@@ -1,5 +1,8 @@
 name: CI
 
+# Build and test through the Makefile so local commands and CI stay aligned.
+# Device run targets (`make android` / `make ios`) are local-only.
+
 on:
   push:
     branches: [main]
@@ -24,17 +27,10 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Check and test workspace
-        run: |
-          cargo fmt --all --check
-          cargo check --workspace --all-targets
-          cargo clippy --workspace --all-targets -- -D warnings
-          cargo test --workspace --all-targets
+        run: make check test-rust
       - name: Cross-check iOS transport
         if: runner.os == 'macOS'
-        run: |
-          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
-          cargo check -p luvia-transport --target aarch64-apple-ios
-          cargo check -p luvia-transport --target aarch64-apple-ios-sim
+        run: make check-transport-ios
 
   android:
     name: android
@@ -59,27 +55,14 @@ jobs:
       - name: Cross-check Android transport
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
-        run: |
-          prebuilt="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          api=26
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${prebuilt}/aarch64-linux-android${api}-clang"
-          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="${prebuilt}/x86_64-linux-android${api}-clang"
-          # ring compiles C via the cc crate, which probes for a bare
-          # <target>-clang. The NDK only ships API-suffixed drivers, so
-          # without CC_/AR_ the build script dies before any Rust compiles.
-          export CC_aarch64_linux_android="${prebuilt}/aarch64-linux-android${api}-clang"
-          export CC_x86_64_linux_android="${prebuilt}/x86_64-linux-android${api}-clang"
-          export AR_aarch64_linux_android="${prebuilt}/llvm-ar"
-          export AR_x86_64_linux_android="${prebuilt}/llvm-ar"
-          cargo check -p luvia-transport --target aarch64-linux-android
-          cargo check -p luvia-transport --target x86_64-linux-android
+        run: make check-transport-android
       - name: Assemble debug and unit tests
-        run: ./gradlew :androidApp:assembleDebug :shared:jvmTest :shared:testDebugUnitTest --stacktrace
+        run: make test-android
       # Runs R8 with proguard-rules.pro. Shrinking breaks reflective
       # kotlinx.serialization and UniFFI/JNA lookups only in release, so the
       # debug assemble above cannot catch it.
       - name: Assemble release (R8)
-        run: ./gradlew :androidApp:assembleRelease --stacktrace
+        run: make android-release
 
   ios:
     name: ios
@@ -99,22 +82,13 @@ jobs:
       # and friends only declare some members in platform source sets. The
       # metadata compilation is what catches that, and no other job runs it.
       - name: Compile common metadata and device target
-        run: ./gradlew :shared:compileCommonMainKotlinMetadata :shared:compileKotlinIosArm64 --stacktrace
+        run: make ios-compile
       - name: Shared tests on all targets
-        run: ./gradlew :shared:allTests --stacktrace
+        run: make ios-test
       - name: Link shared framework for the simulator
-        run: ./gradlew :shared:linkDebugFrameworkIosSimulatorArm64 --stacktrace
+        run: make ios-framework
       - name: Build iOS app for the simulator
-        run: |
-          xcodebuild \
-            -project iosApp/iosApp.xcodeproj \
-            -target iosApp \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            build
+        run: make ios-build
 
   # Exercises upload-artifact@v7, download-artifact@v8 (merge-multiple),
   # and action-gh-release@v3. Those last two only run on tagged publishes,
