@@ -20,7 +20,7 @@ ANDROID_API ?= 26
 ANDROID_STAMP := build/make/android-serial
 
 IOS_PROJECT := iosApp/iosApp.xcodeproj
-IOS_TARGET := iosApp
+IOS_SCHEME := iosApp
 IOS_BUNDLE_ID := tech.asahiart.luvia
 IOS_APP_NAME := Luvia.app
 IOS_DERIVED := build/ios
@@ -152,7 +152,7 @@ ifeq ($(UNAME_S),Darwin)
 ios-build: ## Build Luvia for the iOS Simulator (unsigned; CI uses this)
 	xcodebuild \
 		-project "$(IOS_PROJECT)" \
-		-target "$(IOS_TARGET)" \
+		-scheme "$(IOS_SCHEME)" \
 		-configuration "$(IOS_CONFIGURATION)" \
 		-sdk iphonesimulator \
 		-destination 'generic/platform=iOS Simulator' \
@@ -161,31 +161,27 @@ ios-build: ## Build Luvia for the iOS Simulator (unsigned; CI uses this)
 		CODE_SIGNING_REQUIRED=NO \
 		build
 
-ios: ## Build, install, and launch (connected iPhone first, else Simulator)
+ios: ## Build, install, and launch (USB/wireless iPhone first, else Simulator)
 	@set -euo pipefail; \
 	export IOS_UDID="$(IOS_UDID)"; \
 	pick="$$(python3 "$(IOS_PICK)")"; \
-	kind="$${pick%% *}"; \
-	rest="$${pick#* }"; \
+	read -r kind udid ident how <<<"$$pick"; \
 	if [ "$$kind" = device ]; then \
-	  udid="$${rest%% *}"; \
-	  ident="$${rest#* }"; \
-	  echo "iOS physical device $$udid"; \
+	  echo "iOS physical device $$udid ($$how)"; \
 	  xcodebuild \
 	    -project "$(IOS_PROJECT)" \
-	    -target "$(IOS_TARGET)" \
+	    -scheme "$(IOS_SCHEME)" \
 	    -configuration "$(IOS_CONFIGURATION)" \
 	    -sdk iphoneos \
-	    -destination "id=$$udid" \
+	    -destination 'generic/platform=iOS' \
 	    -derivedDataPath "$(IOS_DERIVED)" \
 	    -allowProvisioningUpdates \
 	    build; \
 	  xcrun devicectl device install app --device "$$ident" "$(IOS_APP_DEVICE)"; \
 	  xcrun devicectl device process launch --device "$$ident" "$(IOS_BUNDLE_ID)"; \
-	  echo "Launched $(IOS_BUNDLE_ID) on $$udid"; \
+	  echo "Launched $(IOS_BUNDLE_ID) on $$udid ($$how)"; \
 	else \
-	  udid="$$rest"; \
-	  if [ -z "$$udid" ] || [ "$$udid" = simulator ]; then \
+	  if [ -z "$$udid" ]; then \
 	    udid="$$(xcrun simctl list devices booted | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' | head -1 || true)"; \
 	  fi; \
 	  if [ -z "$$udid" ]; then \
@@ -198,7 +194,7 @@ ios: ## Build, install, and launch (connected iPhone first, else Simulator)
 	  echo "No connected iPhone; using Simulator $$udid"; \
 	  xcodebuild \
 	    -project "$(IOS_PROJECT)" \
-	    -target "$(IOS_TARGET)" \
+	    -scheme "$(IOS_SCHEME)" \
 	    -configuration "$(IOS_CONFIGURATION)" \
 	    -sdk iphonesimulator \
 	    -destination "id=$$udid" \
@@ -213,7 +209,7 @@ ios: ## Build, install, and launch (connected iPhone first, else Simulator)
 	  echo "Launched $(IOS_BUNDLE_ID) on Simulator $$udid"; \
 	fi
 
-ios-device: ## Install and launch on a connected iPhone only
+ios-device: ## Install and launch on a paired iPhone only (USB or wireless)
 	IOS_FORCE_DEVICE=1 IOS_UDID="$(IOS_UDID)" $(MAKE) ios
 
 ios-sim: ## Install and launch on the iOS Simulator only

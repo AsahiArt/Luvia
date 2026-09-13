@@ -61,8 +61,8 @@ From the repository root. Prefer `make`; CI runs the same targets. `make android
 ```sh
 make help
 make android          # physical phone first, else AVD
-make ios              # connected iPhone first, else Simulator (macOS)
-make ios-device       # fail if no iPhone is connected
+make ios              # USB/wireless iPhone first, else Simulator (macOS)
+make ios-device       # fail if no paired iPhone
 make host             # release luvia-host
 make test             # Rust workspace + Kotlin JVM tests
 ```

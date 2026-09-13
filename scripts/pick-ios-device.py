@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Prefer a connected physical iPhone/iPad. Prints one line:
+"""Prefer a paired physical iPhone/iPad (USB, then wireless). Prints one line:
 
-    device <udid> <coredevice-id>
+    device <udid> <coredevice-id> <usb|network>
     simulator [<udid>]
 
-IOS_UDID selects a specific device or simulator. IOS_FORCE_SIM=1 /
-IOS_FORCE_DEVICE=1 override the default preference.
+Paired network devices are eligible even when the CoreDevice tunnel is
+down; `devicectl install` brings the link up. IOS_UDID selects a specific
+device or simulator. IOS_FORCE_SIM=1 / IOS_FORCE_DEVICE=1 override the
+default preference.
 """
 
 from __future__ import annotations
@@ -35,26 +37,31 @@ def load_devices() -> list[dict]:
     return data.get("result", {}).get("devices") or []
 
 
-def classify(dev: dict) -> tuple[int, str, str, str]:
+def classify(dev: dict) -> tuple[int, str, str, str, str]:
     hp = dev.get("hardwareProperties") or {}
     cp = dev.get("connectionProperties") or {}
     dp = dev.get("deviceProperties") or {}
     if hp.get("reality") != "physical":
-        return (-1, "", "", "")
+        return (-1, "", "", "", "")
     device_type = hp.get("deviceType") or ""
     platform = hp.get("platform") or ""
     if device_type not in ("iPhone", "iPad") and platform not in ("iOS", "iPadOS"):
-        return (-1, "", "", "")
+        return (-1, "", "", "", "")
     udid = hp.get("udid") or ""
     ident = dev.get("identifier") or ""
     name = dp.get("name") or ""
-    tunnel = cp.get("tunnelState") or ""
+    pairing = (cp.get("pairingState") or "").lower()
+    tunnel = (cp.get("tunnelState") or "").lower()
     transport = (cp.get("transportType") or "").lower()
-    if tunnel == "connected" or transport in ("wired", "usb"):
-        score = 2
+    if transport in ("wired", "usb"):
+        score, how = 3, "usb"
+    elif tunnel == "connected":
+        score, how = 2, "network"
+    elif pairing == "paired":
+        score, how = 1, "network"
     else:
-        score = 0
-    return (score, udid, ident, name)
+        score, how = 0, "network"
+    return (score, udid, ident, name, how)
 
 
 def main() -> int:
@@ -65,14 +72,14 @@ def main() -> int:
         print("simulator")
         return 0
 
-    physical: list[tuple[int, str, str, str]] = []
+    physical: list[tuple[int, str, str, str, str]] = []
     for dev in load_devices():
-        score, udid, ident, name = classify(dev)
+        score, udid, ident, name, how = classify(dev)
         if score < 0:
             continue
-        physical.append((score, udid, ident, name))
+        physical.append((score, udid, ident, name, how))
         if forced and forced in (udid, ident, name):
-            print(f"device {udid} {ident}")
+            print(f"device {udid} {ident} {how}")
             return 0
 
     if forced:
@@ -80,15 +87,14 @@ def main() -> int:
         return 0
 
     physical.sort(key=lambda row: -row[0])
-    if physical and physical[0][0] >= 2:
-        _, udid, ident, _name = physical[0]
-        print(f"device {udid} {ident}")
+    if physical and physical[0][0] >= 1:
+        _, udid, ident, _name, how = physical[0]
+        print(f"device {udid} {ident} {how}")
         return 0
 
     if force_device:
         print(
-            "No connected physical iPhone. Plug one in over USB; "
-            "paired network devices that are disconnected are skipped.",
+            "No paired physical iPhone. Connect one over USB or wireless debugging.",
             file=sys.stderr,
         )
         return 1
