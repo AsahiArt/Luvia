@@ -1097,21 +1097,13 @@ private fun EmptyPane(
     }
 }
 
-internal const val INSTALL_HOST_COMMAND =
-    "curl -fsSL https://raw.githubusercontent.com/AsahiArt/Luvia/main/scripts/install-host.sh | sh"
-
 @Composable
 private fun EmptyHostsPane(
     onAddHost: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    var copied by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
     Column(
-        modifier
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 32.dp),
+        modifier.padding(horizontal = 24.dp, vertical = 32.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Text("No Hosts", style = MaterialTheme.typography.headlineMedium)
@@ -1125,31 +1117,6 @@ private fun EmptyHostsPane(
             EmptyStep(2, "Pair this Device from the app.")
             EmptyStep(3, "Scan the pairing code the Host prints.")
         }
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(16.dp),
-        ) {
-            SelectionContainer {
-                Text(
-                    INSTALL_HOST_COMMAND,
-                    fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(16.dp),
-                )
-            }
-        }
-        FilledTonalButton(
-            onClick = {
-                context.getSystemService(ClipboardManager::class.java)
-                    ?.setPrimaryClip(ClipData.newPlainText("luvia-host install", INSTALL_HOST_COMMAND))
-                copied = true
-                scope.launch {
-                    delay(2_000)
-                    copied = false
-                }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (copied) "Copied" else "Copy install command") }
         Button(onClick = onAddHost, modifier = Modifier.fillMaxWidth()) { Text("Add Host") }
     }
 }

@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 struct HostSidebarView: View {
     let hosts: [HostViewState]
@@ -11,10 +10,6 @@ struct HostSidebarView: View {
 
     @State private var pendingUnpair: HostViewState?
     @State private var query = ""
-    @State private var didCopyInstall = false
-
-    private static let installCommand =
-        "curl -fsSL https://raw.githubusercontent.com/AsahiArt/Luvia/main/scripts/install-host.sh | sh"
 
     private var visibleHosts: [HostViewState] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -107,17 +102,10 @@ struct HostSidebarView: View {
         } description: {
             Text("Install luvia-host on your computer, then pair this phone.")
         } actions: {
-            VStack(alignment: .leading, spacing: DesignTokens.Space.m) {
+            VStack(alignment: .leading, spacing: DesignTokens.Space.s) {
                 EmptyHostStep(number: 1, text: "Install luvia-host on the machine that runs Luvus.")
                 EmptyHostStep(number: 2, text: "Pair this Device from the app.")
                 EmptyHostStep(number: 3, text: "Scan the pairing code the Host prints.")
-                Text(Self.installCommand)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(DesignTokens.ink)
-                    .textSelection(.enabled)
-                    .padding(DesignTokens.Space.m)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .luviaGlass(in: RoundedRectangle(cornerRadius: DesignTokens.Radius.m, style: .continuous))
             }
             .padding(.top, DesignTokens.Space.s)
             Button("Add Host", action: addHost)
@@ -125,15 +113,6 @@ struct HostSidebarView: View {
                 .padding(.horizontal, DesignTokens.Space.l)
                 .padding(.vertical, DesignTokens.Space.s)
                 .luviaGlass(in: Capsule())
-            Button {
-                UIPasteboard.general.string = Self.installCommand
-                didCopyInstall = true
-            } label: {
-                Label(
-                    didCopyInstall ? "Copied" : "Copy install command",
-                    systemImage: didCopyInstall ? "checkmark" : "doc.on.doc"
-                )
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(DesignTokens.canvas)
