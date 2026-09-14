@@ -17,7 +17,8 @@ ANDROID_PACKAGE := tech.asahiart.luvia
 ANDROID_ACTIVITY := $(ANDROID_PACKAGE)/.MainActivity
 ANDROID_SERIAL ?=
 ANDROID_API ?= 26
-ANDROID_STAMP := build/make/android-serial
+ANDROID_STAMP := build/make/android-serials
+ANDROID_APK := androidApp/build/outputs/apk/debug/androidApp-debug.apk
 
 IOS_PROJECT := iosApp/iosApp.xcodeproj
 IOS_SCHEME := iosApp
@@ -54,9 +55,9 @@ endif
 help: ## List targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-24s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo
-	@echo "  ANDROID_SERIAL=...     pin an adb serial (else physical, then emulator)"
-	@echo "  IOS_UDID=...           pin an iPhone or simulator"
-	@echo "  make ios-device        physical iPhone only"
+	@echo "  ANDROID_SERIAL=...     pin one adb serial (else every physical phone)"
+	@echo "  IOS_UDID=...           pin one iPhone (else every paired phone)"
+	@echo "  make ios-device        physical iPhones only"
 	@echo "  make ios-sim           Simulator only"
 
 doctor: ## Check local toolchains and attached devices
@@ -75,34 +76,32 @@ doctor: ## Check local toolchains and attached devices
 
 # --- Android ---------------------------------------------------------------
 
-android-device: ## Prefer a physical phone; start an AVD only if none
+android-device: ## List every physical phone; start an AVD only if none
 	@set -euo pipefail; \
 	if [ -z "$(ADB)" ] || [ ! -x "$(ADB)" ]; then \
 	  echo "adb not found. Install Android platform-tools and put them on PATH, or set ANDROID_HOME." >&2; \
 	  exit 1; \
 	fi; \
 	mkdir -p build/make; \
-	if [ -n "$(ANDROID_SERIAL)" ]; then export ANDROID_SERIAL="$(ANDROID_SERIAL)"; fi; \
-	pick=""; \
+	picks=""; \
 	if [ -n "$(ANDROID_SERIAL)" ]; then \
-	  pick="$(ANDROID_SERIAL)"; \
-	  echo "Using ANDROID_SERIAL=$$pick"; \
-	  "$(ADB)" wait-for-device; \
+	  picks="$(ANDROID_SERIAL)"; \
+	  echo "Using ANDROID_SERIAL=$$picks"; \
+	  ANDROID_SERIAL="$$picks" "$(ADB)" wait-for-device; \
 	else \
-	  pick="$$("$(ADB)" devices | awk 'NR>1 && $$2=="device" && $$1 !~ /^emulator-/ {print $$1; exit}')"; \
-	  if [ -n "$$pick" ]; then \
-	    echo "Android physical device: $$pick"; \
+	  picks="$$("$(ADB)" devices | awk 'NR>1 && $$2=="device" && $$1 !~ /^emulator-/ {print $$1}')"; \
+	  if [ -n "$$picks" ]; then \
+	    echo "Android physical devices:"; echo "$$picks"; \
 	  else \
-	    pick="$$("$(ADB)" devices | awk 'NR>1 && $$2=="device" {print $$1; exit}')"; \
-	    if [ -n "$$pick" ]; then \
-	      echo "Android emulator: $$pick"; \
-	    fi; \
+	    picks="$$("$(ADB)" devices | awk 'NR>1 && $$2=="device" {print $$1}')"; \
+	    if [ -n "$$picks" ]; then echo "Android emulator: $$picks"; fi; \
 	  fi; \
 	fi; \
-	if [ -z "$$pick" ]; then \
-	  unauthorized="$$("$(ADB)" devices | awk 'NR>1 && $$2=="unauthorized" {print $$1; exit}')"; \
+	if [ -z "$$picks" ]; then \
+	  unauthorized="$$("$(ADB)" devices | awk 'NR>1 && $$2=="unauthorized" {print $$1}')"; \
 	  if [ -n "$$unauthorized" ]; then \
-	    echo "Device $$unauthorized is unauthorized. Accept USB debugging on the phone." >&2; \
+	    echo "Unauthorized devices:"; echo "$$unauthorized" >&2; \
+	    echo "Accept USB debugging on the phone." >&2; \
 	    exit 1; \
 	  fi; \
 	  if [ -z "$(EMULATOR)" ] || [ ! -x "$(EMULATOR)" ]; then \
@@ -117,12 +116,14 @@ android-device: ## Prefer a physical phone; start an AVD only if none
 	  echo "No physical device; starting emulator $$avd"; \
 	  "$(EMULATOR)" -avd "$$avd" -netdelay none -netspeed full >/dev/null 2>&1 & \
 	  "$(ADB)" wait-for-device; \
-	  pick="$$("$(ADB)" devices | awk 'NR>1 && $$2=="device" {print $$1; exit}')"; \
+	  picks="$$("$(ADB)" devices | awk 'NR>1 && $$2=="device" {print $$1}')"; \
 	fi; \
-	export ANDROID_SERIAL="$$pick"; \
-	until [ "$$("$(ADB)" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; do sleep 2; done; \
-	printf '%s\n' "$$pick" > "$(ANDROID_STAMP)"; \
-	echo "Android ready: $$pick"
+	printf '%s\n' "$$picks" | awk 'NF' > "$(ANDROID_STAMP)"; \
+	while IFS= read -r serial; do \
+	  ANDROID_SERIAL="$$serial" "$(ADB)" wait-for-device; \
+	  until [ "$$(ANDROID_SERIAL="$$serial" "$(ADB)" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; do sleep 2; done; \
+	done < "$(ANDROID_STAMP)"; \
+	echo "Android ready: $$(tr '\n' ' ' < "$(ANDROID_STAMP)")"
 
 android-build: ## Assemble Android debug APK
 	$(GRADLE) :androidApp:assembleDebug
@@ -130,11 +131,26 @@ android-build: ## Assemble Android debug APK
 android-release: ## Assemble Android release APK (R8)
 	$(GRADLE) :androidApp:assembleRelease
 
-android-install: android-device ## Install Android debug onto the chosen device
-	ANDROID_SERIAL="$$(cat $(ANDROID_STAMP))" $(GRADLE) :androidApp:installDebug
+android-install: android-device android-build ## Install Android debug onto every chosen device
+	@set -euo pipefail; \
+	if [ ! -f "$(ANDROID_APK)" ]; then echo "missing $(ANDROID_APK)" >&2; exit 1; fi; \
+	fail=0; pids=(); \
+	while IFS= read -r serial; do \
+	  ( echo "Installing on $$serial"; ANDROID_SERIAL="$$serial" "$(ADB)" install -r "$(ANDROID_APK)" ) & \
+	  pids+=("$$!"); \
+	done < "$(ANDROID_STAMP)"; \
+	if [ "$${#pids[@]}" -gt 0 ]; then for pid in "$${pids[@]}"; do wait "$$pid" || fail=1; done; fi; \
+	if [ "$$fail" != 0 ]; then echo "Android install failed on at least one device." >&2; exit 1; fi
 
-android: android-install ## Install and launch Android (physical device first)
-	ANDROID_SERIAL="$$(cat $(ANDROID_STAMP))" "$(ADB)" shell am start -n "$(ANDROID_ACTIVITY)"
+android: android-install ## Install and launch Android on every physical phone
+	@set -euo pipefail; \
+	fail=0; pids=(); \
+	while IFS= read -r serial; do \
+	  ( echo "Launching on $$serial"; ANDROID_SERIAL="$$serial" "$(ADB)" shell am start -n "$(ANDROID_ACTIVITY)" ) & \
+	  pids+=("$$!"); \
+	done < "$(ANDROID_STAMP)"; \
+	if [ "$${#pids[@]}" -gt 0 ]; then for pid in "$${pids[@]}"; do wait "$$pid" || fail=1; done; fi; \
+	if [ "$$fail" != 0 ]; then echo "Android launch failed on at least one device." >&2; exit 1; fi
 
 # --- iOS -------------------------------------------------------------------
 
@@ -161,13 +177,13 @@ ios-build: ## Build Luvia for the iOS Simulator (unsigned; CI uses this)
 		CODE_SIGNING_REQUIRED=NO \
 		build
 
-ios: ## Build, install, and launch (USB/wireless iPhone first, else Simulator)
+ios: ## Build, install, and launch on every paired iPhone (else Simulator)
 	@set -euo pipefail; \
 	export IOS_UDID="$(IOS_UDID)"; \
 	pick="$$(python3 "$(IOS_PICK)")"; \
-	read -r kind udid ident how <<<"$$pick"; \
-	if [ "$$kind" = device ]; then \
-	  echo "iOS physical device $$udid ($$how)"; \
+	devices="$$(printf '%s\n' "$$pick" | awk '/^device /{print}')"; \
+	if [ -n "$$devices" ]; then \
+	  echo "$$devices" | while read -r _k udid _ident how; do echo "iOS physical device $$udid ($$how)"; done; \
 	  xcodebuild \
 	    -project "$(IOS_PROJECT)" \
 	    -scheme "$(IOS_SCHEME)" \
@@ -177,10 +193,20 @@ ios: ## Build, install, and launch (USB/wireless iPhone first, else Simulator)
 	    -derivedDataPath "$(IOS_DERIVED)" \
 	    -allowProvisioningUpdates \
 	    build; \
-	  xcrun devicectl device install app --device "$$ident" "$(IOS_APP_DEVICE)"; \
-	  xcrun devicectl device process launch --device "$$ident" "$(IOS_BUNDLE_ID)"; \
-	  echo "Launched $(IOS_BUNDLE_ID) on $$udid ($$how)"; \
+	  fail=0; pids=(); \
+	  while read -r _k udid ident how; do \
+	    ( \
+	      echo "Installing on $$udid ($$how)"; \
+	      xcrun devicectl device install app --device "$$ident" "$(IOS_APP_DEVICE)"; \
+	      xcrun devicectl device process launch --device "$$ident" "$(IOS_BUNDLE_ID)"; \
+	      echo "Launched $(IOS_BUNDLE_ID) on $$udid ($$how)"; \
+	    ) & \
+	    pids+=("$$!"); \
+	  done <<<"$$devices"; \
+	  if [ "$${#pids[@]}" -gt 0 ]; then for pid in "$${pids[@]}"; do wait "$$pid" || fail=1; done; fi; \
+	  if [ "$$fail" != 0 ]; then echo "iOS install/launch failed on at least one device." >&2; exit 1; fi; \
 	else \
+	  udid="$$(printf '%s\n' "$$pick" | awk '/^simulator/{print $$2}')"; \
 	  if [ -z "$$udid" ]; then \
 	    udid="$$(xcrun simctl list devices booted | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' | head -1 || true)"; \
 	  fi; \
@@ -209,7 +235,7 @@ ios: ## Build, install, and launch (USB/wireless iPhone first, else Simulator)
 	  echo "Launched $(IOS_BUNDLE_ID) on Simulator $$udid"; \
 	fi
 
-ios-device: ## Install and launch on a paired iPhone only (USB or wireless)
+ios-device: ## Install and launch on every paired iPhone (USB or wireless)
 	IOS_FORCE_DEVICE=1 IOS_UDID="$(IOS_UDID)" $(MAKE) ios
 
 ios-sim: ## Install and launch on the iOS Simulator only

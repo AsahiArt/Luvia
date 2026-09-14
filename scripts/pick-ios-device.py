@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Prefer a paired physical iPhone/iPad (USB, then wireless). Prints one line:
+"""List paired physical iPhones/iPads (USB first, then wireless).
+
+One line per device:
 
     device <udid> <coredevice-id> <usb|network>
-    simulator [<udid>]
 
-Paired network devices are eligible even when the CoreDevice tunnel is
-down; `devicectl install` brings the link up. IOS_UDID selects a specific
-device or simulator. IOS_FORCE_SIM=1 / IOS_FORCE_DEVICE=1 override the
-default preference.
+If none are paired, prints `simulator [<udid>]`. Paired network devices
+are eligible even when the CoreDevice tunnel is down; `devicectl install`
+brings the link up. IOS_UDID selects a specific device or simulator.
+IOS_FORCE_SIM=1 / IOS_FORCE_DEVICE=1 override the default preference.
 """
 
 from __future__ import annotations
@@ -64,6 +65,11 @@ def classify(dev: dict) -> tuple[int, str, str, str, str]:
     return (score, udid, ident, name, how)
 
 
+def emit(row: tuple[int, str, str, str, str]) -> None:
+    _score, udid, ident, _name, how = row
+    print(f"device {udid} {ident} {how}")
+
+
 def main() -> int:
     forced = os.environ.get("IOS_UDID", "").strip()
     force_sim = os.environ.get("IOS_FORCE_SIM") == "1"
@@ -74,22 +80,24 @@ def main() -> int:
 
     physical: list[tuple[int, str, str, str, str]] = []
     for dev in load_devices():
-        score, udid, ident, name, how = classify(dev)
+        row = classify(dev)
+        score, udid, ident, name, _how = row
         if score < 0:
             continue
-        physical.append((score, udid, ident, name, how))
+        physical.append(row)
         if forced and forced in (udid, ident, name):
-            print(f"device {udid} {ident} {how}")
+            emit(row)
             return 0
 
     if forced:
         print(f"simulator {forced}")
         return 0
 
-    physical.sort(key=lambda row: -row[0])
-    if physical and physical[0][0] >= 1:
-        _, udid, ident, _name, how = physical[0]
-        print(f"device {udid} {ident} {how}")
+    eligible = [row for row in physical if row[0] >= 1]
+    eligible.sort(key=lambda row: -row[0])
+    if eligible:
+        for row in eligible:
+            emit(row)
         return 0
 
     if force_device:
