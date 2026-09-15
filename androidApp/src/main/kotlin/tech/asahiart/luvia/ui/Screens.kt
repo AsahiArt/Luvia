@@ -40,7 +40,12 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Badge
@@ -63,13 +68,13 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -340,109 +345,107 @@ fun HostDetailPane(
     var confirmUnpair by remember { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
     val visible = sections.ifEmpty { HostSection.entries }
-    Column(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        TopAppBar(
-            title = {
-                Column {
-                    Text(host.name, maxLines = 1)
-                    Text(host.sessionName ?: host.address, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.background,
-                titleContentColor = MaterialTheme.colorScheme.onBackground,
-                actionIconContentColor = MaterialTheme.colorScheme.onBackground,
-            ),
-            actions = {
-                if (host.connected) {
-                    TextButton(onClick = onDisconnect) {
-                        Text(if (host.connection == ConnectionBadge.Connecting) "Cancel" else "Disconnect")
+    val tabs = visible.filter { it.isPrimaryTab }
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(host.name, maxLines = 1)
+                        Text(host.sessionName ?: host.address, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
-                } else {
-                    Button(onClick = onConnect) { Text("Connect") }
-                }
-                Box {
-                    IconButton(
-                        onClick = { overflowOpen = true },
-                        modifier = Modifier.semantics { contentDescription = "More" },
-                    ) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = null)
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    actionIconContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
+                actions = {
+                    if (host.connected) {
+                        TextButton(onClick = onDisconnect) {
+                            Text(if (host.connection == ConnectionBadge.Connecting) "Cancel" else "Disconnect")
+                        }
+                    } else {
+                        Button(onClick = onConnect) { Text("Connect") }
                     }
-                    DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
-                        visible.filter { !it.isPrimaryTab }.forEach { item ->
+                    Box {
+                        IconButton(
+                            onClick = { overflowOpen = true },
+                            modifier = Modifier.semantics { contentDescription = "More" },
+                        ) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = null)
+                        }
+                        DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
+                            visible.filter { !it.isPrimaryTab }.forEach { item ->
+                                DropdownMenuItem(
+                                    text = { Text(item.name) },
+                                    onClick = {
+                                        overflowOpen = false
+                                        onSection(item)
+                                    },
+                                    modifier = Modifier.semantics { contentDescription = item.name },
+                                )
+                            }
+                            if (visible.any { !it.isPrimaryTab }) {
+                                HorizontalDivider()
+                            }
                             DropdownMenuItem(
-                                text = { Text(item.name) },
+                                text = { Text("Refresh") },
                                 onClick = {
                                     overflowOpen = false
-                                    onSection(item)
+                                    onRefresh()
                                 },
-                                modifier = Modifier.semantics { contentDescription = item.name },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Unpair") },
+                                onClick = {
+                                    overflowOpen = false
+                                    confirmUnpair = true
+                                },
                             )
                         }
-                        if (visible.any { !it.isPrimaryTab }) {
-                            HorizontalDivider()
-                        }
-                        DropdownMenuItem(
-                            text = { Text("Refresh") },
-                            onClick = {
-                                overflowOpen = false
-                                onRefresh()
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Unpair") },
-                            onClick = {
-                                overflowOpen = false
-                                confirmUnpair = true
-                            },
-                        )
                     }
-                }
-            },
-        )
-        host.errorMessage?.let { error ->
-            Text(
-                error,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                },
             )
-        }
-        val tabs =
-            visible.filter { it.isPrimaryTab }.let { primary ->
-                if (section.isPrimaryTab || section !in visible) {
-                    primary
-                } else {
-                    primary + section
+        },
+        bottomBar = {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                tabs.forEach { item ->
+                    NavigationBarItem(
+                        selected = item == section,
+                        onClick = { onSection(item) },
+                        icon = { Icon(item.barIcon(), contentDescription = null) },
+                        label = { Text(item.name) },
+                    )
                 }
             }
-        val tabIndex = tabs.indexOf(section).coerceAtLeast(0)
-        PrimaryTabRow(
-            selectedTabIndex = tabIndex,
-            containerColor = MaterialTheme.colorScheme.background,
-            contentColor = MaterialTheme.colorScheme.primary,
-        ) {
-            tabs.forEach { item ->
-                Tab(
-                    selected = item == section,
-                    onClick = { onSection(item) },
-                    text = { Text(item.name) },
+        },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            host.errorMessage?.let { error ->
+                Text(
+                    error,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-        }
-        when (section) {
-            HostSection.Agents -> agentsContent(Modifier.weight(1f))
-            HostSection.Files -> filesContent(Modifier.weight(1f))
-            HostSection.Search -> searchContent(Modifier.weight(1f))
-            HostSection.Review -> reviewContent(Modifier.weight(1f))
-            HostSection.Worktrees -> worktreesContent(Modifier.weight(1f))
-            HostSection.Automations -> automationsContent(Modifier.weight(1f))
-            HostSection.Tasks -> tasksContent(Modifier.weight(1f))
-            HostSection.Layout -> layoutContent(Modifier.weight(1f))
-            HostSection.Terminal -> if (terminal == null) {
-                EmptyPane("Terminal unavailable", "Select a live pane to observe or request control.", modifier = Modifier.weight(1f))
-            } else {
-                TerminalPane(terminal, onRequestControl, onSendText, onSelectTerminalPane, onSendKey, Modifier.weight(1f))
+            when (section) {
+                HostSection.Agents -> agentsContent(Modifier.weight(1f))
+                HostSection.Files -> filesContent(Modifier.weight(1f))
+                HostSection.Search -> searchContent(Modifier.weight(1f))
+                HostSection.Review -> reviewContent(Modifier.weight(1f))
+                HostSection.Worktrees -> worktreesContent(Modifier.weight(1f))
+                HostSection.Automations -> automationsContent(Modifier.weight(1f))
+                HostSection.Tasks -> tasksContent(Modifier.weight(1f))
+                HostSection.Layout -> layoutContent(Modifier.weight(1f))
+                HostSection.Terminal -> if (terminal == null) {
+                    EmptyPane("Terminal unavailable", "Select a live pane to observe or request control.", modifier = Modifier.weight(1f))
+                } else {
+                    TerminalPane(terminal, onRequestControl, onSendText, onSelectTerminalPane, onSendKey, Modifier.weight(1f))
+                }
             }
         }
     }
@@ -464,6 +467,14 @@ fun HostDetailPane(
             },
         )
     }
+}
+
+private fun HostSection.barIcon(): ImageVector = when (this) {
+    HostSection.Agents -> Icons.Filled.Person
+    HostSection.Review -> Icons.Filled.Edit
+    HostSection.Tasks -> Icons.Filled.CheckCircle
+    HostSection.Terminal -> Icons.Filled.PlayArrow
+    else -> Icons.Filled.MoreVert
 }
 
 @Composable
