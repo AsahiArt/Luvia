@@ -29,11 +29,12 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import tech.asahiart.luvia.Automation
 import tech.asahiart.luvia.AutomationHealthResult
+import tech.asahiart.luvia.HostUhpState
 
 @Composable
 fun AutomationsSection(
     host: HostUiModel,
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onEnable: (String) -> Unit,
     onDisable: (String) -> Unit,
@@ -62,7 +63,7 @@ fun AutomationsSection(
 
 @Composable
 private fun AutomationListPane(
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onEnable: (String) -> Unit,
     onDisable: (String) -> Unit,

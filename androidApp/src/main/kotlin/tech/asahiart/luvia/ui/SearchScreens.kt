@@ -35,11 +35,12 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import tech.asahiart.luvia.SearchMatch
+import tech.asahiart.luvia.HostUhpState
 
 @Composable
 fun SearchSection(
     host: HostUiModel,
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
@@ -68,7 +69,7 @@ fun SearchSection(
 
 @Composable
 private fun SearchPane(
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,

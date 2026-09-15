@@ -19,9 +19,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import tech.asahiart.luvia.ui.HostUhpUiState
 import tech.asahiart.luvia.ui.LuviaNavigation
 import tech.asahiart.luvia.ui.UhpHostActions
+import tech.asahiart.luvia.HostUhpState
 
 @Composable
 fun LuviaApp(launchIntent: Intent? = null) {
@@ -149,7 +149,7 @@ fun LuviaApp(launchIntent: Intent? = null) {
     LuviaNavigation(
         hosts = hosts,
         terminalForHost = { id -> terminals[id] },
-        uhpForHost = { id -> uhp[id] ?: HostUhpUiState() },
+        uhpForHost = { id -> uhp[id] ?: HostUhpState() },
         uhpActions = uhpActions,
         pairing = pairing,
         openHostId = launchIntent?.getStringExtra(StatusNotificationController.EXTRA_HOST_ID),

@@ -27,11 +27,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import tech.asahiart.luvia.FileTreeRow
+import tech.asahiart.luvia.HostUhpState
 
 @Composable
 fun FilesSection(
     host: HostUiModel,
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onOpenFile: (String) -> Unit,
     onRevealFile: (String) -> Unit,
@@ -58,7 +59,7 @@ fun FilesSection(
 
 @Composable
 private fun FileTreePane(
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onOpenFile: (String) -> Unit,
     onRevealFile: (String) -> Unit,

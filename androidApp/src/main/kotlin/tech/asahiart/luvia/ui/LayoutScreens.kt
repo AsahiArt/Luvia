@@ -29,11 +29,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import tech.asahiart.luvia.PaneListEntry
 import tech.asahiart.luvia.WorkspaceSummary
+import tech.asahiart.luvia.HostUhpState
 
 @Composable
 fun LayoutSection(
     host: HostUiModel,
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onFocusWorkspace: (Int) -> Unit,
     onCloseWorkspaceChange: (Int?) -> Unit,
@@ -72,7 +73,7 @@ fun LayoutSection(
 
 @Composable
 private fun LayoutPane(
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onFocusWorkspace: (Int) -> Unit,
     onCloseWorkspaceChange: (Int?) -> Unit,

@@ -1,6 +1,7 @@
 package tech.asahiart.luvia.ui
 
 import androidx.compose.runtime.Immutable
+import tech.asahiart.luvia.HostSection
 
 @Immutable
 data class HostUiModel(
@@ -22,7 +23,6 @@ data class HostUiModel(
 )
 
 enum class ConnectionBadge { Live, Connecting, Stale, Offline }
-enum class HostSection { Agents, Files, Search, Review, Worktrees, Automations, Tasks, Layout, Terminal }
 
 internal val HostSection.isPrimaryTab: Boolean
     get() =

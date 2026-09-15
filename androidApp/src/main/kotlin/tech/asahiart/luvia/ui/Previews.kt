@@ -12,6 +12,12 @@ import tech.asahiart.luvia.DiffLayer
 import tech.asahiart.luvia.DiffListResult
 import tech.asahiart.luvia.TaskSummary
 import tech.asahiart.luvia.ui.theme.LuviaTheme
+import tech.asahiart.luvia.HostUhpState
+import tech.asahiart.luvia.HostCapabilities
+import tech.asahiart.luvia.AgentDetailState
+import tech.asahiart.luvia.HostSection
+import tech.asahiart.luvia.ReviewState
+import tech.asahiart.luvia.TasksState
 
 @Preview(name = "Phone", device = Devices.PHONE, showBackground = true)
 @Preview(name = "Foldable", device = Devices.FOLDABLE, showBackground = true)
@@ -156,7 +162,7 @@ private fun AgentDetailBlockedPreview() {
         AgentsSection(
             host = previewHost(),
             state = previewAgentsState().copy(
-                agentDetail = AgentDetailUi(
+                agentDetail = AgentDetailState(
                     paneId = "7",
                     open = true,
                     summary = previewBlockedAgent(),
@@ -196,7 +202,7 @@ private fun ReviewFileListPreview() {
         ReviewSection(
             host = previewHost(),
             state = previewAgentsState().copy(
-                review = ReviewUiState(
+                review = ReviewState(
                     list = DiffListResult(
                         repo = "luvia",
                         branch = "main",
@@ -245,7 +251,7 @@ private fun TasksListPreview() {
         TasksSection(
             host = previewHost(),
             state = previewAgentsState().copy(
-                tasks = TasksUiState(
+                tasks = TasksState(
                     tasks = listOf(
                         TaskSummary(id = "t1", title = "Build the UHP-first phone surface", status = "running"),
                         TaskSummary(id = "t2", title = "Answer Blocked Agent prompts", status = "blocked"),
@@ -289,10 +295,10 @@ private fun previewBlockedAgent() = AgentSummary(
     focused = true,
 )
 
-private fun previewAgentsState() = HostUhpUiState(
+private fun previewAgentsState() = HostUhpState(
     connected = true,
     isObserver = false,
-    capabilities = HostCapabilitiesUi(
+    capabilities = HostCapabilities(
         agentRead = true,
         agentPrompt = true,
         agentKeys = true,

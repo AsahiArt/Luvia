@@ -60,11 +60,14 @@ import tech.asahiart.luvia.DiffLine
 import tech.asahiart.luvia.ReviewLine
 import tech.asahiart.luvia.ReviewNote
 import tech.asahiart.luvia.ReviewNoteState
+import tech.asahiart.luvia.HostUhpState
+import tech.asahiart.luvia.HostCapabilities
+import tech.asahiart.luvia.UnconfirmedKind
 
 @Composable
 fun ReviewSection(
     host: HostUiModel,
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onOpenFile: (String, DiffLayer?) -> Unit,
     onCloseFile: () -> Unit,
@@ -119,7 +122,7 @@ fun ReviewSection(
 
 @Composable
 private fun ReviewFileListPane(
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onOpenFile: (String, DiffLayer?) -> Unit,
     onResolveNote: (String) -> Unit,
@@ -296,7 +299,7 @@ private fun DiffFileRow(file: DiffFile, openNotes: Int, onClick: (() -> Unit)?) 
 
 @Composable
 private fun ReviewFilePane(
-    state: HostUhpUiState,
+    state: HostUhpState,
     onBack: () -> Unit,
     onAddNote: (file: String, line: ReviewLine, body: String, layer: DiffLayer?) -> Unit,
     onResolveNote: (String) -> Unit,
@@ -579,7 +582,7 @@ private fun AddReviewNoteSheet(
 private fun NotesDrawer(
     notes: List<ReviewNote>,
     canMutate: Boolean,
-    capabilities: HostCapabilitiesUi,
+    capabilities: HostCapabilities,
     agents: List<AgentSummary>,
     sending: Boolean,
     sendTarget: String?,

@@ -32,11 +32,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import tech.asahiart.luvia.TaskSummary
+import tech.asahiart.luvia.HostUhpState
+import tech.asahiart.luvia.UnconfirmedKind
 
 @Composable
 fun TasksSection(
     host: HostUiModel,
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onAddTask: (title: String, paths: List<String>) -> Unit,
     onCompleteTask: (String) -> Unit,
@@ -77,7 +79,7 @@ fun TasksSection(
 
 @Composable
 private fun TaskListPane(
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onAddTask: (title: String, paths: List<String>) -> Unit,
     onCompleteTask: (String) -> Unit,

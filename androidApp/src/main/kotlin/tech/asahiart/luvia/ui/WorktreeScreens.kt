@@ -33,11 +33,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import tech.asahiart.luvia.WorktreeEntry
+import tech.asahiart.luvia.HostUhpState
 
 @Composable
 fun WorktreesSection(
     host: HostUiModel,
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onShowCreateChange: (Boolean) -> Unit,
     onCreateBranchChange: (String) -> Unit,
@@ -72,7 +73,7 @@ fun WorktreesSection(
 
 @Composable
 private fun WorktreeListPane(
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onShowCreateChange: (Boolean) -> Unit,
     onCreateBranchChange: (String) -> Unit,

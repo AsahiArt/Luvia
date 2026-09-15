@@ -58,11 +58,13 @@ import tech.asahiart.luvia.MissionRowKind
 import tech.asahiart.luvia.MissionSnapshot
 import tech.asahiart.luvia.TranscriptSegment
 import tech.asahiart.luvia.transcriptSegments
+import tech.asahiart.luvia.HostUhpState
+import tech.asahiart.luvia.UnconfirmedKind
 
 @Composable
 fun AgentsSection(
     host: HostUiModel,
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onOpenAgent: (String) -> Unit,
     onCloseAgent: () -> Unit,
@@ -123,7 +125,7 @@ fun AgentsSection(
 @Composable
 fun AgentListPane(
     host: HostUiModel,
-    state: HostUhpUiState,
+    state: HostUhpState,
     onRefresh: () -> Unit,
     onOpenAgent: (String) -> Unit,
     onCheckUnconfirmed: () -> Unit,
@@ -388,7 +390,7 @@ internal fun AgentStatusChip(status: AgentStatus) {
 @Composable
 fun AgentDetailPane(
     host: HostUiModel,
-    state: HostUhpUiState,
+    state: HostUhpState,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onPrompt: (String) -> Unit,

@@ -7,8 +7,11 @@ import LuviaShared
 @Observable
 final class AppModel {
     private nonisolated(unsafe) let manager: HostManager
+    nonisolated(unsafe) let uhpRegistry: HostUhpRegistry
     @ObservationIgnored private nonisolated(unsafe) var hostsTask: _Concurrency.Task<Void, Never>?
     @ObservationIgnored private nonisolated(unsafe) var terminalTask: _Concurrency.Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) var uhpTask: _Concurrency.Task<Void, Never>?
+    @ObservationIgnored var boundUhpHostID: String?
     private var terminalControl: TerminalControl?
     private let liveActivity = LiveActivityController()
     private var liveActivityHostID: String?
@@ -33,6 +36,7 @@ final class AppModel {
         let vault = DeviceKeyVault(service: "tech.asahiart.luvia.device-keys")
         let scope = HostManagerScope()
         manager = HostManager(store: store, vault: vault, scope: scope)
+        uhpRegistry = HostUhpRegistry(manager: manager, scope: scope)
         let managerRef = manager
         hostsTask = _Concurrency.Task { [weak self] in
             for await runtimes in managerRef.hosts {
@@ -49,6 +53,8 @@ final class AppModel {
         // cancelled explicitly or it keeps the manager alive past deinit.
         hostsTask?.cancel()
         terminalTask?.cancel()
+        uhpTask?.cancel()
+        uhpRegistry.close()
         manager.close()
     }
 
@@ -57,6 +63,8 @@ final class AppModel {
         selectedSection = .agents
         stopTerminal()
         uhp.reset(hostID: host.id)
+        bindUhp(hostID: host.id)
+        hostUhp()?.shown()
     }
 
     func beginPairing(deviceLabel: String, role: HostRole) -> Result<PairingDraft, UserFacingError> {
@@ -81,6 +89,8 @@ final class AppModel {
                 }
                 selectedHostID = profile.id
                 selectedSection = .agents
+                bindUhp(hostID: profile.id)
+                hostUhp()?.shown()
                 return .success(profile)
             case .err(let err):
                 return .failure(UserFacingError(message: FailureText.describe(err.failure)))
@@ -223,6 +233,9 @@ final class AppModel {
             selectedHostID = states.first?.id
         }
         refreshCaps()
+        if let id = selectedHostID {
+            bindUhp(hostID: id)
+        }
         if let host = selectedHost {
             uhp.isController = host.isController
             syncAgentsFromHost(host)
@@ -522,111 +535,30 @@ extension AppModel {
     }
 
     func loadSelectedSection() async {
-        refreshCaps()
-        guard hasLiveSession, liveSession() != nil else { return }
+        guard let workspace = hostUhp() else { return }
         switch selectedSection {
         case .agents:
-            await loadAgents()
+            workspace.show(section: LuviaShared.HostSection.agents)
         case .review:
-            await loadDiff()
+            workspace.show(section: LuviaShared.HostSection.review)
         case .tasks:
-            await loadTasks()
+            workspace.show(section: LuviaShared.HostSection.tasks)
         case .terminal:
             break
         }
     }
 
     func refreshCaps() {
-        guard let session = liveSession() else {
-            hasLiveSession = false
-            uhp.caps = UhpCaps()
-            return
-        }
-        hasLiveSession = true
-        let methods = UhpMethods.shared
-        uhp.caps = UhpCaps(
-            agentRead: session.supports(method: methods.AGENT_READ),
-            agentPrompt: session.supports(method: methods.AGENT_PROMPT),
-            agentKeys: session.supports(method: methods.AGENT_KEYS),
-            agentSessions: session.supports(method: "agent.sessions"),
-            agentResume: session.supports(method: "agent.resume"),
-            agentFork: session.supports(method: "agent.fork"),
-            agentName: session.supports(method: "agent.name"),
-            missionSnapshot: session.supports(method: methods.MISSION_SNAPSHOT),
-            diffList: session.supports(method: methods.DIFF_LIST),
-            diffGet: session.supports(method: methods.DIFF_GET),
-            diffNoteList: session.supports(method: methods.DIFF_NOTE_LIST),
-            diffNoteAdd: session.supports(method: methods.DIFF_NOTE_ADD),
-            diffNoteSend: session.supports(method: methods.DIFF_NOTE_SEND),
-            diffNoteResolve: session.supports(method: methods.DIFF_NOTE_RESOLVE),
-            diffNoteReopen: session.supports(method: methods.DIFF_NOTE_REOPEN),
-            diffNoteRemove: session.supports(method: methods.DIFF_NOTE_REMOVE),
-            taskList: session.supports(method: methods.TASK_LIST),
-            taskAdd: session.supports(method: methods.TASK_ADD),
-            taskDone: session.supports(method: methods.TASK_DONE),
-            taskClaim: session.supports(method: "task.claim"),
-            taskDelete: session.supports(method: "task.delete"),
-            filesTree: session.supports(method: "files.tree"),
-            filesOpen: session.supports(method: "files.open"),
-            filesReveal: session.supports(method: "files.reveal"),
-            searchQuery: session.supports(method: "search.query"),
-            searchActivate: session.supports(method: "search.activate"),
-            worktreeList: session.supports(method: "worktree.list"),
-            worktreeCreate: session.supports(method: "worktree.create"),
-            worktreeOpen: session.supports(method: "worktree.open"),
-            worktreeRemove: session.supports(method: "worktree.remove"),
-            automationList: session.supports(method: "automation.list"),
-            automationEnable: session.supports(method: "automation.enable"),
-            automationDisable: session.supports(method: "automation.disable"),
-            automationRun: session.supports(method: "automation.run"),
-            automationHealth: session.supports(method: "automation.health"),
-            paneList: session.supports(method: "pane.list"),
-            paneFocus: session.supports(method: "pane.focus"),
-            paneClose: session.supports(method: "pane.close"),
-            workspaceList: session.supports(method: "workspace.list"),
-            workspaceClose: session.supports(method: "workspace.close")
-        )
-        uhp.isController = selectedHost?.isController ?? false
+        hasLiveSession = liveSession() != nil
     }
 
     func loadAgents() async {
-        if uhp.agents.isEmpty, let host = selectedHost {
-            uhp.agents = host.agents
-        }
-        guard let session = liveSession() else { return }
-        do {
-            let outcome = try await session.listAgents()
-            switch onEnum(of: outcome) {
-            case .ok(let ok):
-                let summaries: [AgentSummary] = KotlinLists.array(ok.value as Any)
-                if !summaries.isEmpty {
-                    uhp.agents = summaries.map(AgentViewState.init)
-                }
-                uhp.errorMessage = nil
-            case .err(let err):
-                uhp.errorMessage = FailureText.describe(err.failure)
-            }
-        } catch {
-            uhp.errorMessage = error.localizedDescription
-        }
+        hostUhp()?.shown()
     }
 
     func openAgent(_ id: String) async {
         uhp.selectedAgentID = id
-        if let agent = uhp.agents.first(where: { $0.id == id }) ?? selectedHost?.agents.first(where: { $0.id == id }) {
-            uhp.header = AgentHeaderState(
-                paneId: agent.id,
-                name: agent.name,
-                kind: agent.kind,
-                status: agent.status,
-                isBlocked: agent.isBlocked,
-                workspace: agent.workspace,
-                branch: agent.branch,
-                cwd: agent.cwd,
-                missionUsage: uhp.header?.paneId == id ? uhp.header?.missionUsage : nil
-            )
-        }
-        await refreshOpenAgent()
+        hostUhp()?.openAgent(paneId: id)
     }
 
     @discardableResult
@@ -635,229 +567,48 @@ extension AppModel {
             uhp.errorMessage = "No Agent is selected."
             return false
         }
-        guard let session = liveSession() else {
-            uhp.errorMessage = "Not connected to this Host."
-            return false
-        }
-        uhp.errorMessage = nil
-        var refreshed = false
-        do {
-            let outcome = try await session.getAgent(target: id)
-            switch onEnum(of: outcome) {
-            case .ok(let ok):
-                if let result = ok.value {
-                    applyAgentGet(result)
-                    refreshed = true
-                }
-            case .err(let err):
-                uhp.errorMessage = FailureText.describe(err.failure)
-            }
-        } catch {
-            uhp.errorMessage = error.localizedDescription
-        }
-        let transcriptRefreshed = await readTranscript(for: id)
-        await loadMissionUsage(for: id)
-        return refreshed || transcriptRefreshed
+        hostUhp()?.openAgent(paneId: id)
+        return true
     }
 
     @discardableResult
     func readTranscript(for target: String) async -> Bool {
-        guard uhp.caps.agentRead, let session = liveSession() else { return false }
-        do {
-            let outcome = try await session.readAgent(target: target, lines: 200, source: .recent)
-            switch onEnum(of: outcome) {
-            case .ok(let ok):
-                guard let result = ok.value else { return false }
-                uhp.transcript = result.text
-                uhp.transcriptRevision = kotlinInt64(result.revision)
-                uhp.transcriptContentRevision = kotlinInt64(result.contentRevision)
-                uhp.transcriptTerminalID = result.terminalId
-                return true
-            case .err(let err):
-                uhp.errorMessage = FailureText.describe(err.failure)
-                return false
-            }
-        } catch {
-            uhp.errorMessage = error.localizedDescription
-            return false
-        }
-    }
-
-    func sendAgentPrompt() async {
-        let text = uhp.composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, let target = uhp.selectedAgentID else { return }
-        if await promptAgent(target: target, text: text),
-           uhp.composerText.trimmingCharacters(in: .whitespacesAndNewlines) == text
-        {
-            uhp.composerText = ""
-        }
+        hostUhp()?.openAgent(paneId: target)
+        return true
     }
 
     @discardableResult
     func promptAgent(target: String, text: String) async -> Bool {
-        guard uhp.isController,
-              uhp.caps.agentPrompt,
-              !uhp.isSending,
-              uhp.unconfirmed == nil,
-              let session = liveSession()
-        else { return false }
-        uhp.isSending = true
-        defer { uhp.isSending = false }
-        do {
-            let outcome = try await session.promptAgent(
-                target: target,
-                text: text,
-                wait: false,
-                until: nil,
-                timeoutSeconds: nil
-            )
-            switch onEnum(of: outcome) {
-            case .ok:
-                uhp.errorMessage = nil
-                await readTranscript(for: target)
-                return true
-            case .err(let err):
-                handleMutationFailure(err.failure, action: .agentPrompt)
-                return false
-            }
-        } catch {
-            markUnconfirmed(.agentPrompt, error.localizedDescription)
-            return false
+        hostUhp()?.promptAgent(text: text)
+        return true
+    }
+
+    func sendAgentPrompt() async {
+        let text = uhp.composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        hostUhp()?.setAgentDraft(text: text)
+        hostUhp()?.promptAgent(text: text)
+        if uhp.composerText.trimmingCharacters(in: .whitespacesAndNewlines) == text {
+            uhp.composerText = ""
         }
     }
 
     func sendAgentKeys(_ keys: [AgentKey]) async {
-        guard uhp.isController,
-              uhp.caps.agentKeys,
-              !uhp.isSending,
-              uhp.unconfirmed == nil,
-              let target = uhp.selectedAgentID,
-              let session = liveSession()
-        else { return }
-        uhp.isSending = true
-        defer { uhp.isSending = false }
-        do {
-            let fenceRevision = uhp.transcriptContentRevision.map { KotlinLong(value: $0) }
-            let fenceTerminal = uhp.transcriptTerminalID
-            let canFence = fenceRevision != nil && !(fenceTerminal?.isEmpty ?? true)
-            let outcome = try await session.sendAgentKeys(
-                target: target,
-                keys: keys,
-                ifContentRevision: canFence ? fenceRevision : nil,
-                terminalId: canFence ? fenceTerminal : nil
-            )
-            switch onEnum(of: outcome) {
-            case .ok:
-                uhp.errorMessage = nil
-                await readTranscript(for: target)
-            case .err(let err):
-                handleMutationFailure(err.failure, action: .agentKeys)
-            }
-        } catch {
-            markUnconfirmed(.agentKeys, error.localizedDescription)
-        }
+        hostUhp()?.sendAgentKeys(keys: keys)
     }
+
     func checkUnconfirmed() async {
-        guard liveSession() != nil else {
-            uhp.errorMessage = "Not connected to this Host."
-            return
-        }
-        switch uhp.unconfirmed {
-        case .agentPrompt, .agentKeys, .nameAgent, .forkAgent:
-            guard await refreshOpenAgent() else { return }
-        case .resumeAgent:
-            let sessions = await loadAgentSessions()
-            await loadAgents()
-            guard sessions else { return }
-        case .sendNotes, .addNote, .resolveNote, .reopenNote, .removeNote:
-            guard uhp.caps.diffNoteList else {
-                uhp.errorMessage = "This Host does not support diff.note.list."
-                return
-            }
-            guard await loadNotes() else { return }
-        case .addTask, .completeTask, .claimTask, .deleteTask:
-            var verified = false
-            if let id = uhp.unconfirmedTaskID {
-                verified = await refreshTaskRevision(id)
-            }
-            let listed = uhp.caps.taskList ? await loadTasks() : false
-            guard verified || listed else {
-                if uhp.unconfirmedTaskID == nil && !uhp.caps.taskList {
-                    uhp.errorMessage = "This Host does not support task.list."
-                } else if uhp.errorMessage == nil {
-                    uhp.errorMessage = "The Task state could not be verified."
-                }
-                return
-            }
-        case .openFile, .revealFile:
-            guard await loadFileTree() else { return }
-        case .activateSearch:
-            guard await runSearch() else { return }
-        case .createWorktree, .openWorktree, .removeWorktree:
-            guard await loadWorktrees() else { return }
-        case .enableAutomation, .disableAutomation, .runAutomation:
-            guard await loadAutomations() else { return }
-        case .focusPane, .closePane, .closeWorkspace:
-            guard await loadLayout() else { return }
-        case nil:
-            return
-        }
-        uhp.unconfirmed = nil
-        uhp.unconfirmedTaskID = nil
+        hostUhp()?.checkAgent()
+        hostUhp()?.checkNotes()
+        hostUhp()?.checkTasks()
     }
 
     func loadDiff() async {
-        guard uhp.caps.diffList, let session = liveSession() else { return }
-        var diffLoadFailed = false
-        do {
-            let outcome = try await session.listDiff(layer: nil)
-            switch onEnum(of: outcome) {
-            case .ok(let ok):
-                if let result = ok.value {
-                    uhp.diffBranch = result.branch
-                    uhp.diffFiles = KotlinLists.array(result.files as Any).map { (file: DiffFile) in
-                        DiffFileItem(
-                            path: file.path,
-                            layer: diffLayerLabel(file.layer),
-                            additions: Int(kotlinInt64(file.additions) ?? 0),
-                            deletions: Int(kotlinInt64(file.deletions) ?? 0)
-                        )
-                    }
-                }
-                uhp.errorMessage = nil
-            case .err(let err):
-                diffLoadFailed = true
-                uhp.errorMessage = FailureText.describe(err.failure)
-            }
-        } catch {
-            diffLoadFailed = true
-            uhp.errorMessage = error.localizedDescription
-        }
-        if uhp.caps.diffNoteList {
-            await loadNotes(clearErrorOnSuccess: !diffLoadFailed)
-        }
+        hostUhp()?.show(section: LuviaShared.HostSection.review)
     }
 
     func openDiffFile(_ item: DiffFileItem) async {
-        guard uhp.caps.diffGet, let session = liveSession() else { return }
-        do {
-            let outcome = try await session.getDiff(
-                path: item.path,
-                layer: diffLayer(from: item.layer),
-                includePatch: true
-            )
-            switch onEnum(of: outcome) {
-            case .ok(let ok):
-                if let file = ok.value {
-                    uhp.selectedDiff = mapDiffDetail(file, fallback: item)
-                }
-                uhp.errorMessage = nil
-            case .err(let err):
-                uhp.errorMessage = FailureText.describe(err.failure)
-            }
-        } catch {
-            uhp.errorMessage = error.localizedDescription
-        }
+        hostUhp()?.openDiffFile(path: item.path, layer: diffLayer(from: item.layer))
     }
 
     func beginAddNote(file: DiffFileItem, hunk: DiffHunkItem, line: DiffLineItem) {
@@ -881,271 +632,53 @@ extension AppModel {
     func addReviewNote() async {
         let draft = uhp.addNote
         let body = draft.body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty, uhp.canAddNote, let session = liveSession() else { return }
+        guard !body.isEmpty else { return }
         let line: ReviewLine = draft.usesNewLine
             ? ReviewLine.New(line: Int32(draft.line))
             : ReviewLine.Old(line: Int32(draft.line))
-        uhp.isSending = true
-        defer { uhp.isSending = false }
-        do {
-            let outcome = try await session.addReviewNote(
-                file: draft.file,
-                line: line,
-                endLine: nil,
-                body: body,
-                kind: .issue,
-                layer: diffLayer(from: draft.layer ?? "")
-            )
-            switch onEnum(of: outcome) {
-            case .ok:
-                uhp.isAddNotePresented = false
-                uhp.addNote = AddNoteDraft()
-                uhp.errorMessage = nil
-                await loadNotes()
-            case .err(let err):
-                handleMutationFailure(err.failure, action: .addNote)
-                if uhp.unconfirmed != nil {
-                    uhp.isAddNotePresented = false
-                }
-            }
-        } catch {
-            markUnconfirmed(.addNote, error.localizedDescription)
-            uhp.isAddNotePresented = false
-        }
+        hostUhp()?.addReviewNote(file: draft.file, line: line, body: body, layer: diffLayer(from: draft.layer ?? ""))
+        uhp.isAddNotePresented = false
+        uhp.addNote = AddNoteDraft()
     }
 
     func resolveNote(_ id: String) async {
-        guard uhp.canResolveNote, let session = liveSession() else { return }
-        uhp.isSending = true
-        defer { uhp.isSending = false }
-        do {
-            let outcome = try await session.resolveReviewNote(id: id)
-            switch onEnum(of: outcome) {
-            case .ok:
-                uhp.errorMessage = nil
-                await loadNotes()
-            case .err(let err):
-                handleMutationFailure(err.failure, action: .resolveNote)
-            }
-        } catch {
-            markUnconfirmed(.resolveNote, error.localizedDescription)
-        }
+        hostUhp()?.resolveReviewNote(id: id)
     }
 
     func reopenNote(_ id: String) async {
-        guard uhp.canReopenNote, let session = liveSession() else { return }
-        uhp.isSending = true
-        defer { uhp.isSending = false }
-        do {
-            let outcome = try await session.reopenReviewNote(id: id)
-            switch onEnum(of: outcome) {
-            case .ok:
-                uhp.errorMessage = nil
-                await loadNotes()
-            case .err(let err):
-                handleMutationFailure(err.failure, action: .reopenNote)
-            }
-        } catch {
-            markUnconfirmed(.reopenNote, error.localizedDescription)
-        }
+        hostUhp()?.reopenReviewNote(id: id)
     }
 
     func removeNote(_ id: String) async {
-        guard uhp.canRemoveNote, let session = liveSession() else { return }
-        uhp.isSending = true
-        defer { uhp.isSending = false }
-        do {
-            let outcome = try await session.removeReviewNote(id: id)
-            switch onEnum(of: outcome) {
-            case .ok:
-                uhp.errorMessage = nil
-                await loadNotes()
-            case .err(let err):
-                handleMutationFailure(err.failure, action: .removeNote)
-            }
-        } catch {
-            markUnconfirmed(.removeNote, error.localizedDescription)
-        }
+        hostUhp()?.removeReviewNote(id: id)
     }
 
     func sendReviewNotes(to target: String) async {
-        guard uhp.canSendNotes, let session = liveSession() else { return }
-        uhp.isSending = true
-        defer { uhp.isSending = false }
-        do {
-            let outcome = try await session.sendReviewNotes(to: target, ids: nil, allOpen: true)
-            switch onEnum(of: outcome) {
-            case .ok(let ok):
-                if let result = ok.value {
-                    let destination = result.target ?? result.pane ?? target
-                    uhp.sendNotesMessage = "Sent \(result.count) Review notes to \(destination)."
-                }
-                uhp.isSendNotesPresented = false
-                uhp.errorMessage = nil
-                await loadNotes()
-            case .err(let err):
-                handleMutationFailure(err.failure, action: .sendNotes)
-            }
-        } catch {
-            markUnconfirmed(.sendNotes, error.localizedDescription)
-        }
+        hostUhp()?.sendReviewNotes(to: target)
+        uhp.isSendNotesPresented = false
     }
 
     @discardableResult
     func loadTasks() async -> Bool {
-        guard uhp.caps.taskList, let session = liveSession() else {
-            if let host = selectedHost {
-                uhp.tasks = host.tasks
-            }
-            return false
-        }
-        do {
-            let outcome = try await session.listTasks()
-            switch onEnum(of: outcome) {
-            case .ok(let ok):
-                let summaries: [TaskSummary] = KotlinLists.array(ok.value as Any)
-                uhp.tasks = summaries.map(TaskViewState.init)
-                uhp.errorMessage = nil
-                return true
-            case .err(let err):
-                uhp.errorMessage = FailureText.describe(err.failure)
-                return false
-            }
-        } catch {
-            uhp.errorMessage = error.localizedDescription
-            return false
-        }
+        hostUhp()?.show(section: LuviaShared.HostSection.tasks)
+        return true
     }
 
     func addTask() async {
         let title = uhp.addTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty,
-              uhp.isController,
-              uhp.caps.taskAdd,
-              !uhp.isSending,
-              uhp.unconfirmed == nil,
-              let session = liveSession()
-        else { return }
+        guard !title.isEmpty else { return }
         let paths = uhp.addTaskPaths
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        uhp.isSending = true
-        defer { uhp.isSending = false }
-        do {
-            let outcome = try await session.addTask(
-                title: title,
-                paths: paths,
-                deps: [],
-                gate: nil,
-                ifRevision: nil
-            )
-            switch onEnum(of: outcome) {
-            case .ok(let ok):
-                if let result = ok.value {
-                    storeTaskRevision(result.task.id, result.revision)
-                }
-                uhp.isAddTaskPresented = false
-                uhp.addTaskTitle = ""
-                uhp.addTaskPaths = ""
-                uhp.boardChangedMessage = nil
-                uhp.errorMessage = nil
-                await loadTasks()
-            case .err(let err):
-                await handleTaskMutationFailure(err.failure, action: .addTask, taskID: nil)
-            }
-        } catch {
-            markUnconfirmed(.addTask, error.localizedDescription)
-        }
+        hostUhp()?.addTask(title: title, paths: paths)
+        uhp.isAddTaskPresented = false
+        uhp.addTaskTitle = ""
+        uhp.addTaskPaths = ""
     }
 
     func completeTask(_ id: String) async {
-        guard uhp.isController,
-              uhp.caps.taskDone,
-              !uhp.isSending,
-              uhp.unconfirmed == nil,
-              let session = liveSession()
-        else { return }
-        uhp.isSending = true
-        defer { uhp.isSending = false }
-        if uhp.taskRevisions[id] == nil {
-            await refreshTaskRevision(id)
-        }
-        let revision = uhp.taskRevisions[id].map { KotlinLong(longLong: $0) }
-        do {
-            let outcome = try await session.completeTask(id: id, ifRevision: revision)
-            switch onEnum(of: outcome) {
-            case .ok(let ok):
-                if let result = ok.value {
-                    storeTaskRevision(result.task.id, result.revision)
-                }
-                uhp.boardChangedMessage = nil
-                uhp.errorMessage = nil
-                await loadTasks()
-            case .err(let err):
-                await handleTaskMutationFailure(err.failure, action: .completeTask, taskID: id)
-            }
-        } catch {
-            uhp.unconfirmedTaskID = id
-            markUnconfirmed(.completeTask, error.localizedDescription)
-        }
-    }
-
-    private func loadNotes(clearErrorOnSuccess: Bool = true) async -> Bool {
-        guard uhp.caps.diffNoteList, let session = liveSession() else { return false }
-        do {
-            let outcome = try await session.listReviewNotes(state: nil, file: nil)
-            switch onEnum(of: outcome) {
-            case .ok(let ok):
-                let notes: [ReviewNote] = KotlinLists.array(ok.value as Any)
-                uhp.notes = notes.map(mapNote)
-                if clearErrorOnSuccess {
-                    uhp.errorMessage = nil
-                }
-                return true
-            case .err(let err):
-                uhp.errorMessage = FailureText.describe(err.failure)
-                return false
-            }
-        } catch {
-            uhp.errorMessage = error.localizedDescription
-            return false
-        }
-    }
-
-    private func loadMissionUsage(for paneId: String) async {
-        guard uhp.caps.missionSnapshot, let session = liveSession() else { return }
-        do {
-            let outcome = try await session.missionSnapshot(scope: .all)
-            if case .ok(let ok) = onEnum(of: outcome), let snapshot = ok.value {
-                let rows: [MissionRow] = KotlinLists.array(snapshot.rows as Any)
-                if let row = rows.first(where: { $0.pane == paneId }), let usage = row.usage {
-                    uhp.header?.missionUsage = formatMissionUsage(usage)
-                }
-            }
-        } catch {
-            return
-        }
-    }
-    @discardableResult
-    func refreshTaskRevision(_ id: String) async -> Bool {
-        guard let session = liveSession() else { return false }
-        do {
-            let outcome = try await session.getTask(id: id)
-            if case .ok(let ok) = onEnum(of: outcome), let result = ok.value {
-                storeTaskRevision(result.task.id, result.revision)
-                return true
-            }
-        } catch {
-            return false
-        }
-        return false
-    }
-
-    func storeTaskRevision(_ id: String, _ revision: Any?) {
-        if let value = kotlinInt64(revision) {
-            uhp.taskRevisions[id] = value
-        }
+        hostUhp()?.completeTask(taskId: id)
     }
 
     private func syncAgentsFromHost(_ host: HostViewState) {
@@ -1169,140 +702,6 @@ extension AppModel {
             uhp.header?.branch = agent.branch
             uhp.header?.cwd = agent.cwd
         }
-    }
-
-    private func applyAgentGet(_ result: AgentGetResult) {
-        let kind = AgentStatusKind(result.status)
-        if uhp.header == nil {
-            uhp.header = AgentHeaderState(
-                paneId: result.pane,
-                name: result.name ?? result.agent ?? result.pane,
-                kind: result.agent,
-                status: kind.label,
-                isBlocked: kind == .blocked,
-                workspace: nil,
-                branch: nil,
-                cwd: result.cwd,
-                missionUsage: nil
-            )
-        } else {
-            uhp.header?.status = kind.label
-            uhp.header?.isBlocked = kind == .blocked
-            if let cwd = result.cwd { uhp.header?.cwd = cwd }
-            if let name = result.name { uhp.header?.name = name }
-            if let agent = result.agent { uhp.header?.kind = agent }
-        }
-    }
-
-    func handleMutationFailure(_ failure: Failure, action: UnconfirmedAction) {
-        if isLostMutation(failure) {
-            markUnconfirmed(action, nil)
-            return
-        }
-        uhp.errorMessage = FailureText.describe(failure)
-    }
-
-    func handleTaskMutationFailure(_ failure: Failure, action: UnconfirmedAction, taskID: String?) async {
-        switch onEnum(of: failure) {
-        case .revisionConflict:
-            uhp.boardChangedMessage = "Updated by someone else. Showing latest."
-            uhp.errorMessage = nil
-            await loadTasks()
-            if let taskID {
-                _ = await refreshTaskRevision(taskID)
-            }
-        case .indeterminateMutation, .transport, .bridge, .closed:
-            uhp.unconfirmedTaskID = taskID
-            markUnconfirmed(action, nil)
-        default:
-            uhp.errorMessage = FailureText.describe(failure)
-        }
-    }
-
-    func markUnconfirmed(_ action: UnconfirmedAction, _ fallback: String?) {
-        uhp.unconfirmed = action
-        uhp.errorMessage = fallback
-    }
-
-    private func isLostMutation(_ failure: Failure) -> Bool {
-        switch onEnum(of: failure) {
-        case .indeterminateMutation, .transport, .bridge, .closed:
-            true
-        default:
-            false
-        }
-    }
-
-    private func mapDiffDetail(_ file: DiffFile, fallback: DiffFileItem) -> DiffFileDetail {
-        let item = DiffFileItem(
-            path: file.path,
-            layer: file.layer.map(diffLayerLabel) ?? fallback.layer,
-            additions: Int(kotlinInt64(file.additions) ?? Int64(fallback.additions)),
-            deletions: Int(kotlinInt64(file.deletions) ?? Int64(fallback.deletions))
-        )
-        let hunks: [DiffHunk] = KotlinLists.array(file.hunks as Any)
-        return DiffFileDetail(
-            item: item,
-            hunks: hunks.enumerated().map { index, hunk in
-                let lines: [DiffLine] = KotlinLists.array(hunk.lines as Any)
-                return DiffHunkItem(
-                    id: hunk.id.isEmpty ? "hunk-\(index)" : hunk.id,
-                    header: hunk.header,
-                    lines: lines.enumerated().map { lineIndex, line in
-                        DiffLineItem(
-                            id: "\(hunk.id)-\(lineIndex)",
-                            kind: line.kind,
-                            oldLine: kotlinInt64(line.oldLine).map(Int.init),
-                            newLine: kotlinInt64(line.newLine).map(Int.init),
-                            text: line.text
-                        )
-                    }
-                )
-            }
-        )
-    }
-
-    private func mapNote(_ note: ReviewNote) -> ReviewNoteItem {
-        let deliveries: [ReviewNoteDelivery] = KotlinLists.array(note.deliveries as Any)
-        let deliveryText = deliveries.isEmpty
-            ? nil
-            : deliveries.map(\.target).joined(separator: ", ")
-        let state = note.state
-        return ReviewNoteItem(
-            id: note.id,
-            body: note.body,
-            stateLabel: reviewStateLabel(state),
-            isOpen: state == .open || state == nil,
-            isResolved: state == .resolved,
-            path: note.path,
-            line: kotlinInt64(note.startLine).map(Int.init),
-            deliveries: deliveryText
-        )
-    }
-
-    private func reviewStateLabel(_ state: ReviewNoteState?) -> String {
-        guard let state else { return "Open" }
-        switch state {
-        case .open: return "Open"
-        case .resolved: return "Resolved"
-        case .outdated: return "Outdated"
-        case .orphaned: return "Orphaned"
-        default: return "Open"
-        }
-    }
-
-    private func formatMissionUsage(_ usage: MissionUsage) -> String {
-        var parts: [String] = []
-        if let model = usage.model, !model.isEmpty { parts.append(model) }
-        let tokensIn = kotlinInt64(usage.tokensIn)
-        let tokensOut = kotlinInt64(usage.tokensOut)
-        if tokensIn != nil || tokensOut != nil {
-            parts.append("\(tokensIn ?? 0) in / \(tokensOut ?? 0) out")
-        }
-        if let cost = usage.costUsd?.doubleValue {
-            parts.append(String(format: "$%.2f", cost))
-        }
-        return parts.joined(separator: " · ")
     }
 }
 

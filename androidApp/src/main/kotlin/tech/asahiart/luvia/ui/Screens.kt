@@ -111,6 +111,7 @@ import kotlinx.coroutines.launch
 import tech.asahiart.luvia.HostRole
 import tech.asahiart.luvia.TerminalKey
 import tech.asahiart.luvia.ui.theme.LuviaTheme
+import tech.asahiart.luvia.HostSection
 
 @Composable
 fun HostListPane(

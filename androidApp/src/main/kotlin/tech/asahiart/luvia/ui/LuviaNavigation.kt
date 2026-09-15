@@ -29,6 +29,8 @@ import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.HostRole
 import tech.asahiart.luvia.PairingUiState
 import tech.asahiart.luvia.TerminalKey
+import tech.asahiart.luvia.HostUhpState
+import tech.asahiart.luvia.HostSection
 
 @Serializable
 private data object HostsRoute : NavKey
@@ -43,7 +45,7 @@ private data object PairHostRoute : NavKey
 fun LuviaNavigation(
     hosts: List<HostUiModel>,
     terminalForHost: (String) -> TerminalUiModel?,
-    uhpForHost: (String) -> HostUhpUiState,
+    uhpForHost: (String) -> HostUhpState,
     uhpActions: UhpHostActions,
     pairing: PairingUiState,
     openHostId: String? = null,
@@ -150,7 +152,7 @@ private fun DetailNav(
     backStack: NavBackStack<NavKey>,
     hosts: List<HostUiModel>,
     terminalForHost: (String) -> TerminalUiModel?,
-    uhpForHost: (String) -> HostUhpUiState,
+    uhpForHost: (String) -> HostUhpState,
     uhpActions: UhpHostActions,
     pairing: PairingUiState,
     openFirstBlocked: Boolean,
