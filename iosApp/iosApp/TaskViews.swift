@@ -5,30 +5,32 @@ struct TasksSectionView: View {
     let host: HostViewState
 
     var body: some View {
-        if !model.hasLiveSession {
-            ContentUnavailableView {
-                Label {
-                    Text("Connect to this host")
-                        .font(.system(.title2, design: .serif))
-                } icon: {
-                    Image(systemName: "bolt.horizontal.circle")
+        Group {
+            if !model.hasLiveSession {
+                ContentUnavailableView {
+                    Label {
+                        Text("Connect to this host")
+                            .font(.system(.title2, design: .serif))
+                    } icon: {
+                        Image(systemName: "bolt.horizontal.circle")
+                    }
+                } description: {
+                    Text("A live session is required to load Agents, Review, and Tasks.")
                 }
-            } description: {
-                Text("A live session is required to load Agents, Review, and Tasks.")
-            }
-        } else if !model.uhp.caps.taskList && host.tasks.isEmpty {
-            ContentUnavailableView {
-                Label {
-                    Text("Tasks")
-                        .font(.system(.title2, design: .serif))
-                } icon: {
-                    Image(systemName: "checklist")
+            } else if !model.uhp.caps.taskList && host.tasks.isEmpty {
+                ContentUnavailableView {
+                    Label {
+                        Text("Tasks")
+                            .font(.system(.title2, design: .serif))
+                    } icon: {
+                        Image(systemName: "checklist")
+                    }
+                } description: {
+                    Text("This Host does not expose the Task board.")
                 }
-            } description: {
-                Text("This Host does not expose the Task board.")
+            } else {
+                TasksListView(model: model)
             }
-        } else {
-            TasksListView(model: model)
         }
     }
 }

@@ -35,6 +35,7 @@ struct HostSidebarView: View {
                 Button("Add Host", systemImage: "plus", action: addHost)
             }
         }
+        .modifier(ConditionalSearchable(text: $query, enabled: hosts.count >= 8, prompt: "Hosts"))
         .confirmationDialog(
             "Unpair \(pendingUnpair?.name ?? "host")?",
             isPresented: Binding(
@@ -86,7 +87,6 @@ struct HostSidebarView: View {
         .listRowBackground(Color.clear)
         .background(DesignTokens.canvas)
         .refreshable { await onRefreshAll() }
-        .modifier(ConditionalSearchable(text: $query, enabled: hosts.count >= 8, prompt: "Hosts"))
     }
 
     private var emptyHosts: some View {
@@ -221,7 +221,11 @@ struct ConditionalSearchable: ViewModifier {
 
     func body(content: Content) -> some View {
         if enabled {
-            content.searchable(text: $text, prompt: prompt)
+            content.searchable(
+                text: $text,
+                placement: .navigationBarDrawer(displayMode: .automatic),
+                prompt: prompt
+            )
         } else {
             content
         }

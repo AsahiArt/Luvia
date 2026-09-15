@@ -27,9 +27,6 @@ struct ContentView: View {
                     terminalText: model.terminalText,
                     terminalStatus: model.terminalStatus,
                     holdsTerminalControl: model.holdsTerminalControl,
-                    onConnect: { model.connect(host.id) },
-                    onDisconnect: { model.disconnect(host.id) },
-                    onRefresh: { _Concurrency.Task { await model.refresh(host.id) } },
                     onSendTerminal: { text in _Concurrency.Task { await model.sendTerminal(text) } },
                     onSendTerminalKey: { key in _Concurrency.Task { await model.sendTerminalKey(key) } },
                     onRequestControl: { model.requestTerminalControl() }

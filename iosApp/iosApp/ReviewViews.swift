@@ -5,25 +5,21 @@ struct ReviewSectionView: View {
     let host: HostViewState
 
     var body: some View {
-        if !model.hasLiveSession {
-            ContentUnavailableView(
-                "Connect to this host",
-                systemImage: "bolt.horizontal.circle",
-                description: Text("A live session is required to load Agents, Review, and Tasks.")
-            )
-        } else if !model.uhp.caps.diffList {
-            ContentUnavailableView(
-                "Review",
-                systemImage: "plus.forwardslash.minus",
-                description: Text("This Host does not expose Diffs.")
-            )
-        } else {
-            NavigationStack {
+        Group {
+            if !model.hasLiveSession {
+                ContentUnavailableView(
+                    "Connect to this host",
+                    systemImage: "bolt.horizontal.circle",
+                    description: Text("A live session is required to load Agents, Review, and Tasks.")
+                )
+            } else if !model.uhp.caps.diffList {
+                ContentUnavailableView(
+                    "Review",
+                    systemImage: "plus.forwardslash.minus",
+                    description: Text("This Host does not expose Diffs.")
+                )
+            } else {
                 ReviewListView(model: model)
-                    .navigationDestination(for: DiffFileItem.self) { file in
-                        DiffFileDetailView(model: model, file: file)
-                            .task { await model.openDiffFile(file) }
-                    }
             }
         }
     }

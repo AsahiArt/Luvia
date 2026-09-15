@@ -8,72 +8,53 @@ struct HostDetailView: View {
     var terminalText: String
     var terminalStatus: String?
     var holdsTerminalControl: Bool
-    var onConnect: () -> Void
-    var onDisconnect: () -> Void
-    var onRefresh: () -> Void
     var onSendTerminal: (String) -> Void
     var onSendTerminalKey: (TerminalKey) -> Void
     var onRequestControl: () -> Void
 
-    var body: some View {
-        VStack(spacing: 0) {
-            HostSectionStrip(section: $section)
+    @State private var agentQuery = ""
 
-            Group {
-                switch section {
-                case .agents:
-                    AgentsSectionView(model: model, host: host)
-                case .review:
-                    ReviewSectionView(model: model, host: host)
-                case .tasks:
-                    TasksSectionView(model: model, host: host)
-                case .terminal:
-                    TerminalPane(
-                        host: host,
-                        text: terminalText,
-                        status: terminalStatus,
-                        holdsControl: holdsTerminalControl,
-                        onSend: onSendTerminal,
-                        onSendKey: onSendTerminalKey,
-                        onRequestControl: onRequestControl
-                    )
+    var body: some View {
+        TabView(selection: $section) {
+            AgentsSectionView(model: model, host: host, query: $agentQuery)
+                .tabItem {
+                    Label(HostSection.agents.rawValue, systemImage: HostSection.agents.symbol)
                 }
+                .tag(HostSection.agents)
+
+            ReviewSectionView(model: model, host: host)
+                .hostSessionChrome(host: host, model: model)
+                .tabItem {
+                    Label(HostSection.review.rawValue, systemImage: HostSection.review.symbol)
+                }
+                .tag(HostSection.review)
+
+            TasksSectionView(model: model, host: host)
+                .hostSessionChrome(host: host, model: model)
+                .tabItem {
+                    Label(HostSection.tasks.rawValue, systemImage: HostSection.tasks.symbol)
+                }
+                .tag(HostSection.tasks)
+
+            TerminalPane(
+                host: host,
+                text: terminalText,
+                status: terminalStatus,
+                holdsControl: holdsTerminalControl,
+                onSend: onSendTerminal,
+                onSendKey: onSendTerminalKey,
+                onRequestControl: onRequestControl
+            )
+            .hostSessionChrome(host: host, model: model)
+            .tabItem {
+                Label(HostSection.terminal.rawValue, systemImage: HostSection.terminal.symbol)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .tag(HostSection.terminal)
         }
-        .background(DesignTokens.canvas)
-        .navigationTitle(host.name)
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                if host.connection == .live || host.connection == .connecting {
-                    Button("Disconnect", systemImage: "pause.circle", action: onDisconnect)
-                } else {
-                    Button("Connect", systemImage: "bolt.horizontal.circle", action: onConnect)
-                }
-                Button("Refresh", systemImage: "arrow.clockwise", action: onRefresh)
-                    .disabled(host.connection != .live)
-                Menu {
-                    Button("Files", systemImage: MoreSurface.files.symbol) {
-                        model.uhp.moreSurface = .files
-                    }
-                    Button("Search", systemImage: MoreSurface.search.symbol) {
-                        model.uhp.moreSurface = .search
-                    }
-                    Button("Worktrees", systemImage: MoreSurface.worktrees.symbol) {
-                        model.uhp.moreSurface = .worktrees
-                    }
-                    Button("Automations", systemImage: MoreSurface.automations.symbol) {
-                        model.uhp.moreSurface = .automations
-                    }
-                    Button("Layout", systemImage: MoreSurface.layout.symbol) {
-                        model.uhp.moreSurface = .layout
-                    }
-                } label: {
-                    Label("More", systemImage: "ellipsis.circle")
-                }
-                .disabled(host.connection != .live)
-                .accessibilityLabel("More")
-            }
+        .tint(DesignTokens.accent)
+        .navigationDestination(for: DiffFileItem.self) { file in
+            DiffFileDetailView(model: model, file: file)
+                .task { await model.openDiffFile(file) }
         }
         .sheet(item: $model.uhp.moreSurface) { surface in
             MoreSurfaceSheet(model: model, surface: surface)
@@ -81,35 +62,58 @@ struct HostDetailView: View {
     }
 }
 
-private struct HostSectionStrip: View {
-    @Binding var section: HostSection
+struct HostSessionChrome: ViewModifier {
+    let host: HostViewState
+    @Bindable var model: AppModel
 
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(HostSection.allCases) { item in
-                let selected = section == item
-                Button {
-                    section = item
-                } label: {
-                    Text(item.rawValue)
-                        .font(.subheadline.weight(selected ? .semibold : .regular))
-                        .foregroundStyle(selected ? DesignTokens.ink : DesignTokens.inkMuted)
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: 44)
-                        .overlay(alignment: .bottom) {
-                            Rectangle()
-                                .fill(selected ? DesignTokens.accent : Color.clear)
-                                .frame(height: 2)
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle(host.name)
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if host.connection == .live || host.connection == .connecting {
+                        Button("Disconnect", systemImage: "pause.circle") {
+                            model.disconnect(host.id)
                         }
+                    } else {
+                        Button("Connect", systemImage: "bolt.horizontal.circle") {
+                            model.connect(host.id)
+                        }
+                    }
+                    Button("Refresh", systemImage: "arrow.clockwise") {
+                        _Concurrency.Task { await model.refresh(host.id) }
+                    }
+                    .disabled(host.connection != .live)
+                    Menu {
+                        Button("Files", systemImage: MoreSurface.files.symbol) {
+                            model.uhp.moreSurface = .files
+                        }
+                        Button("Search", systemImage: MoreSurface.search.symbol) {
+                            model.uhp.moreSurface = .search
+                        }
+                        Button("Worktrees", systemImage: MoreSurface.worktrees.symbol) {
+                            model.uhp.moreSurface = .worktrees
+                        }
+                        Button("Automations", systemImage: MoreSurface.automations.symbol) {
+                            model.uhp.moreSurface = .automations
+                        }
+                        Button("Layout", systemImage: MoreSurface.layout.symbol) {
+                            model.uhp.moreSurface = .layout
+                        }
+                    } label: {
+                        Label("More", systemImage: "ellipsis.circle")
+                    }
+                    .disabled(host.connection != .live)
+                    .accessibilityLabel("More")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(item.rawValue)
-                .accessibilityAddTraits(selected ? .isSelected : [])
             }
-        }
-        .padding(.horizontal, 16)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Section")
+    }
+}
+
+extension View {
+    func hostSessionChrome(host: HostViewState, model: AppModel) -> some View {
+        modifier(HostSessionChrome(host: host, model: model))
     }
 }
 
