@@ -14,11 +14,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
@@ -29,7 +30,7 @@ import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.HostRole
 import tech.asahiart.luvia.PairingUiState
 import tech.asahiart.luvia.TerminalKey
-import tech.asahiart.luvia.HostUhpState
+import tech.asahiart.luvia.HostUhp
 import tech.asahiart.luvia.HostSection
 
 @Serializable
@@ -45,8 +46,8 @@ private data object PairHostRoute : NavKey
 fun LuviaNavigation(
     hosts: List<HostUiModel>,
     terminalForHost: (String) -> TerminalUiModel?,
-    uhpForHost: (String) -> HostUhpState,
-    uhpActions: UhpHostActions,
+    workspace: (String) -> HostUhp,
+    onRefreshSection: (String, HostSection) -> Unit,
     pairing: PairingUiState,
     openHostId: String? = null,
     openFirstBlocked: Boolean = false,
@@ -98,8 +99,8 @@ fun LuviaNavigation(
                         backStack = backStack,
                         hosts = hosts,
                         terminalForHost = terminalForHost,
-                        uhpForHost = uhpForHost,
-                        uhpActions = uhpActions,
+                        workspace = workspace,
+                        onRefreshSection = onRefreshSection,
                         pairing = pairing,
                         openFirstBlocked = openFirstBlocked,
                         onBeginPairing = onBeginPairing,
@@ -124,8 +125,8 @@ fun LuviaNavigation(
                 backStack = backStack,
                 hosts = hosts,
                 terminalForHost = terminalForHost,
-                uhpForHost = uhpForHost,
-                uhpActions = uhpActions,
+                workspace = workspace,
+                onRefreshSection = onRefreshSection,
                 pairing = pairing,
                 openFirstBlocked = openFirstBlocked,
                 onBeginPairing = onBeginPairing,
@@ -152,8 +153,8 @@ private fun DetailNav(
     backStack: NavBackStack<NavKey>,
     hosts: List<HostUiModel>,
     terminalForHost: (String) -> TerminalUiModel?,
-    uhpForHost: (String) -> HostUhpState,
-    uhpActions: UhpHostActions,
+    workspace: (String) -> HostUhp,
+    onRefreshSection: (String, HostSection) -> Unit,
     pairing: PairingUiState,
     openFirstBlocked: Boolean,
     onBeginPairing: (String, HostRole) -> Unit,
@@ -212,30 +213,31 @@ private fun DetailNav(
                 if (host == null) {
                     EmptySelectionPane("Host unavailable", "The saved host was removed.")
                 } else {
-                    val uhp = uhpForHost(route.id)
+                    val surface = workspace(route.id)
+                    val uhp by surface.state.collectAsStateWithLifecycle()
                     val section = uhp.section
                     val visible = uhp.visibleSections()
-                    LaunchedEffect(route.id) { uhpActions.shown(route.id) }
+                    LaunchedEffect(route.id) { surface.shown() }
                     LaunchedEffect(route.id, section) {
-                        uhpActions.sectionShown(route.id, section)
+                        surface.show(section)
                         if (section == HostSection.Terminal) onTerminalShown(route.id)
                     }
                     LaunchedEffect(visible, section) {
-                        if (section !in visible) uhpActions.setSection(route.id, HostSection.Agents)
+                        if (section !in visible) surface.setSection(HostSection.Agents)
                     }
                     LaunchedEffect(route.id, openFirstBlocked, host.firstBlockedPaneId, uhp.agents) {
                         if (!openFirstBlocked) return@LaunchedEffect
                         val pane = host.firstBlockedPaneId
                             ?: uhp.agents.firstOrNull { it.status == AgentStatus.Blocked }?.paneId
                             ?: return@LaunchedEffect
-                        uhpActions.setSection(route.id, HostSection.Agents)
-                        uhpActions.openAgent(route.id, pane)
+                        surface.setSection(HostSection.Agents)
+                        surface.openAgent(pane)
                     }
                     HostDetailPane(
                         host = host,
                         section = section,
                         onSection = { next ->
-                            uhpActions.setSection(route.id, next)
+                            surface.setSection(next)
                         },
                         terminal = terminalForHost(route.id),
                         onRequestControl = { onRequestControl(route.id) },
@@ -246,7 +248,7 @@ private fun DetailNav(
                         onDisconnect = { onDisconnect(route.id) },
                         onRefresh = {
                             onRefresh(route.id)
-                            uhpActions.refreshSection(route.id, section)
+                            onRefreshSection(route.id, section)
                         },
                         onUnpair = {
                             backStack.removeAll { it is HostRoute && it.id == route.id }
@@ -257,20 +259,20 @@ private fun DetailNav(
                             AgentsSection(
                                 host = host,
                                 state = uhp,
-                                onRefresh = { uhpActions.refreshSection(route.id, HostSection.Agents) },
-                                onOpenAgent = { pane -> uhpActions.openAgent(route.id, pane) },
-                                onCloseAgent = { uhpActions.closeAgent(route.id) },
-                                onPrompt = { text -> uhpActions.promptAgent(route.id, text) },
-                                onDraftChange = { text -> uhpActions.setAgentDraft(route.id, text) },
-                                onSendKeys = { keys -> uhpActions.sendKeys(route.id, keys) },
-                                onCheckUnconfirmed = { uhpActions.checkAgent(route.id) },
-                                onResumeSession = { sessionId -> uhpActions.resumeAgent(route.id, sessionId) },
-                                onShowNameChange = { show -> uhpActions.setShowNameAgent(route.id, show) },
-                                onNameDraftChange = { text -> uhpActions.setNameAgentDraft(route.id, text) },
-                                onNameAgent = { uhpActions.nameAgent(route.id) },
-                                onShowForkChange = { show -> uhpActions.setShowForkAgent(route.id, show) },
-                                onForkDraftChange = { text -> uhpActions.setForkAgentDraft(route.id, text) },
-                                onForkAgent = { uhpActions.forkAgent(route.id) },
+                                onRefresh = { onRefreshSection(route.id, HostSection.Agents) },
+                                onOpenAgent = { pane -> surface.openAgent(pane) },
+                                onCloseAgent = { surface.closeAgent() },
+                                onPrompt = { text -> surface.promptAgent(text) },
+                                onDraftChange = { text -> surface.setAgentDraft(text) },
+                                onSendKeys = { keys -> surface.sendAgentKeys(keys) },
+                                onCheckUnconfirmed = { surface.checkAgent() },
+                                onResumeSession = { sessionId -> surface.resumeAgent(sessionId) },
+                                onShowNameChange = { show -> surface.setShowNameAgent(show) },
+                                onNameDraftChange = { text -> surface.setNameAgentDraft(text) },
+                                onNameAgent = { surface.nameAgent() },
+                                onShowForkChange = { show -> surface.setShowForkAgent(show) },
+                                onForkDraftChange = { text -> surface.setForkAgentDraft(text) },
+                                onForkAgent = { surface.forkAgent() },
                                 modifier = modifier,
                             )
                         },
@@ -278,9 +280,9 @@ private fun DetailNav(
                             FilesSection(
                                 host = host,
                                 state = uhp,
-                                onRefresh = { uhpActions.refreshFiles(route.id) },
-                                onOpenFile = { path -> uhpActions.openFile(route.id, path) },
-                                onRevealFile = { path -> uhpActions.revealFile(route.id, path) },
+                                onRefresh = { surface.refreshFiles() },
+                                onOpenFile = { path -> surface.openFile(path) },
+                                onRevealFile = { path -> surface.revealFile(path) },
                                 modifier = modifier,
                             )
                         },
@@ -288,10 +290,10 @@ private fun DetailNav(
                             SearchSection(
                                 host = host,
                                 state = uhp,
-                                onRefresh = { uhpActions.refreshSection(route.id, HostSection.Search) },
-                                onQueryChange = { query -> uhpActions.setSearchQuery(route.id, query) },
-                                onSearch = { uhpActions.querySearch(route.id) },
-                                onActivate = { matchId -> uhpActions.activateSearch(route.id, matchId) },
+                                onRefresh = { onRefreshSection(route.id, HostSection.Search) },
+                                onQueryChange = { query -> surface.setSearchQuery(query) },
+                                onSearch = { surface.querySearch() },
+                                onActivate = { matchId -> surface.activateSearch(matchId) },
                                 modifier = modifier,
                             )
                         },
@@ -299,19 +301,19 @@ private fun DetailNav(
                             ReviewSection(
                                 host = host,
                                 state = uhp,
-                                onRefresh = { uhpActions.refreshSection(route.id, HostSection.Review) },
-                                onOpenFile = { path, layer -> uhpActions.openDiffFile(route.id, path, layer) },
-                                onCloseFile = { uhpActions.closeDiffFile(route.id) },
+                                onRefresh = { onRefreshSection(route.id, HostSection.Review) },
+                                onOpenFile = { path, layer -> surface.openDiffFile(path, layer) },
+                                onCloseFile = { surface.closeDiffFile() },
                                 onAddNote = { file, line, body, layer ->
-                                    uhpActions.addNote(route.id, file, line, body, layer)
+                                    surface.addReviewNote(file, line, body, layer)
                                 },
-                                onResolveNote = { id -> uhpActions.resolveNote(route.id, id) },
-                                onReopenNote = { id -> uhpActions.reopenNote(route.id, id) },
-                                onRemoveNote = { id -> uhpActions.removeNote(route.id, id) },
-                                onNoteDraftChange = { text -> uhpActions.setNoteDraft(route.id, text) },
-                                onSendTargetChange = { pane -> uhpActions.setSendTarget(route.id, pane) },
-                                onSendNotes = { to -> uhpActions.sendNotes(route.id, to) },
-                                onCheckUnconfirmed = { uhpActions.checkNotes(route.id) },
+                                onResolveNote = { id -> surface.resolveReviewNote(id) },
+                                onReopenNote = { id -> surface.reopenReviewNote(id) },
+                                onRemoveNote = { id -> surface.removeReviewNote(id) },
+                                onNoteDraftChange = { text -> surface.setNoteDraft(text) },
+                                onSendTargetChange = { pane -> surface.setSendTarget(pane) },
+                                onSendNotes = { to -> surface.sendReviewNotes(to) },
+                                onCheckUnconfirmed = { surface.checkNotes() },
                                 modifier = modifier,
                             )
                         },
@@ -319,13 +321,13 @@ private fun DetailNav(
                             WorktreesSection(
                                 host = host,
                                 state = uhp,
-                                onRefresh = { uhpActions.refreshSection(route.id, HostSection.Worktrees) },
-                                onShowCreateChange = { show -> uhpActions.setShowCreateWorktree(route.id, show) },
-                                onCreateBranchChange = { branch -> uhpActions.setCreateWorktreeBranch(route.id, branch) },
-                                onCreate = { uhpActions.createWorktree(route.id) },
-                                onOpen = { path -> uhpActions.openWorktree(route.id, path) },
-                                onRemoveIdChange = { path -> uhpActions.setRemoveWorktreePath(route.id, path) },
-                                onRemove = { path -> uhpActions.removeWorktree(route.id, path) },
+                                onRefresh = { onRefreshSection(route.id, HostSection.Worktrees) },
+                                onShowCreateChange = { show -> surface.setShowCreateWorktree(show) },
+                                onCreateBranchChange = { branch -> surface.setCreateWorktreeBranch(branch) },
+                                onCreate = { surface.createWorktree() },
+                                onOpen = { path -> surface.openWorktree(path) },
+                                onRemoveIdChange = { path -> surface.setRemoveWorktreePath(path) },
+                                onRemove = { path -> surface.removeWorktree(path) },
                                 modifier = modifier,
                             )
                         },
@@ -333,10 +335,10 @@ private fun DetailNav(
                             AutomationsSection(
                                 host = host,
                                 state = uhp,
-                                onRefresh = { uhpActions.refreshSection(route.id, HostSection.Automations) },
-                                onEnable = { id -> uhpActions.enableAutomation(route.id, id) },
-                                onDisable = { id -> uhpActions.disableAutomation(route.id, id) },
-                                onRun = { id -> uhpActions.runAutomation(route.id, id) },
+                                onRefresh = { onRefreshSection(route.id, HostSection.Automations) },
+                                onEnable = { id -> surface.enableAutomation(id) },
+                                onDisable = { id -> surface.disableAutomation(id) },
+                                onRun = { id -> surface.runAutomation(id) },
                                 modifier = modifier,
                             )
                         },
@@ -344,16 +346,16 @@ private fun DetailNav(
                             TasksSection(
                                 host = host,
                                 state = uhp,
-                                onRefresh = { uhpActions.refreshSection(route.id, HostSection.Tasks) },
-                                onAddTask = { title, paths -> uhpActions.addTask(route.id, title, paths) },
-                                onShowAddChange = { show -> uhpActions.setShowAddTask(route.id, show) },
-                                onCompleteIdChange = { id -> uhpActions.setCompleteTaskId(route.id, id) },
-                                onDeleteIdChange = { id -> uhpActions.setDeleteTaskId(route.id, id) },
-                                onAddDraftChange = { title, paths -> uhpActions.setAddTaskDraft(route.id, title, paths) },
-                                onCompleteTask = { id -> uhpActions.completeTask(route.id, id) },
-                                onClaimTask = { id -> uhpActions.claimTask(route.id, id) },
-                                onDeleteTask = { id -> uhpActions.deleteTask(route.id, id) },
-                                onCheckUnconfirmed = { uhpActions.checkTasks(route.id) },
+                                onRefresh = { onRefreshSection(route.id, HostSection.Tasks) },
+                                onAddTask = { title, paths -> surface.addTask(title, paths) },
+                                onShowAddChange = { show -> surface.setShowAddTask(show) },
+                                onCompleteIdChange = { id -> surface.setCompleteTaskId(id) },
+                                onDeleteIdChange = { id -> surface.setDeleteTaskId(id) },
+                                onAddDraftChange = { title, paths -> surface.setAddTaskDraft(title, paths) },
+                                onCompleteTask = { id -> surface.completeTask(id) },
+                                onClaimTask = { id -> surface.claimTask(id) },
+                                onDeleteTask = { id -> surface.deleteTask(id) },
+                                onCheckUnconfirmed = { surface.checkTasks() },
                                 modifier = modifier,
                             )
                         },
@@ -361,15 +363,15 @@ private fun DetailNav(
                             LayoutSection(
                                 host = host,
                                 state = uhp,
-                                onRefresh = { uhpActions.refreshSection(route.id, HostSection.Layout) },
-                                onFocusWorkspace = { index -> uhpActions.focusWorkspace(route.id, index) },
-                                onCloseWorkspaceChange = { index -> uhpActions.setCloseWorkspace(route.id, index) },
-                                onCloseWorkspace = { index -> uhpActions.closeWorkspace(route.id, index) },
-                                onFocusPane = { pane -> uhpActions.focusPane(route.id, pane) },
-                                onClosePaneChange = { pane -> uhpActions.setClosePane(route.id, pane) },
-                                onClosePane = { pane -> uhpActions.closePane(route.id, pane) },
-                                onRenamePaneChange = { pane, draft -> uhpActions.setRenamePane(route.id, pane, draft) },
-                                onRenamePane = { uhpActions.renamePane(route.id) },
+                                onRefresh = { onRefreshSection(route.id, HostSection.Layout) },
+                                onFocusWorkspace = { index -> surface.focusWorkspace(index) },
+                                onCloseWorkspaceChange = { index -> surface.setCloseWorkspace(index) },
+                                onCloseWorkspace = { index -> surface.closeWorkspace(index) },
+                                onFocusPane = { pane -> surface.focusPane(pane) },
+                                onClosePaneChange = { pane -> surface.setClosePane(pane) },
+                                onClosePane = { pane -> surface.closePane(pane) },
+                                onRenamePaneChange = { pane, draft -> surface.setRenamePane(pane, draft) },
+                                onRenamePane = { surface.renamePane() },
                                 modifier = modifier,
                             )
                         },

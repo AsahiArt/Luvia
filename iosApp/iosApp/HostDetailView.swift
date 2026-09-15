@@ -15,51 +15,56 @@ struct HostDetailView: View {
     @State private var agentQuery = ""
 
     var body: some View {
-        TabView(selection: $section) {
-            AgentsSectionView(model: model, host: host, query: $agentQuery)
-                .tabItem {
-                    Label(HostSection.agents.rawValue, systemImage: HostSection.agents.symbol)
-                }
-                .tag(HostSection.agents)
+        NavigationStack {
+            TabView(selection: $section) {
+                AgentsSectionView(model: model, host: host, query: $agentQuery)
+                    .tabItem {
+                        Label(HostSection.agents.rawValue, systemImage: HostSection.agents.symbol)
+                    }
+                    .tag(HostSection.agents)
 
-            ReviewSectionView(model: model, host: host)
-                .hostSessionChrome(host: host, model: model)
-                .tabItem {
-                    Label(HostSection.review.rawValue, systemImage: HostSection.review.symbol)
-                }
-                .tag(HostSection.review)
+                ReviewSectionView(model: model, host: host)
+                    .tabItem {
+                        Label(HostSection.review.rawValue, systemImage: HostSection.review.symbol)
+                    }
+                    .tag(HostSection.review)
 
-            TasksSectionView(model: model, host: host)
-                .hostSessionChrome(host: host, model: model)
-                .tabItem {
-                    Label(HostSection.tasks.rawValue, systemImage: HostSection.tasks.symbol)
-                }
-                .tag(HostSection.tasks)
+                TasksSectionView(model: model, host: host)
+                    .tabItem {
+                        Label(HostSection.tasks.rawValue, systemImage: HostSection.tasks.symbol)
+                    }
+                    .tag(HostSection.tasks)
 
-            TerminalPane(
-                host: host,
-                text: terminalText,
-                status: terminalStatus,
-                holdsControl: holdsTerminalControl,
-                onSend: onSendTerminal,
-                onSendKey: onSendTerminalKey,
-                onRequestControl: onRequestControl
-            )
-            .hostSessionChrome(host: host, model: model)
-            .tabItem {
-                Label(HostSection.terminal.rawValue, systemImage: HostSection.terminal.symbol)
+                TerminalPane(
+                    host: host,
+                    text: terminalText,
+                    status: terminalStatus,
+                    holdsControl: holdsTerminalControl,
+                    onSend: onSendTerminal,
+                    onSendKey: onSendTerminalKey,
+                    onRequestControl: onRequestControl
+                )
+                .tabItem {
+                    Label(HostSection.terminal.rawValue, systemImage: HostSection.terminal.symbol)
+                }
+                .tag(HostSection.terminal)
             }
-            .tag(HostSection.terminal)
-        }
-        .tint(DesignTokens.accent)
-        .navigationDestination(for: DiffFileItem.self) { file in
-            DiffFileDetailView(model: model, file: file)
-                .task { await model.openDiffFile(file) }
-        }
-        .sheet(item: $model.uhp.moreSurface) { surface in
-            MoreSurfaceSheet(model: model, surface: surface)
+            .tint(DesignTokens.accent)
+            .hostSessionChrome(host: host, model: model)
+            .navigationDestination(for: String.self) { id in
+                AgentDetailView(model: model, agentID: id)
+                    .task { await model.openAgent(id) }
+            }
+            .navigationDestination(for: DiffFileItem.self) { file in
+                DiffFileDetailView(model: model, file: file)
+                    .task { await model.openDiffFile(file) }
+            }
+            .sheet(item: $model.uhp.moreSurface) { surface in
+                MoreSurfaceSheet(model: model, surface: surface)
+            }
         }
     }
+
 }
 
 struct HostSessionChrome: ViewModifier {
@@ -69,7 +74,8 @@ struct HostSessionChrome: ViewModifier {
     func body(content: Content) -> some View {
         content
             .navigationTitle(host.name)
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(model.hasLiveSession ? .large : .inline)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     if host.connection == .live || host.connection == .connecting {

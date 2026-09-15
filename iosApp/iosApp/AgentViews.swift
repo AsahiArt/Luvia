@@ -7,47 +7,45 @@ struct AgentsSectionView: View {
     @Binding var query: String
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if !model.hasLiveSession {
-                    ContentUnavailableView(
-                        "Connect to this host",
-                        systemImage: "bolt.horizontal.circle",
-                        description: Text("A live session is required to load Agents, Review, and Tasks.")
+        Group {
+            if model.hasLiveSession {
+                AgentsListView(
+                    agents: model.uhp.agents,
+                    query: $query,
+                    errorMessage: model.uhp.errorMessage,
+                    onRefresh: { await model.loadAgents() }
+                )
+                .modifier(
+                    ConditionalSearchable(
+                        text: $query,
+                        enabled: model.selectedSection == .agents,
+                        prompt: "Search"
                     )
-                } else {
-                    AgentsListView(
-                        agents: model.uhp.agents,
-                        query: $query,
-                        errorMessage: model.uhp.errorMessage,
-                        onRefresh: { await model.loadAgents() }
-                    )
-                }
-            }
-            .hostSessionChrome(host: host, model: model)
-            .searchable(
-                text: $query,
-                placement: .navigationBarDrawer(displayMode: .automatic),
-                prompt: "Search"
-            )
-            .toolbar {
-                if model.hasLiveSession, model.uhp.caps.agentSessions {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("Sessions") {
-                            model.uhp.isSessionsPresented = true
+                )
+                .toolbar {
+                    if model.uhp.caps.agentSessions {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("Sessions") {
+                                model.uhp.isSessionsPresented = true
+                            }
                         }
                     }
                 }
-            }
-            .sheet(isPresented: $model.uhp.isSessionsPresented) {
-                AgentSessionsSheet(model: model)
-            }
-            .navigationDestination(for: String.self) { id in
-                AgentDetailView(model: model, agentID: id)
-                    .task { await model.openAgent(id) }
+                .sheet(isPresented: $model.uhp.isSessionsPresented) {
+                    AgentSessionsSheet(model: model)
+                }
+            } else {
+                ContentUnavailableView(
+                    "Connect to this host",
+                    systemImage: "bolt.horizontal.circle",
+                    description: Text("A live session is required to load Agents, Review, and Tasks.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }
+
+
 }
 
 struct AgentsListView: View {

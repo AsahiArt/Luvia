@@ -44,7 +44,6 @@ class LuviaViewModel(
     private val _terminals = MutableStateFlow<Map<String, TerminalUiModel>>(emptyMap())
     val terminals: StateFlow<Map<String, TerminalUiModel>> = _terminals.asStateFlow()
 
-    val uhp: StateFlow<Map<String, HostUhpState>> = uhpRegistry.states
 
     fun beginPairing(deviceLabel: String, role: HostRole) {
         val label = deviceLabel.trim()
@@ -238,131 +237,10 @@ class LuviaViewModel(
         }
     }
 
-    fun ensureUhp(hostId: String) = uhpRegistry.workspace(hostId).shown()
-
-    fun showSection(hostId: String, section: HostSection) = uhpRegistry.workspace(hostId).show(section)
+    fun workspace(hostId: String): HostUhp = uhpRegistry.workspace(hostId)
 
     fun refreshSection(hostId: String, section: HostSection) = uhpRegistry.refreshSection(hostId, section)
 
-    fun setSection(hostId: String, section: HostSection) = uhpRegistry.workspace(hostId).setSection(section)
-
-    fun openAgent(hostId: String, paneId: String) = uhpRegistry.workspace(hostId).openAgent(paneId)
-
-    fun closeAgent(hostId: String) = uhpRegistry.workspace(hostId).closeAgent()
-
-    fun setAgentDraft(hostId: String, text: String) = uhpRegistry.workspace(hostId).setAgentDraft(text)
-
-    fun promptAgent(hostId: String, text: String) = uhpRegistry.workspace(hostId).promptAgent(text)
-
-    fun sendAgentKeys(hostId: String, keys: List<AgentKey>) = uhpRegistry.workspace(hostId).sendAgentKeys(keys)
-
-    fun checkAgent(hostId: String) = uhpRegistry.workspace(hostId).checkAgent()
-
-    fun resumeAgent(hostId: String, sessionId: String) = uhpRegistry.workspace(hostId).resumeAgent(sessionId)
-
-    fun setShowNameAgent(hostId: String, show: Boolean) = uhpRegistry.workspace(hostId).setShowNameAgent(show)
-
-    fun setNameAgentDraft(hostId: String, text: String) = uhpRegistry.workspace(hostId).setNameAgentDraft(text)
-
-    fun nameAgent(hostId: String) = uhpRegistry.workspace(hostId).nameAgent()
-
-    fun setShowForkAgent(hostId: String, show: Boolean) = uhpRegistry.workspace(hostId).setShowForkAgent(show)
-
-    fun setForkAgentDraft(hostId: String, text: String) = uhpRegistry.workspace(hostId).setForkAgentDraft(text)
-
-    fun forkAgent(hostId: String) = uhpRegistry.workspace(hostId).forkAgent()
-
-    fun openDiffFile(hostId: String, path: String, layer: DiffLayer?) =
-        uhpRegistry.workspace(hostId).openDiffFile(path, layer)
-
-    fun closeDiffFile(hostId: String) = uhpRegistry.workspace(hostId).closeDiffFile()
-
-    fun addReviewNote(hostId: String, file: String, line: ReviewLine, body: String, layer: DiffLayer?) =
-        uhpRegistry.workspace(hostId).addReviewNote(file, line, body, layer)
-
-    fun resolveReviewNote(hostId: String, id: String) = uhpRegistry.workspace(hostId).resolveReviewNote(id)
-
-    fun reopenReviewNote(hostId: String, id: String) = uhpRegistry.workspace(hostId).reopenReviewNote(id)
-
-    fun removeReviewNote(hostId: String, id: String) = uhpRegistry.workspace(hostId).removeReviewNote(id)
-
-    fun sendReviewNotes(hostId: String, to: String) = uhpRegistry.workspace(hostId).sendReviewNotes(to)
-
-    fun checkNotes(hostId: String) = uhpRegistry.workspace(hostId).checkNotes()
-
-    fun setNoteDraft(hostId: String, text: String) = uhpRegistry.workspace(hostId).setNoteDraft(text)
-
-    fun setSendTarget(hostId: String, paneId: String?) = uhpRegistry.workspace(hostId).setSendTarget(paneId)
-
-    fun addTask(hostId: String, title: String, paths: List<String>) =
-        uhpRegistry.workspace(hostId).addTask(title, paths)
-
-    fun completeTask(hostId: String, taskId: String) = uhpRegistry.workspace(hostId).completeTask(taskId)
-
-    fun claimTask(hostId: String, taskId: String) = uhpRegistry.workspace(hostId).claimTask(taskId)
-
-    fun deleteTask(hostId: String, taskId: String) = uhpRegistry.workspace(hostId).deleteTask(taskId)
-
-    fun checkTasks(hostId: String) = uhpRegistry.workspace(hostId).checkTasks()
-
-    fun setShowAddTask(hostId: String, show: Boolean) = uhpRegistry.workspace(hostId).setShowAddTask(show)
-
-    fun setCompleteTaskId(hostId: String, id: String?) = uhpRegistry.workspace(hostId).setCompleteTaskId(id)
-
-    fun setDeleteTaskId(hostId: String, id: String?) = uhpRegistry.workspace(hostId).setDeleteTaskId(id)
-
-    fun setAddTaskDraft(hostId: String, title: String, paths: String) =
-        uhpRegistry.workspace(hostId).setAddTaskDraft(title, paths)
-
-    fun refreshFiles(hostId: String) = uhpRegistry.workspace(hostId).refreshFiles()
-
-    fun openFile(hostId: String, path: String) = uhpRegistry.workspace(hostId).openFile(path)
-
-    fun revealFile(hostId: String, path: String) = uhpRegistry.workspace(hostId).revealFile(path)
-
-    fun setSearchQuery(hostId: String, query: String) = uhpRegistry.workspace(hostId).setSearchQuery(query)
-
-    fun querySearch(hostId: String) = uhpRegistry.workspace(hostId).querySearch()
-
-    fun activateSearch(hostId: String, matchId: String) = uhpRegistry.workspace(hostId).activateSearch(matchId)
-
-    fun setShowCreateWorktree(hostId: String, show: Boolean) =
-        uhpRegistry.workspace(hostId).setShowCreateWorktree(show)
-
-    fun setCreateWorktreeBranch(hostId: String, branch: String) =
-        uhpRegistry.workspace(hostId).setCreateWorktreeBranch(branch)
-
-    fun createWorktree(hostId: String) = uhpRegistry.workspace(hostId).createWorktree()
-
-    fun openWorktree(hostId: String, path: String) = uhpRegistry.workspace(hostId).openWorktree(path)
-
-    fun setRemoveWorktreePath(hostId: String, path: String?) =
-        uhpRegistry.workspace(hostId).setRemoveWorktreePath(path)
-
-    fun removeWorktree(hostId: String, path: String) = uhpRegistry.workspace(hostId).removeWorktree(path)
-
-    fun enableAutomation(hostId: String, id: String) = uhpRegistry.workspace(hostId).enableAutomation(id)
-
-    fun disableAutomation(hostId: String, id: String) = uhpRegistry.workspace(hostId).disableAutomation(id)
-
-    fun runAutomation(hostId: String, id: String) = uhpRegistry.workspace(hostId).runAutomation(id)
-
-    fun focusWorkspace(hostId: String, index: Int) = uhpRegistry.workspace(hostId).focusWorkspace(index)
-
-    fun setCloseWorkspace(hostId: String, index: Int?) = uhpRegistry.workspace(hostId).setCloseWorkspace(index)
-
-    fun closeWorkspace(hostId: String, index: Int) = uhpRegistry.workspace(hostId).closeWorkspace(index)
-
-    fun focusPane(hostId: String, pane: String) = uhpRegistry.workspace(hostId).focusPane(pane)
-
-    fun setClosePane(hostId: String, pane: String?) = uhpRegistry.workspace(hostId).setClosePane(pane)
-
-    fun closePane(hostId: String, pane: String) = uhpRegistry.workspace(hostId).closePane(pane)
-
-    fun setRenamePane(hostId: String, pane: String?, draft: String) =
-        uhpRegistry.workspace(hostId).setRenamePane(pane, draft)
-
-    fun renamePane(hostId: String) = uhpRegistry.workspace(hostId).renamePane()
 
     override fun onCleared() {
         observeJobs.values.forEach { it.cancel() }

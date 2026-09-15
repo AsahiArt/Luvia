@@ -237,8 +237,8 @@ final class AppModel {
             bindUhp(hostID: id)
         }
         if let host = selectedHost {
-            uhp.isController = host.isController
-            syncAgentsFromHost(host)
+            uhp.hostIsController = host.isController
+            uhp.hostAgents = host.agents
             if let openID {
                 let oldStatus = previousAgents.first { $0.id == openID }?.status
                 let newStatus = host.agents.first { $0.id == openID }?.status
@@ -393,61 +393,251 @@ final class AppModel {
 @Observable
 final class UhpSurfaceState {
     var hostID: String?
-    var isController = false
-    var caps = UhpCaps()
-    var errorMessage: String?
-
-    var agents: [AgentViewState] = []
+    var snapshot: HostUhpState?
+    var hostIsController = false
+    var hostAgents: [AgentViewState] = []
+    var localError: String?
     var selectedAgentID: String?
-    var header: AgentHeaderState?
-    var transcript = ""
-    var transcriptRevision: Int64?
-    var transcriptContentRevision: Int64?
-    var transcriptTerminalID: String?
-    var composerText = ""
-    var isSending = false
-    var unconfirmed: UnconfirmedAction?
-    var unconfirmedTaskID: String?
 
-    var diffFiles: [DiffFileItem] = []
-    var diffBranch: String?
-    var selectedDiff: DiffFileDetail?
-    var notes: [ReviewNoteItem] = []
+    var composerText = ""
     var isNotesPresented = false
     var isAddNotePresented = false
     var addNote = AddNoteDraft()
     var isSendNotesPresented = false
     var sendNotesTarget: String?
     var sendNotesMessage: String?
-
-    var tasks: [TaskViewState] = []
-    var taskRevisions: [String: Int64] = [:]
     var isAddTaskPresented = false
     var addTaskTitle = ""
     var addTaskPaths = ""
-    var boardChangedMessage: String?
-
     var moreSurface: MoreSurface?
-    var fileRoot: String?
-    var fileRows: [FileTreeRowItem] = []
     var searchQuery = ""
-    var searchMatches: [SearchMatchItem] = []
-    var searchTotal: Int64 = 0
-    var searchShown: Int64 = 0
-    var searchPartial = false
-    var worktrees: [WorktreeItem] = []
     var isCreateWorktreePresented = false
     var createWorktreeBranch = ""
-    var automations: [AutomationItem] = []
-    var automationHealthSummary: String?
-    var workspaces: [WorkspaceItem] = []
-    var panes: [PaneItem] = []
-    var agentSessions: [AgentSessionItem] = []
     var isSessionsPresented = false
     var isNameAgentPresented = false
     var nameAgentText = ""
     var isForkAgentPresented = false
     var forkAgentName = ""
+
+    var isController: Bool {
+        if let snapshot, snapshot.connected {
+            return snapshot.canMutate || !snapshot.isObserver
+        }
+        return hostIsController
+    }
+
+    var caps: UhpCaps {
+        snapshot.map { UhpCaps($0.capabilities) } ?? UhpCaps()
+    }
+
+    var errorMessage: String? {
+        if let localError { return localError }
+        guard let snapshot else { return nil }
+        return snapshot.agentDetail.errorText
+            ?? snapshot.review.errorText
+            ?? snapshot.tasks.errorText
+            ?? snapshot.files.errorText
+            ?? snapshot.search.errorText
+            ?? snapshot.worktrees.errorText
+            ?? snapshot.automations.errorText
+            ?? snapshot.layout.errorText
+            ?? snapshot.errorText
+    }
+
+    var agents: [AgentViewState] {
+        let live: [AgentSummary] = KotlinLists.array(snapshot?.agents as Any)
+        let mapped = live.map(AgentViewState.init)
+        return mapped.isEmpty ? hostAgents : mapped
+    }
+
+    var header: AgentHeaderState? {
+        guard let summary = snapshot?.agentDetail.summary else { return nil }
+        return AgentHeaderState(
+            paneId: summary.paneId,
+            name: summary.name ?? summary.agent ?? summary.paneId,
+            kind: summary.agent,
+            status: agentStatusLabel(summary.status),
+            isBlocked: AgentStatusKind(summary.status) == .blocked,
+            workspace: summary.workspaceName ?? summary.workspace,
+            branch: summary.branch,
+            cwd: summary.cwd,
+            missionUsage: nil
+        )
+    }
+
+    var transcript: String {
+        snapshot?.agentDetail.transcript?.text ?? ""
+    }
+
+    var isSending: Bool {
+        guard let snapshot else { return false }
+        return snapshot.agentDetail.sending
+            || snapshot.review.sending
+            || snapshot.tasks.mutating
+            || snapshot.files.mutating
+            || snapshot.worktrees.mutating
+            || snapshot.automations.mutating
+            || snapshot.layout.mutating
+    }
+
+    var unconfirmed: UnconfirmedAction? {
+        snapshot.flatMap(UnconfirmedAction.init)
+    }
+
+    var unconfirmedTaskID: String? {
+        snapshot?.tasks.unconfirmedTaskId
+    }
+
+    var diffFiles: [DiffFileItem] {
+        guard let list = snapshot?.review.list else { return [] }
+        let files: [DiffFile] = KotlinLists.array(list.files as Any)
+        return files.map { file in
+            DiffFileItem(
+                path: file.path,
+                layer: diffLayerLabel(file.layer),
+                additions: Int(kotlinInt64(file.additions) ?? 0),
+                deletions: Int(kotlinInt64(file.deletions) ?? 0)
+            )
+        }
+    }
+
+    var diffBranch: String? {
+        snapshot?.review.list?.branch
+    }
+
+    var selectedDiff: DiffFileDetail? {
+        guard let selected = snapshot?.review.selectedFile else { return nil }
+        return DiffFileDetail(
+            item: DiffFileItem(
+                path: selected.path,
+                layer: diffLayerLabel(selected.layer),
+                additions: Int(kotlinInt64(selected.additions) ?? 0),
+                deletions: Int(kotlinInt64(selected.deletions) ?? 0)
+            ),
+            hunks: []
+        )
+    }
+
+    var notes: [ReviewNoteItem] {
+        let notes: [ReviewNote] = KotlinLists.array(snapshot?.review.notes as Any)
+        return notes.map { note in
+            ReviewNoteItem(
+                id: note.id,
+                body: note.body,
+                stateLabel: note.state == .resolved ? "resolved" : "open",
+                isOpen: note.state == .open,
+                isResolved: note.state == .resolved,
+                path: note.path,
+                line: kotlinInt64(note.startLine).map { Int($0) },
+                deliveries: nil
+            )
+        }
+    }
+
+    var tasks: [TaskViewState] {
+        let tasks: [TaskSummary] = KotlinLists.array(snapshot?.tasks.tasks as Any)
+        return tasks.map(TaskViewState.init)
+    }
+
+    var boardChangedMessage: String? {
+        snapshot?.tasks.boardChanged == true ? "Updated by someone else. Showing latest." : nil
+    }
+
+    var fileRoot: String? {
+        guard let root = snapshot?.files.root, !root.isEmpty else { return nil }
+        return root
+    }
+
+    var fileRows: [FileTreeRowItem] {
+        let rows: [FileTreeRow] = KotlinLists.array(snapshot?.files.rows as Any)
+        return rows.map { row in
+            FileTreeRowItem(
+                path: row.path,
+                name: row.name,
+                depth: Int(row.depth),
+                isDirectory: row.dir,
+                isExpanded: row.expanded
+            )
+        }
+    }
+
+    var searchMatches: [SearchMatchItem] {
+        let matches: [SearchMatch] = KotlinLists.array(snapshot?.search.matches as Any)
+        return matches.map { match in
+            SearchMatchItem(id: match.id, kind: match.kind, label: match.label, detail: match.detail, match: match)
+        }
+    }
+
+    var searchTotal: Int64 {
+        kotlinInt64(snapshot?.search.result?.total) ?? 0
+    }
+
+    var searchShown: Int64 {
+        kotlinInt64(snapshot?.search.result?.shown) ?? 0
+    }
+
+    var searchPartial: Bool {
+        snapshot?.search.result?.partial ?? false
+    }
+
+    var worktrees: [WorktreeItem] {
+        let worktrees: [WorktreeEntry] = KotlinLists.array(snapshot?.worktrees.worktrees as Any)
+        return worktrees.map { tree in
+            WorktreeItem(path: tree.path, branch: tree.branch, head: tree.head, isMain: tree.main)
+        }
+    }
+
+    var automations: [AutomationItem] {
+        let automations: [Automation] = KotlinLists.array(snapshot?.automations.automations as Any)
+        return automations.map { item in
+            AutomationItem(
+                id: item.id,
+                name: item.name,
+                enabled: item.enabled,
+                state: item.targetState,
+                nextRun: nil,
+                latestStatus: nil,
+                latestError: nil
+            )
+        }
+    }
+
+    var automationHealthSummary: String? { nil }
+
+    var workspaces: [WorkspaceItem] {
+        let workspaces: [WorkspaceSummary] = KotlinLists.array(snapshot?.layout.workspaces as Any)
+        return workspaces.map { workspace in
+            WorkspaceItem(
+                index: Int(workspace.index),
+                name: workspace.name,
+                isActive: workspace.active,
+                isPinned: workspace.pinned,
+                cwd: workspace.cwd,
+                branch: workspace.branch,
+                tabCount: Int(workspace.tabCount)
+            )
+        }
+    }
+
+    var panes: [PaneItem] {
+        let panes: [PaneListEntry] = KotlinLists.array(snapshot?.layout.panes as Any)
+        return panes.map { pane in
+            PaneItem(
+                pane: pane.pane,
+                agent: pane.agent,
+                status: agentStatusLabel(pane.status),
+                isFocused: pane.focused,
+                cwd: pane.cwd
+            )
+        }
+    }
+
+    var agentSessions: [AgentSessionItem] {
+        let sessions: [AgentSessionEntry] = KotlinLists.array(snapshot?.agentSessions as Any)
+        return sessions.map { session in
+            AgentSessionItem(agent: session.agent, sessionId: session.sessionId, cwd: session.cwd)
+        }
+    }
 
     var allowsMutation: Bool {
         isController && !isSending && unconfirmed == nil
@@ -475,51 +665,25 @@ final class UhpSurfaceState {
 
     func reset(hostID: String?) {
         self.hostID = hostID
-        caps = UhpCaps()
-        errorMessage = nil
-        agents = []
+        snapshot = nil
+        hostIsController = false
+        hostAgents = []
+        localError = nil
         selectedAgentID = nil
-        header = nil
-        transcript = ""
-        transcriptRevision = nil
-        transcriptContentRevision = nil
-        transcriptTerminalID = nil
         composerText = ""
-        isSending = false
-        unconfirmed = nil
-        unconfirmedTaskID = nil
-        diffFiles = []
-        diffBranch = nil
-        selectedDiff = nil
-        notes = []
         isNotesPresented = false
         isAddNotePresented = false
         addNote = AddNoteDraft()
         isSendNotesPresented = false
         sendNotesTarget = nil
         sendNotesMessage = nil
-        tasks = []
-        taskRevisions = [:]
         isAddTaskPresented = false
         addTaskTitle = ""
         addTaskPaths = ""
-        boardChangedMessage = nil
         moreSurface = nil
-        fileRoot = nil
-        fileRows = []
         searchQuery = ""
-        searchMatches = []
-        searchTotal = 0
-        searchShown = 0
-        searchPartial = false
-        worktrees = []
         isCreateWorktreePresented = false
         createWorktreeBranch = ""
-        automations = []
-        automationHealthSummary = nil
-        workspaces = []
-        panes = []
-        agentSessions = []
         isSessionsPresented = false
         isNameAgentPresented = false
         nameAgentText = ""
@@ -564,7 +728,7 @@ extension AppModel {
     @discardableResult
     func refreshOpenAgent() async -> Bool {
         guard let id = uhp.selectedAgentID else {
-            uhp.errorMessage = "No Agent is selected."
+            uhp.localError = "No Agent is selected."
             return false
         }
         hostUhp()?.openAgent(paneId: id)
@@ -681,28 +845,6 @@ extension AppModel {
         hostUhp()?.completeTask(taskId: id)
     }
 
-    private func syncAgentsFromHost(_ host: HostViewState) {
-        if uhp.agents.isEmpty {
-            uhp.agents = host.agents
-            return
-        }
-        for index in uhp.agents.indices {
-            if let fresh = host.agents.first(where: { $0.id == uhp.agents[index].id }) {
-                uhp.agents[index].status = fresh.status
-                uhp.agents[index].statusKind = fresh.statusKind
-                uhp.agents[index].workspace = fresh.workspace ?? uhp.agents[index].workspace
-                uhp.agents[index].branch = fresh.branch ?? uhp.agents[index].branch
-                uhp.agents[index].cwd = fresh.cwd ?? uhp.agents[index].cwd
-            }
-        }
-        if let id = uhp.selectedAgentID, let agent = uhp.agents.first(where: { $0.id == id }) {
-            uhp.header?.status = agent.status
-            uhp.header?.isBlocked = agent.isBlocked
-            uhp.header?.workspace = agent.workspace
-            uhp.header?.branch = agent.branch
-            uhp.header?.cwd = agent.cwd
-        }
-    }
 }
 
 private final class HostManagerScope: NSObject, Kotlinx_coroutines_coreCoroutineScope {

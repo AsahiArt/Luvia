@@ -20,8 +20,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import tech.asahiart.luvia.ui.LuviaNavigation
-import tech.asahiart.luvia.ui.UhpHostActions
-import tech.asahiart.luvia.HostUhpState
 
 @Composable
 fun LuviaApp(launchIntent: Intent? = null) {
@@ -32,7 +30,6 @@ fun LuviaApp(launchIntent: Intent? = null) {
     val runtimes by viewModel.hosts.collectAsStateWithLifecycle()
     val pairing by viewModel.pairing.collectAsStateWithLifecycle()
     val terminals by viewModel.terminals.collectAsStateWithLifecycle()
-    val uhp by viewModel.uhp.collectAsStateWithLifecycle()
     val notifications = remember { StatusNotificationController(context) }
     var askedNotificationPermission by rememberSaveable { mutableStateOf(false) }
     var notificationPermissionEpoch by remember { mutableIntStateOf(0) }
@@ -43,69 +40,6 @@ fun LuviaApp(launchIntent: Intent? = null) {
         if (granted) notificationPermissionEpoch++
     }
     val hosts = runtimes.toSortedUi()
-    val uhpActions = remember(viewModel) {
-        UhpHostActions(
-            shown = viewModel::ensureUhp,
-            sectionShown = viewModel::showSection,
-            refreshSection = viewModel::refreshSection,
-            openAgent = viewModel::openAgent,
-            closeAgent = viewModel::closeAgent,
-            promptAgent = viewModel::promptAgent,
-            setSection = viewModel::setSection,
-            setAgentDraft = viewModel::setAgentDraft,
-            sendKeys = viewModel::sendAgentKeys,
-            checkAgent = viewModel::checkAgent,
-            resumeAgent = viewModel::resumeAgent,
-            setShowNameAgent = viewModel::setShowNameAgent,
-            setNameAgentDraft = viewModel::setNameAgentDraft,
-            nameAgent = viewModel::nameAgent,
-            setShowForkAgent = viewModel::setShowForkAgent,
-            setForkAgentDraft = viewModel::setForkAgentDraft,
-            forkAgent = viewModel::forkAgent,
-            openDiffFile = viewModel::openDiffFile,
-            closeDiffFile = viewModel::closeDiffFile,
-            addNote = viewModel::addReviewNote,
-            resolveNote = viewModel::resolveReviewNote,
-            reopenNote = viewModel::reopenReviewNote,
-            removeNote = viewModel::removeReviewNote,
-            sendNotes = viewModel::sendReviewNotes,
-            checkNotes = viewModel::checkNotes,
-            setNoteDraft = viewModel::setNoteDraft,
-            setSendTarget = viewModel::setSendTarget,
-            addTask = viewModel::addTask,
-            completeTask = viewModel::completeTask,
-            claimTask = viewModel::claimTask,
-            deleteTask = viewModel::deleteTask,
-            checkTasks = viewModel::checkTasks,
-            setShowAddTask = viewModel::setShowAddTask,
-            setCompleteTaskId = viewModel::setCompleteTaskId,
-            setDeleteTaskId = viewModel::setDeleteTaskId,
-            setAddTaskDraft = viewModel::setAddTaskDraft,
-            refreshFiles = viewModel::refreshFiles,
-            openFile = viewModel::openFile,
-            revealFile = viewModel::revealFile,
-            setSearchQuery = viewModel::setSearchQuery,
-            querySearch = viewModel::querySearch,
-            activateSearch = viewModel::activateSearch,
-            setShowCreateWorktree = viewModel::setShowCreateWorktree,
-            setCreateWorktreeBranch = viewModel::setCreateWorktreeBranch,
-            createWorktree = viewModel::createWorktree,
-            openWorktree = viewModel::openWorktree,
-            setRemoveWorktreePath = viewModel::setRemoveWorktreePath,
-            removeWorktree = viewModel::removeWorktree,
-            enableAutomation = viewModel::enableAutomation,
-            disableAutomation = viewModel::disableAutomation,
-            runAutomation = viewModel::runAutomation,
-            focusWorkspace = viewModel::focusWorkspace,
-            setCloseWorkspace = viewModel::setCloseWorkspace,
-            closeWorkspace = viewModel::closeWorkspace,
-            focusPane = viewModel::focusPane,
-            setClosePane = viewModel::setClosePane,
-            closePane = viewModel::closePane,
-            setRenamePane = viewModel::setRenamePane,
-            renamePane = viewModel::renamePane,
-        )
-    }
 
     LaunchedEffect(runtimes, notificationPermissionEpoch) {
         val online = runtimes.firstOrNull { it.link is HostLink.Online }
@@ -149,8 +83,8 @@ fun LuviaApp(launchIntent: Intent? = null) {
     LuviaNavigation(
         hosts = hosts,
         terminalForHost = { id -> terminals[id] },
-        uhpForHost = { id -> uhp[id] ?: HostUhpState() },
-        uhpActions = uhpActions,
+        workspace = viewModel::workspace,
+        onRefreshSection = viewModel::refreshSection,
         pairing = pairing,
         openHostId = launchIntent?.getStringExtra(StatusNotificationController.EXTRA_HOST_ID),
         openFirstBlocked = launchIntent?.getBooleanExtra(StatusNotificationController.EXTRA_OPEN_BLOCKED, false) == true,
