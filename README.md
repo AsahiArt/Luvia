@@ -56,10 +56,11 @@ Roles: `observer` (read) or `controller` (read plus workspace / agent / terminal
 
 ## Build
 
-From the repository root. Prefer `make`; CI runs the same targets. `make android` / `make ios` install and launch on **every connected physical phone** (USB or wireless), and fall back to emulator / Simulator if none are present.
+From the repository root. Prefer `make`; CI runs the same targets. `make android` / `make ios` / `make mobile` install and launch on **every connected physical phone** (USB or wireless), and fall back to emulator / Simulator if none are present.
 
 ```sh
 make help
+make mobile           # iOS then Android on every connected phone
 make android          # every physical phone, else AVD
 make ios              # every USB/wireless iPhone, else Simulator (macOS)
 make ios-device       # fail if no paired iPhone

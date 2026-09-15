@@ -45,7 +45,7 @@ ifeq ($(EMULATOR),)
 endif
 
 .PHONY: help doctor \
-	android android-build android-install android-release android-device \
+	mobile android android-build android-install android-release android-device \
 	ios ios-build ios-device ios-sim ios-open ios-compile ios-test ios-framework \
 	host host-dev host-test \
 	shared-test test test-rust test-kotlin test-android \
@@ -141,6 +141,8 @@ android-install: android-device android-build ## Install Android debug onto ever
 	done < "$(ANDROID_STAMP)"; \
 	if [ "$${#pids[@]}" -gt 0 ]; then for pid in "$${pids[@]}"; do wait "$$pid" || fail=1; done; fi; \
 	if [ "$$fail" != 0 ]; then echo "Android install failed on at least one device." >&2; exit 1; fi
+
+mobile: ios android ## Install and launch on every iOS and Android phone
 
 android: android-install ## Install and launch Android on every physical phone
 	@set -euo pipefail; \
