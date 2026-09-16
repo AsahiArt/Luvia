@@ -93,7 +93,13 @@ public class HostManager(
         }
     }
 
-    public suspend fun completePairing(draft: PairingDraft, rawCode: String): Outcome<HostProfile> {
+    public suspend fun completePairing(
+        draft: PairingDraft,
+        rawCode: String,
+        addresses: List<String> = emptyList(),
+        sshPort: Int? = null,
+        username: String? = null,
+    ): Outcome<HostProfile> {
         val code =
             when (val decoded = PairingCodes.decode(rawCode)) {
                 is Outcome.Err -> return fail(decoded.failure)
@@ -102,6 +108,11 @@ public class HostManager(
         if (code.deviceKeyFingerprint != draft.deviceKeyFingerprint) {
             return fail(Failure.ProtocolError("pairing code is for a different device key"))
         }
+        val reachability =
+            when (val parsed = parseReachability(addresses, sshPort, username, code.addresses, code.sshPort, code.username)) {
+                is Outcome.Err -> return fail(parsed.failure)
+                is Outcome.Ok -> parsed.value
+            }
         try {
             vault.save(code.deviceId, draft.privateKeyOpenssh)
         } catch (error: Exception) {
@@ -111,9 +122,9 @@ public class HostManager(
             HostProfile(
                 id = code.deviceId,
                 alias = code.hostLabel,
-                addresses = code.addresses,
-                sshPort = code.sshPort,
-                username = code.username,
+                addresses = reachability.addresses,
+                sshPort = reachability.sshPort,
+                username = reachability.username,
                 hostKeyFingerprints = code.hostKeyFingerprints,
                 role = code.role,
                 lastStatus = HostStatus.Unknown,
@@ -125,6 +136,53 @@ public class HostManager(
         connect(profile.id)
         return ok(profile)
     }
+
+    public suspend fun updateConnection(
+        hostId: String,
+        alias: String,
+        addresses: List<String>,
+        sshPort: Int,
+        username: String,
+    ): Outcome<HostProfile> {
+        val current =
+            store.current().hosts.firstOrNull { it.id == hostId }
+                ?: return fail(Failure.NotFound("host not found"))
+        val reachability =
+            when (val parsed = parseReachability(addresses, sshPort, username, current.addresses, current.sshPort, current.username)) {
+                is Outcome.Err -> return fail(parsed.failure)
+                is Outcome.Ok -> parsed.value
+            }
+        val name = alias.trim().ifEmpty { current.alias }
+        val last =
+            current.lastConnectedAddress?.takeIf { it in reachability.addresses }
+        val updated =
+            current.copy(
+                alias = name,
+                addresses = reachability.addresses,
+                sshPort = reachability.sshPort,
+                username = reachability.username,
+                lastConnectedAddress = last,
+                lastUpdatedEpochMs = nowEpochMs(),
+            )
+        store.upsert(updated)
+        val shouldReconnect =
+            mutex.withLock {
+                catalogHosts = catalogHosts.map { if (it.id == hostId) updated else it }
+                publishLocked(catalogHosts)
+                val liveHost = live[hostId]
+                val connecting = connectJobs.containsKey(hostId)
+                val online = links[hostId] is HostLink.Online || links[hostId] is HostLink.Connecting
+                Triple(liveHost != null || connecting || online, connectJobs.remove(hostId), live.remove(hostId))
+            }
+        shouldReconnect.second?.cancel()
+        shouldReconnect.third?.close()
+        if (shouldReconnect.first) {
+            mutex.withLock { links[hostId] = HostLink.Idle }
+            connect(hostId)
+        }
+        return ok(updated)
+    }
+
 
     public suspend fun unpair(hostId: String) {
         disconnect(hostId)
@@ -521,6 +579,43 @@ public class HostManager(
         }
     }
 }
+
+private data class Reachability(
+    val addresses: List<String>,
+    val sshPort: Int,
+    val username: String,
+)
+
+private fun parseReachability(
+    addresses: List<String>,
+    sshPort: Int?,
+    username: String?,
+    fallbackAddresses: List<String>,
+    fallbackPort: Int,
+    fallbackUser: String,
+): Outcome<Reachability> {
+    val resolvedAddresses =
+        addresses
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .ifEmpty {
+                fallbackAddresses.map { it.trim() }.filter { it.isNotEmpty() }
+            }
+    val resolvedPort = sshPort ?: fallbackPort
+    val resolvedUser = username?.trim()?.takeIf { it.isNotEmpty() } ?: fallbackUser.trim()
+    if (resolvedAddresses.isEmpty()) {
+        return fail(Failure.Transport("Enter a host address."))
+    }
+    if (resolvedPort !in 1..65535) {
+        return fail(Failure.Transport("SSH port must be between 1 and 65535."))
+    }
+    if (resolvedUser.isEmpty()) {
+        return fail(Failure.Transport("Enter a username."))
+    }
+    return ok(Reachability(resolvedAddresses, resolvedPort, resolvedUser))
+}
+
 
 private fun CachedTopology.toSnapshot(): SessionSnapshot =
     SessionSnapshot(

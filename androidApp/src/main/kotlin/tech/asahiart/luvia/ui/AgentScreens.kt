@@ -18,13 +18,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -32,9 +36,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,6 +53,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -633,57 +644,90 @@ fun AgentDetailPane(
         }
         }
         if (canKeys || canPrompt) {
-            Surface(
+            val consumeVertical = remember {
+                object : NestedScrollConnection {
+                    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                        return if (kotlin.math.abs(available.y) > kotlin.math.abs(available.x)) {
+                            Offset(0f, available.y)
+                        } else {
+                            Offset.Zero
+                        }
+                    }
+                }
+            }
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(bottom = bottomInset),
-                color = MaterialTheme.colorScheme.surface,
+                    .nestedScroll(consumeVertical)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = bottomInset + 8.dp, top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Column(Modifier.fillMaxWidth()) {
-                    if (canKeys && yesNoPrompt) {
-                        AgentKeyRow(
-                            canPrompt = canPrompt,
-                            mutationPending = mutationPending,
-                            blocked = blocked,
-                            prominent = true,
-                            onPrompt = onPrompt,
-                            onSendKeys = onSendKeys,
-                            onPending = { pendingKeys = it },
-                        )
-                    }
-                    if (canPrompt) {
+                if (canKeys) {
+                    AgentKeyRow(
+                        canPrompt = canPrompt,
+                        mutationPending = mutationPending,
+                        blocked = blocked,
+                        prominent = yesNoPrompt,
+                        onPrompt = onPrompt,
+                        onSendKeys = onSendKeys,
+                        onPending = { pendingKeys = it },
+                    )
+                }
+                if (canPrompt) {
+                    val canSend = !mutationPending && draft.isNotBlank()
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                        tonalElevation = 3.dp,
+                        shadowElevation = 8.dp,
+                    ) {
                         OutlinedTextField(
                             value = draft,
                             onValueChange = onDraftChange,
-                            placeholder = { Text(if (yesNoPrompt) "Agent prompt" else "Agent prompt") },
+                            placeholder = { Text("Agent prompt") },
                             enabled = !mutationPending,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = if (yesNoPrompt) 48.dp else 64.dp)
-                                .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp),
+                                .heightIn(min = 48.dp),
                             singleLine = true,
                             textStyle = MaterialTheme.typography.bodyMedium,
+                            shape = RoundedCornerShape(24.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent,
+                                focusedBorderColor = Color.Transparent,
+                                unfocusedBorderColor = Color.Transparent,
+                                disabledBorderColor = Color.Transparent,
+                            ),
                             trailingIcon = {
-                                TextButton(
-                                    enabled = !mutationPending && draft.isNotBlank(),
-                                    onClick = {
-                                        val text = draft.trim()
-                                        onPrompt(text)
-                                    },
-                                ) { Text("Send") }
+                                Box(
+                                    modifier = Modifier
+                                        .padding(end = 4.dp)
+                                        .size(32.dp)
+                                        .background(
+                                            if (canSend) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
+                                            },
+                                            CircleShape,
+                                        )
+                                        .clickable(enabled = canSend) {
+                                            onPrompt(draft.trim())
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        Icons.Filled.KeyboardArrowUp,
+                                        contentDescription = "Send",
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
                             },
-                        )
-                    }
-                    if (canKeys && !yesNoPrompt) {
-                        AgentKeyRow(
-                            canPrompt = canPrompt,
-                            mutationPending = mutationPending,
-                            blocked = blocked,
-                            prominent = false,
-                            onPrompt = onPrompt,
-                            onSendKeys = onSendKeys,
-                            onPending = { pendingKeys = it },
                         )
                     }
                 }

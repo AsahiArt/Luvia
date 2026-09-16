@@ -52,13 +52,14 @@ fun LuviaNavigation(
     openHostId: String? = null,
     openFirstBlocked: Boolean = false,
     onBeginPairing: (String, HostRole) -> Unit,
-    onCompletePairing: (raw: String, onSuccess: () -> Unit) -> Unit,
+    onCompletePairing: (raw: String, host: String, port: String, user: String, onSuccess: () -> Unit) -> Unit,
     onCancelPairing: () -> Unit,
     onConnect: (String) -> Unit,
     onDisconnect: (String) -> Unit,
     onRefresh: (String) -> Unit,
     onRefreshAll: () -> Unit,
     onUnpair: (String) -> Unit,
+    onUpdateConnection: (hostId: String, alias: String, hosts: String, port: String, username: String) -> Unit = { _, _, _, _, _ -> },
     onRequestControl: (String) -> Unit,
     onSendTerminalText: (String, String) -> Unit,
     onSendTerminalKey: (String, TerminalKey) -> Unit = { _, _ -> },
@@ -111,6 +112,7 @@ fun LuviaNavigation(
                         onRefresh = onRefresh,
                         onRefreshAll = onRefreshAll,
                         onUnpair = onUnpair,
+                        onUpdateConnection = onUpdateConnection,
                         onRequestControl = onRequestControl,
                         onSendTerminalText = onSendTerminalText,
                         onSendTerminalKey = onSendTerminalKey,
@@ -137,6 +139,7 @@ fun LuviaNavigation(
                 onRefresh = onRefresh,
                 onRefreshAll = onRefreshAll,
                 onUnpair = onUnpair,
+                onUpdateConnection = onUpdateConnection,
                 onRequestControl = onRequestControl,
                 onSendTerminalText = onSendTerminalText,
                 onSendTerminalKey = onSendTerminalKey,
@@ -158,13 +161,14 @@ private fun DetailNav(
     pairing: PairingUiState,
     openFirstBlocked: Boolean,
     onBeginPairing: (String, HostRole) -> Unit,
-    onCompletePairing: (raw: String, onSuccess: () -> Unit) -> Unit,
+    onCompletePairing: (raw: String, host: String, port: String, user: String, onSuccess: () -> Unit) -> Unit,
     onCancelPairing: () -> Unit,
     onConnect: (String) -> Unit,
     onDisconnect: (String) -> Unit,
     onRefresh: (String) -> Unit,
     onRefreshAll: () -> Unit,
     onUnpair: (String) -> Unit,
+    onUpdateConnection: (hostId: String, alias: String, hosts: String, port: String, username: String) -> Unit,
     onRequestControl: (String) -> Unit,
     onSendTerminalText: (String, String) -> Unit,
     onSendTerminalKey: (String, TerminalKey) -> Unit,
@@ -253,6 +257,9 @@ private fun DetailNav(
                         onUnpair = {
                             backStack.removeAll { it is HostRoute && it.id == route.id }
                             onUnpair(route.id)
+                        },
+                        onUpdateConnection = { alias, hosts, port, username ->
+                            onUpdateConnection(route.id, alias, hosts, port, username)
                         },
                         sections = visible,
                         agentsContent = { modifier ->
@@ -391,8 +398,8 @@ private fun DetailNav(
                         context.getSystemService(ClipboardManager::class.java)
                             ?.setPrimaryClip(ClipData.newPlainText("luvia pair command", command))
                     },
-                    onComplete = { raw ->
-                        onCompletePairing(raw) { }
+                    onComplete = { raw, host, port, user ->
+                        onCompletePairing(raw, host, port, user) { }
                     },
                     onCancel = {
                         onCancelPairing()

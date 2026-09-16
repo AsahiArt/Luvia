@@ -234,9 +234,6 @@ struct AgentDetailView: View {
                 composer
             }
         }
-        .refreshable {
-            await model.refreshOpenAgent()
-        }
         .sheet(isPresented: $model.uhp.isNameAgentPresented) {
             NameAgentSheet(model: model)
         }
@@ -347,7 +344,11 @@ struct AgentDetailView: View {
             .fixedSize(horizontal: true, vertical: false)
             .padding()
         }
+        .refreshable {
+            await model.refreshOpenAgent()
+        }
     }
+
 
     @ViewBuilder
     private func transcriptText(_ text: String) -> some View {
@@ -379,8 +380,10 @@ struct AgentDetailView: View {
         .textSelection(.enabled)
     }
 
+    @ViewBuilder
     private var composer: some View {
-        VStack(spacing: 10) {
+        let canSend = !uhp.composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !uhp.isSending
+        VStack(spacing: 8) {
             if uhp.caps.agentKeys {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -393,29 +396,44 @@ struct AgentDetailView: View {
                         }
                     }
                 }
+                .fixedSize(horizontal: false, vertical: true)
             }
             if uhp.caps.agentPrompt {
-                HStack(spacing: 8) {
+                HStack(alignment: .center, spacing: 10) {
                     TextField("Agent prompt", text: $model.uhp.composerText, axis: .vertical)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .lineLimit(1...5)
-                    Button("Send") {
+                    Button {
                         if isBlocked {
                             confirmPrompt = true
                         } else {
                             _Concurrency.Task { await model.sendAgentPrompt() }
                         }
+                    } label: {
+                        Image(systemName: "arrow.up")
+                            .font(.body.weight(.bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 32, height: 32)
+                            .background(canSend ? DesignTokens.accent : Color.secondary.opacity(0.35), in: Circle())
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(prefersKeys ? Color.secondary : DesignTokens.accent)
-                    .disabled(uhp.composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || uhp.isSending)
+                    .disabled(!canSend)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Send")
                 }
+                .padding(.leading, 16)
+                .padding(.trailing, 6)
+                .padding(.vertical, 6)
+                .luviaGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
             }
         }
-        .padding()
-        .background(.bar)
+        .padding(.horizontal, DesignTokens.Space.m)
+        .padding(.top, DesignTokens.Space.s)
+        .padding(.bottom, DesignTokens.Space.s)
+        .contentShape(Rectangle())
     }
+
+
 
     private func request(_ key: QuickAgentKey) {
         if isBlocked {
@@ -735,7 +753,8 @@ private struct AgentDetailPreview: View {
                     Text("/Users/dev/luvia")
                         .font(.system(.footnote, design: .monospaced))
                 }
-                .padding()
+                .padding(.horizontal)
+                .padding(.vertical, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 ScrollView {
                     Text("Approve this change? (y/n)")
@@ -746,13 +765,22 @@ private struct AgentDetailPreview: View {
             }
             .navigationTitle("Codex")
             .safeAreaInset(edge: .bottom) {
-                HStack {
+                HStack(spacing: 10) {
                     TextField("Agent prompt", text: .constant(""))
-                    Button("Send") {}
+                    Image(systemName: "arrow.up")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 32, height: 32)
+                        .background(DesignTokens.accent, in: Circle())
                 }
-                .padding()
-                .background(.bar)
+                .padding(.leading, 16)
+                .padding(.trailing, 6)
+                .padding(.vertical, 6)
+                .luviaGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .padding(.horizontal, DesignTokens.Space.m)
+                .padding(.bottom, DesignTokens.Space.s)
             }
         }
     }
 }
+

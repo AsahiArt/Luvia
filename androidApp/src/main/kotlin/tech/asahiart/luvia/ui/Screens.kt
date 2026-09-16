@@ -331,6 +331,7 @@ fun HostDetailPane(
     onDisconnect: () -> Unit = {},
     onRefresh: () -> Unit = {},
     onUnpair: () -> Unit = {},
+    onUpdateConnection: (alias: String, hosts: String, port: String, username: String) -> Unit = { _, _, _, _ -> },
     onSelectTerminalPane: (String) -> Unit = {},
     sections: List<HostSection> = HostSection.entries,
     agentsContent: @Composable (Modifier) -> Unit = { EmptyPane("Agents", "Connect to this host", modifier = it) },
@@ -345,6 +346,7 @@ fun HostDetailPane(
 ) {
     var confirmUnpair by remember { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
+    var editingConnection by remember { mutableStateOf(false) }
     val visible = sections.ifEmpty { HostSection.entries }
     val tabs = visible.filter { it.isPrimaryTab }
     Scaffold(
@@ -397,6 +399,13 @@ fun HostDetailPane(
                                 onClick = {
                                     overflowOpen = false
                                     onRefresh()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Edit connection") },
+                                onClick = {
+                                    overflowOpen = false
+                                    editingConnection = true
                                 },
                             )
                             DropdownMenuItem(
@@ -468,7 +477,17 @@ fun HostDetailPane(
             },
         )
     }
-}
+    if (editingConnection) {
+        EditConnectionDialog(
+            host = host,
+            onDismiss = { editingConnection = false },
+            onSave = { alias, hosts, port, username ->
+                onUpdateConnection(alias, hosts, port, username)
+                editingConnection = false
+            },
+        )
+    }
+ }
 
 private fun HostSection.barIcon(): ImageVector = when (this) {
     HostSection.Agents -> Icons.Filled.Person
@@ -477,6 +496,69 @@ private fun HostSection.barIcon(): ImageVector = when (this) {
     HostSection.Terminal -> Icons.Filled.PlayArrow
     else -> Icons.Filled.MoreVert
 }
+
+@Composable
+private fun EditConnectionDialog(
+    host: HostUiModel,
+    onDismiss: () -> Unit,
+    onSave: (alias: String, hosts: String, port: String, username: String) -> Unit,
+) {
+    var alias by remember { mutableStateOf(host.name) }
+    var hosts by remember { mutableStateOf(host.addresses.joinToString(", ")) }
+    var port by remember { mutableStateOf(host.sshPort.toString()) }
+    var username by remember { mutableStateOf(host.username) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit connection") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = alias,
+                    onValueChange = { alias = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = hosts,
+                    onValueChange = { hosts = it },
+                    label = { Text("Host") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = port,
+                    onValueChange = { port = it },
+                    label = { Text("Port") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text("Username") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Comma-separated hosts. SSH host keys stay pinned from pairing.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(alias, hosts, port, username) }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
 
 @Composable
 private fun OverviewPane(host: HostUiModel, modifier: Modifier = Modifier) {
@@ -730,11 +812,14 @@ fun PairHostPane(
     pairedHostId: String? = null,
     onBegin: (String, HostRole) -> Unit,
     onCopyCommand: (String) -> Unit,
-    onComplete: (String) -> Unit,
+    onComplete: (raw: String, host: String, port: String, user: String) -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showScan by remember { mutableStateOf(false) }
+    var reachHost by remember { mutableStateOf("") }
+    var reachPort by remember { mutableStateOf("22") }
+    var reachUser by remember { mutableStateOf("") }
     val step = when {
         pairedHostId != null -> 3
         command == null -> 1
@@ -771,6 +856,12 @@ fun PairHostPane(
                 command == null ->
                     PairLabelStep(
                         errorMessage = errorMessage,
+                        host = reachHost,
+                        port = reachPort,
+                        user = reachUser,
+                        onHostChange = { reachHost = it },
+                        onPortChange = { reachPort = it },
+                        onUserChange = { reachUser = it },
                         onBegin = { label, role ->
                             showScan = false
                             onBegin(label, role)
@@ -792,7 +883,7 @@ fun PairHostPane(
                     PairScanStep(
                         errorMessage = errorMessage,
                         completing = completing,
-                        onComplete = onComplete,
+                        onComplete = { raw -> onComplete(raw, reachHost, reachPort, reachUser) },
                         onBack = { showScan = false },
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -822,6 +913,12 @@ private fun PairingStepRail(step: Int, modifier: Modifier = Modifier) {
 @Composable
 private fun PairLabelStep(
     errorMessage: String?,
+    host: String,
+    port: String,
+    user: String,
+    onHostChange: (String) -> Unit,
+    onPortChange: (String) -> Unit,
+    onUserChange: (String) -> Unit,
     onBegin: (String, HostRole) -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
@@ -862,6 +959,32 @@ private fun PairLabelStep(
             "Observer can watch sessions. Controller can prompt agents, review, tasks, and type in terminals.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = host,
+            onValueChange = onHostChange,
+            label = { Text("Host") },
+            placeholder = { Text("IP or hostname, optional") },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = port,
+            onValueChange = onPortChange,
+            label = { Text("Port") },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = user,
+            onValueChange = onUserChange,
+            label = { Text("Username") },
+            placeholder = { Text("Optional override") },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth(),
         )
         errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {

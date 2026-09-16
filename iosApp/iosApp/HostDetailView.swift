@@ -70,6 +70,7 @@ struct HostDetailView: View {
 struct HostSessionChrome: ViewModifier {
     let host: HostViewState
     @Bindable var model: AppModel
+    @State private var editingConnection = false
 
     func body(content: Content) -> some View {
         content
@@ -91,6 +92,9 @@ struct HostSessionChrome: ViewModifier {
                         _Concurrency.Task { await model.refresh(host.id) }
                     }
                     .disabled(host.connection != .live)
+                    Button("Edit Connection", systemImage: "network") {
+                        editingConnection = true
+                    }
                     Menu {
                         Button("Files", systemImage: MoreSurface.files.symbol) {
                             model.uhp.moreSurface = .files
@@ -114,6 +118,9 @@ struct HostSessionChrome: ViewModifier {
                     .accessibilityLabel("More")
                 }
             }
+            .sheet(isPresented: $editingConnection) {
+                EditConnectionSheet(host: host, model: model)
+            }
     }
 }
 
@@ -122,6 +129,87 @@ extension View {
         modifier(HostSessionChrome(host: host, model: model))
     }
 }
+
+private struct EditConnectionSheet: View {
+    let host: HostViewState
+    let model: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var alias: String
+    @State private var hosts: String
+    @State private var port: String
+    @State private var username: String
+    @State private var errorMessage: String?
+    @State private var saving = false
+
+    init(host: HostViewState, model: AppModel) {
+        self.host = host
+        self.model = model
+        _alias = State(initialValue: host.name)
+        _hosts = State(initialValue: host.addresses.joined(separator: ", "))
+        _port = State(initialValue: String(host.sshPort))
+        _username = State(initialValue: host.username)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Name", text: $alias)
+                    TextField("Host", text: $hosts)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    TextField("Port", text: $port)
+                        .keyboardType(.numberPad)
+                    TextField("Username", text: $username)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } footer: {
+                    Text("Comma-separated hosts. SSH host keys stay pinned from pairing.")
+                }
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage).foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Edit Connection")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { save() }
+                        .disabled(saving)
+                }
+            }
+        }
+    }
+
+    private func save() {
+        saving = true
+        errorMessage = nil
+        _Concurrency.Task {
+            let result = await model.updateConnection(
+                hostID: host.id,
+                alias: alias,
+                hosts: hosts,
+                port: port,
+                username: username
+            )
+            saving = false
+            switch result {
+            case .success:
+                dismiss()
+            case .failure(let error):
+                errorMessage = error.message
+            }
+        }
+    }
+}
+
 
 private enum TerminalChrome {
     static let background = DesignTokens.Terminal.background
@@ -236,6 +324,7 @@ private struct TerminalPane: View {
                 }
             }
             if host.isController {
+                let canSend = !input.isEmpty && host.connection == .live && holdsControl
                 VStack(spacing: 8) {
                     if holdsControl {
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -251,23 +340,37 @@ private struct TerminalPane: View {
                                 }
                             }
                         }
+                        .fixedSize(horizontal: false, vertical: true)
                     }
-                    HStack(spacing: 8) {
+                    HStack(spacing: 10) {
                         TextField("Send to terminal", text: $input)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .font(.body)
                             .foregroundStyle(TerminalChrome.foreground)
-                        Button("Send") {
+                        Button {
                             let payload = input
                             input = ""
                             onSend(payload)
+                        } label: {
+                            Image(systemName: "arrow.up")
+                                .font(.body.weight(.bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 32, height: 32)
+                                .background(canSend ? DesignTokens.live : Color.secondary.opacity(0.35), in: Circle())
                         }
-                        .foregroundStyle(TerminalChrome.foreground)
-                        .disabled(input.isEmpty || host.connection != .live || !holdsControl)
+                        .disabled(!canSend)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Send")
                     }
+                    .padding(.leading, 16)
+                    .padding(.trailing, 6)
+                    .padding(.vertical, 6)
+                    .luviaGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                 }
-                .padding()
+                .padding(.horizontal, DesignTokens.Space.m)
+                .padding(.vertical, DesignTokens.Space.s)
+                .contentShape(Rectangle())
             }
         }
         .background(TerminalChrome.background)

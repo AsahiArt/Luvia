@@ -93,6 +93,42 @@ class HostManagerTest {
         assertEquals("Could not store the device key on this device.", (err.failure as Failure.ProtocolError).reason)
         manager.close()
     }
+
+    @Test
+    fun updateConnectionRewritesReachability() = runTest {
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-hm-addr-${Random.nextLong()}.json"
+        val store = HostStore(path.toString(), backgroundScope)
+        val manager = HostManager(store, MemoryVault(), backgroundScope)
+        store.upsert(sampleProfile())
+        advanceUntilIdle()
+        val result =
+            manager.updateConnection(
+                hostId = "host-1",
+                alias = "studio-lan",
+                addresses = listOf("192.168.1.20", "studio.local"),
+                sshPort = 2222,
+                username = "deploy",
+            )
+        val updated = (result as Outcome.Ok).value
+        assertEquals("studio-lan", updated.alias)
+        assertEquals(listOf("192.168.1.20", "studio.local"), updated.addresses)
+        assertEquals(2222, updated.sshPort)
+        assertEquals("deploy", updated.username)
+        val stored = store.current().hosts.single()
+        assertEquals(listOf("192.168.1.20", "studio.local"), stored.addresses)
+        assertEquals(2222, stored.sshPort)
+        manager.close()
+    }
+
+    @Test
+    fun parseConnectionAddressesSplitsHostList() {
+        assertEquals(
+            listOf("192.168.1.8", "studio.local"),
+            parseConnectionAddresses("192.168.1.8, studio.local\n"),
+        )
+        assertEquals(emptyList(), parseConnectionAddresses("  , \n"))
+    }
+
 }
 
 private class ThrowingVault : DeviceKeyVault {

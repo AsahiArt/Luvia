@@ -79,9 +79,21 @@ final class AppModel {
         }
     }
 
-    func completePairing(draft: PairingDraft, rawCode: String) async -> Result<HostProfile, UserFacingError> {
+    func completePairing(
+        draft: PairingDraft,
+        rawCode: String,
+        host: String = "",
+        port: String = "",
+        user: String = ""
+    ) async -> Result<HostProfile, UserFacingError> {
         do {
-            let outcome = try await manager.completePairing(draft: draft, rawCode: rawCode)
+            let outcome = try await manager.completePairing(
+                draft: draft,
+                rawCode: rawCode,
+                addresses: [],
+                sshPort: nil,
+                username: nil
+            )
             switch onEnum(of: outcome) {
             case .ok(let ok):
                 guard let profile = ok.value else {
@@ -91,6 +103,18 @@ final class AppModel {
                 selectedSection = .agents
                 bindUhp(hostID: profile.id)
                 hostUhp()?.shown()
+                if !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !port.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !user.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                {
+                    _ = await updateConnection(
+                        hostID: profile.id,
+                        alias: profile.alias,
+                        hosts: host,
+                        port: port,
+                        username: user
+                    )
+                }
                 return .success(profile)
             case .err(let err):
                 return .failure(UserFacingError(message: FailureText.describe(err.failure)))
@@ -99,6 +123,35 @@ final class AppModel {
             return .failure(UserFacingError(message: error.localizedDescription))
         }
     }
+
+    func updateConnection(
+        hostID: String,
+        alias: String,
+        hosts: String,
+        port: String,
+        username: String
+    ) async -> Result<Void, UserFacingError> {
+        let addresses = parseConnectionAddresses(raw: hosts)
+        let parsedPort = Int32(port.trimmingCharacters(in: .whitespacesAndNewlines))
+        do {
+            let outcome = try await manager.updateConnection(
+                hostId: hostID,
+                alias: alias,
+                addresses: addresses,
+                sshPort: parsedPort ?? 0,
+                username: username
+            )
+            switch onEnum(of: outcome) {
+            case .ok:
+                return .success(())
+            case .err(let err):
+                return .failure(UserFacingError(message: FailureText.describe(err.failure)))
+            }
+        } catch {
+            return .failure(UserFacingError(message: error.localizedDescription))
+        }
+    }
+
 
     func connect(_ hostId: String) {
         manager.connect(hostId: hostId)

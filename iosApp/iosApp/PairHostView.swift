@@ -15,6 +15,9 @@ struct PairHostView: View {
     @State private var step: Step = .identity
     @State private var deviceLabel = UIDevice.current.name
     @State private var role: HostRole = .controller
+    @State private var hostAddress = ""
+    @State private var sshPort = "22"
+    @State private var sshUser = ""
     @State private var draft: PairingDraft?
     @State private var errorMessage: String?
     @State private var isScanning = false
@@ -115,6 +118,21 @@ struct PairHostView: View {
                 .pickerStyle(.segmented)
             } footer: {
                 Text("Observer can watch sessions. Controller can prompt agents, review, tasks, and type in terminals.")
+            }
+            Section {
+                TextField("Host", text: $hostAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                TextField("Port", text: $sshPort)
+                    .keyboardType(.numberPad)
+                TextField("Username", text: $sshUser)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            } header: {
+                Text("Reach this Host")
+            } footer: {
+                Text("Optional. Overrides addresses in the pairing code. SSH host keys still come from pairing.")
             }
             if let errorMessage {
                 Section {
@@ -289,7 +307,13 @@ struct PairHostView: View {
         guard !trimmed.isEmpty else { return }
         isCompleting = true
         errorMessage = nil
-        let result = await model.completePairing(draft: draft, rawCode: trimmed)
+        let result = await model.completePairing(
+            draft: draft,
+            rawCode: trimmed,
+            host: hostAddress,
+            port: sshPort,
+            user: sshUser
+        )
         isCompleting = false
         switch result {
         case .success(let profile):

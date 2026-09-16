@@ -113,7 +113,7 @@ private fun PairCommandPreview() {
             completing = false,
             onBegin = { _, _ -> },
             onCopyCommand = {},
-            onComplete = {},
+            onComplete = { _, _, _, _ -> },
             onCancel = {},
         )
     }
@@ -131,7 +131,7 @@ private fun PairLabelPreview() {
             completing = false,
             onBegin = { _, _ -> },
             onCopyCommand = {},
-            onComplete = {},
+            onComplete = { _, _, _, _ -> },
             onCancel = {},
         )
     }

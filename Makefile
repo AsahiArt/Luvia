@@ -25,6 +25,7 @@ IOS_SCHEME := iosApp
 IOS_BUNDLE_ID := tech.asahiart.luvia
 IOS_APP_NAME := Luvia.app
 IOS_DERIVED := build/ios
+IOS_SWIFT_STAMP := $(IOS_DERIVED)/.swift-sdk
 IOS_CONFIGURATION ?= Debug
 IOS_UDID ?=
 IOS_PICK := scripts/pick-ios-device.py
@@ -47,6 +48,7 @@ endif
 .PHONY: help doctor \
 	mobile android android-build android-install android-release android-device \
 	ios ios-build ios-device ios-sim ios-open ios-compile ios-test ios-framework \
+	ios-sync-shared \
 	host host-dev host-test \
 	shared-test test test-rust test-kotlin test-android \
 	check-transport-android check-transport-ios \
@@ -167,7 +169,24 @@ ios-framework: ## Link the shared debug framework for the Simulator
 
 ifeq ($(UNAME_S),Darwin)
 
-ios-build: ## Build Luvia for the iOS Simulator (unsigned; CI uses this)
+ios-sync-shared: ## Drop LuviaShared when Swift/SDK no longer matches the last link
+	@set -euo pipefail; \
+	swift="$$(xcrun swiftc -version 2>/dev/null | head -1)"; \
+	sdk_sim="$$(xcrun --sdk iphonesimulator --show-sdk-version 2>/dev/null || true)"; \
+	sdk_dev="$$(xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"; \
+	cur="$$swift | sim=$$sdk_sim | os=$$sdk_dev"; \
+	mkdir -p "$(IOS_DERIVED)"; \
+	if [ ! -f "$(IOS_SWIFT_STAMP)" ] || [ "$$(cat "$(IOS_SWIFT_STAMP)")" != "$$cur" ]; then \
+	  echo "Swift/SDK changed; rebuilding LuviaShared"; \
+	  rm -rf \
+	    shared/build/bin/iosArm64 \
+	    shared/build/bin/iosSimulatorArm64 \
+	    shared/build/xcode-frameworks \
+	    $(IOS_DERIVED)/Build/Products/*/LuviaShared.framework; \
+	  printf '%s\n' "$$cur" > "$(IOS_SWIFT_STAMP)"; \
+	fi
+
+ios-build: ios-sync-shared ## Build Luvia for the iOS Simulator (unsigned; CI uses this)
 	xcodebuild \
 		-project "$(IOS_PROJECT)" \
 		-scheme "$(IOS_SCHEME)" \
@@ -179,7 +198,8 @@ ios-build: ## Build Luvia for the iOS Simulator (unsigned; CI uses this)
 		CODE_SIGNING_REQUIRED=NO \
 		build
 
-ios: ## Build, install, and launch on every paired iPhone (else Simulator)
+
+ios: ios-sync-shared ## Build, install, and launch on every paired iPhone (else Simulator)
 	@set -euo pipefail; \
 	export IOS_UDID="$(IOS_UDID)"; \
 	pick="$$(python3 "$(IOS_PICK)")"; \
@@ -231,7 +251,7 @@ ios: ## Build, install, and launch on every paired iPhone (else Simulator)
 	    CODE_SIGNING_REQUIRED=NO \
 	    build; \
 	  xcrun simctl bootstatus "$$udid" -b >/dev/null; \
-	  open -a Simulator --args -CurrentDeviceUDID "$$udid"; \
+	  open -a "$$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID "$$udid" || true; \
 	  xcrun simctl install "$$udid" "$(IOS_APP_SIM)"; \
 	  xcrun simctl launch "$$udid" "$(IOS_BUNDLE_ID)"; \
 	  echo "Launched $(IOS_BUNDLE_ID) on Simulator $$udid"; \
@@ -248,7 +268,7 @@ ios-open: ## Open the iOS project in Xcode
 
 else
 
-ios ios-build ios-device ios-sim ios-open:
+ios ios-build ios-device ios-sim ios-open ios-sync-shared:
 	@echo "iOS targets require macOS / Xcode." >&2; exit 1
 
 endif

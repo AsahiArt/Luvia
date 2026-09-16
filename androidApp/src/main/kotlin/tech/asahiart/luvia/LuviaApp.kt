@@ -89,13 +89,16 @@ fun LuviaApp(launchIntent: Intent? = null) {
         openHostId = launchIntent?.getStringExtra(StatusNotificationController.EXTRA_HOST_ID),
         openFirstBlocked = launchIntent?.getBooleanExtra(StatusNotificationController.EXTRA_OPEN_BLOCKED, false) == true,
         onBeginPairing = viewModel::beginPairing,
-        onCompletePairing = { raw, onSuccess -> viewModel.completePairing(raw, onSuccess) },
+        onCompletePairing = { raw, host, port, user, onSuccess ->
+            viewModel.completePairing(raw, host, port, user, onSuccess)
+        },
         onCancelPairing = viewModel::cancelPairing,
         onConnect = viewModel::connect,
         onDisconnect = viewModel::disconnect,
         onRefresh = viewModel::refresh,
         onRefreshAll = viewModel::refreshAll,
         onUnpair = viewModel::unpair,
+        onUpdateConnection = viewModel::updateConnection,
         onRequestControl = viewModel::requestControl,
         onSendTerminalText = viewModel::sendTerminalText,
         onSendTerminalKey = viewModel::sendTerminalKey,

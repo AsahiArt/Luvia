@@ -370,6 +370,9 @@ struct HostViewState: Identifiable, Hashable, Sendable {
     let id: String
     var name: String
     var address: String
+    var addresses: [String]
+    var sshPort: Int32
+    var username: String
     var sessionName: String?
     var connection: HostConnectionBadge
     var workingAgents: Int
@@ -387,6 +390,9 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         id: String,
         name: String,
         address: String,
+        addresses: [String] = [],
+        sshPort: Int32 = 22,
+        username: String = "",
         sessionName: String? = nil,
         connection: HostConnectionBadge = .offline,
         workingAgents: Int = 0,
@@ -403,6 +409,9 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         self.id = id
         self.name = name
         self.address = address
+        self.addresses = addresses
+        self.sshPort = sshPort
+        self.username = username
         self.sessionName = sessionName
         self.connection = connection
         self.workingAgents = workingAgents
@@ -442,6 +451,9 @@ struct HostViewState: Identifiable, Hashable, Sendable {
             id: profile.id,
             name: profile.alias,
             address: link.address,
+            addresses: KotlinLists.array(profile.addresses as Any),
+            sshPort: profile.sshPort,
+            username: profile.username,
             sessionName: link.sessionName,
             connection: link.badge,
             workingAgents: agentSummaries.filter { isStatus($0.status, .working) }.count,

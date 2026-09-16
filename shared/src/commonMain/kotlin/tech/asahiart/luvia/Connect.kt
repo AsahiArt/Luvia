@@ -159,6 +159,16 @@ internal suspend fun connectToProfile(
     )
 }
 
+public fun parseConnectionAddresses(raw: String): List<String> {
+    val seen = LinkedHashSet<String>()
+    for (part in raw.split(',', '\n', ';')) {
+        val address = part.trim()
+        if (address.isNotEmpty()) seen += address
+    }
+    return seen.toList()
+}
+
+
 internal fun orderedAddresses(profile: HostProfile): List<String> {
     val seen = LinkedHashSet<String>()
     val literals = ArrayList<String>()

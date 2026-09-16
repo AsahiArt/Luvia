@@ -57,12 +57,28 @@ class LuviaViewModel(
         }
     }
 
-    fun completePairing(rawCode: String, onSuccess: () -> Unit) {
+    fun completePairing(
+        rawCode: String,
+        host: String = "",
+        port: String = "",
+        user: String = "",
+        onSuccess: () -> Unit,
+    ) {
         val draft = _pairing.value.draft ?: return
         if (_pairing.value.completing) return
         viewModelScope.launch {
             _pairing.update { it.copy(completing = true, errorMessage = null) }
-            when (val result = manager.completePairing(draft, rawCode.trim())) {
+            val parsedPort = port.trim().toIntOrNull()
+            when (
+                val result =
+                    manager.completePairing(
+                        draft,
+                        rawCode.trim(),
+                        parseConnectionAddresses(host),
+                        parsedPort,
+                        user.trim().ifEmpty { null },
+                    )
+            ) {
                 is Outcome.Ok -> {
                     _pairing.value = PairingUiState(pairedHostId = result.value.id)
                     onSuccess()
@@ -74,6 +90,25 @@ class LuviaViewModel(
             }
         }
     }
+
+    fun updateConnection(
+        hostId: String,
+        alias: String,
+        hosts: String,
+        port: String,
+        username: String,
+    ) {
+        viewModelScope.launch {
+            manager.updateConnection(
+                hostId,
+                alias,
+                parseConnectionAddresses(hosts),
+                port.trim().toIntOrNull() ?: 0,
+                username,
+            )
+        }
+    }
+
 
     fun cancelPairing() {
         _pairing.value = PairingUiState()
@@ -382,6 +417,9 @@ internal fun HostRuntime.toUi(): HostUiModel {
         id = profile.id,
         name = profile.alias,
         address = profile.lastConnectedAddress ?: profile.addresses.firstOrNull().orEmpty(),
+        addresses = profile.addresses,
+        sshPort = profile.sshPort,
+        username = profile.username,
         sessionName = sessionName,
         connection = badge,
         workingAgents = agents.count { it.status == AgentStatus.Working },
