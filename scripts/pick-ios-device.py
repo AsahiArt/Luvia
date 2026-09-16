@@ -42,11 +42,14 @@ def classify(dev: dict) -> tuple[int, str, str, str, str]:
     hp = dev.get("hardwareProperties") or {}
     cp = dev.get("connectionProperties") or {}
     dp = dev.get("deviceProperties") or {}
-    if hp.get("reality") != "physical":
+    reality = (hp.get("reality") or "").lower()
+    if reality == "simulated":
         return (-1, "", "", "", "")
     device_type = hp.get("deviceType") or ""
     platform = hp.get("platform") or ""
     if device_type not in ("iPhone", "iPad") and platform not in ("iOS", "iPadOS"):
+        return (-1, "", "", "", "")
+    if reality and reality != "physical":
         return (-1, "", "", "", "")
     udid = hp.get("udid") or ""
     ident = dev.get("identifier") or ""
