@@ -164,6 +164,9 @@ fn collect_addrs(hostname: &str) -> Result<Vec<String>> {
     if let Some(local) = ssh_connection_local_addr() {
         addrs.push(local);
     }
+    // Tailnet addresses are reachable from any network the phone is on, so they
+    // outrank LAN literals that only work at home.
+    addrs.extend(tailscale_addrs());
     let (lan_v4, overlay, lan_v6) = interface_addresses();
     addrs.extend(lan_v4);
     addrs.extend(overlay);
@@ -191,6 +194,87 @@ fn ssh_connection_local_addr() -> Option<String> {
         return None;
     }
     Some(local.to_string())
+}
+
+/// Candidate `tailscale` CLI locations. PATH first, then the macOS app bundle
+/// and the usual package prefixes, because sshd sessions often carry a minimal PATH.
+fn tailscale_binary() -> Option<PathBuf> {
+    if std::env::var_os("LUVIA_NO_TAILSCALE").is_some() {
+        return None;
+    }
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            candidates.push(dir.join("tailscale"));
+        }
+    }
+    candidates.push(PathBuf::from(
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    ));
+    candidates.push(PathBuf::from("/opt/homebrew/bin/tailscale"));
+    candidates.push(PathBuf::from("/usr/local/bin/tailscale"));
+    candidates.push(PathBuf::from("/usr/bin/tailscale"));
+    candidates.into_iter().find(|path| path.is_file())
+}
+
+/// MagicDNS name and tailnet IPs of this node, best-first. Empty when Tailscale
+/// is absent, stopped, or logged out. Never fails: Tailscale is optional.
+fn tailscale_addrs() -> Vec<String> {
+    let Some(binary) = tailscale_binary() else {
+        return Vec::new();
+    };
+    let output = match std::process::Command::new(binary)
+        .args(["status", "--json"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+    {
+        Ok(output) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+    let Ok(status) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
+        return Vec::new();
+    };
+    tailnet_addrs_from_status(&status)
+}
+
+fn tailnet_addrs_from_status(status: &serde_json::Value) -> Vec<String> {
+    if status.get("BackendState").and_then(|v| v.as_str()) != Some("Running") {
+        return Vec::new();
+    }
+    let Some(node) = status.get("Self") else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    if let Some(ips) = node.get("TailscaleIPs").and_then(|v| v.as_array()) {
+        for ip in ips.iter().filter_map(|v| v.as_str()) {
+            if is_tailnet_ip(ip) {
+                out.push(ip.to_string());
+            }
+        }
+    }
+    if let Some(name) = node.get("DNSName").and_then(|v| v.as_str()) {
+        let name = name.trim_end_matches('.');
+        if !name.is_empty() && name.contains('.') {
+            out.push(name.to_string());
+        }
+    }
+    dedup(out)
+}
+
+/// Tailscale hands out 100.64.0.0/10 and fd7a:115c:a1e0::/48.
+pub fn is_tailnet_ip(text: &str) -> bool {
+    match text.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => {
+            let [a, b, _, _] = ip.octets();
+            a == 100 && (64..128).contains(&b)
+        }
+        Ok(std::net::IpAddr::V6(ip)) => {
+            let seg = ip.segments();
+            seg[0] == 0xfd7a && seg[1] == 0x115c && seg[2] == 0xa1e0
+        }
+        Err(_) => false,
+    }
 }
 
 fn hostname_resolves(name: &str) -> bool {
@@ -489,5 +573,46 @@ mod tests {
             assert!(is_overlay_interface(name), "{name} is overlay");
         }
         assert!(!is_overlay_interface("en0"));
+    }
+
+    #[test]
+    fn tailnet_ip_ranges() {
+        assert!(is_tailnet_ip("100.64.0.1"));
+        assert!(is_tailnet_ip("100.127.255.254"));
+        assert!(!is_tailnet_ip("100.128.0.1"));
+        assert!(!is_tailnet_ip("100.63.0.1"));
+        assert!(!is_tailnet_ip("192.168.1.2"));
+        assert!(is_tailnet_ip("fd7a:115c:a1e0::1234"));
+        assert!(!is_tailnet_ip("fd00::1"));
+        assert!(!is_tailnet_ip("not-an-ip"));
+    }
+
+    #[test]
+    fn tailscale_status_yields_ips_then_magicdns() {
+        let status = serde_json::json!({
+            "BackendState": "Running",
+            "Self": {
+                "DNSName": "studio.tail1234.ts.net.",
+                "TailscaleIPs": ["100.101.102.103", "fd7a:115c:a1e0::1", "10.0.0.5"]
+            }
+        });
+        assert_eq!(
+            tailnet_addrs_from_status(&status),
+            vec![
+                "100.101.102.103".to_string(),
+                "fd7a:115c:a1e0::1".to_string(),
+                "studio.tail1234.ts.net".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn tailscale_status_not_running_is_empty() {
+        let stopped = serde_json::json!({
+            "BackendState": "Stopped",
+            "Self": {"DNSName": "x.ts.net.", "TailscaleIPs": ["100.64.0.1"]}
+        });
+        assert!(tailnet_addrs_from_status(&stopped).is_empty());
+        assert!(tailnet_addrs_from_status(&serde_json::json!({})).is_empty());
     }
 }

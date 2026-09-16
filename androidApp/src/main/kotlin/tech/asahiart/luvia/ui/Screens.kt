@@ -109,6 +109,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import tech.asahiart.luvia.HostRole
+import tech.asahiart.luvia.isTailnetAddress
 import tech.asahiart.luvia.TerminalKey
 import tech.asahiart.luvia.ui.theme.LuviaTheme
 import tech.asahiart.luvia.HostSection
@@ -246,13 +247,31 @@ private fun HostRow(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Text(
-                        host.address,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            host.address,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (isTailnetAddress(host.address)) {
+                            Text(
+                                "Tailnet",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = LuviaTheme.extended.connecting,
+                                modifier = Modifier
+                                    .background(
+                                        LuviaTheme.extended.connecting.copy(alpha = 0.12f),
+                                        RoundedCornerShape(50),
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 1.dp),
+                            )
+                        }
+                    }
                     host.errorMessage?.let { error ->
                         Text(
                             error,

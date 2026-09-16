@@ -201,6 +201,24 @@ private fun mdnsLocalAlias(address: String): String? {
 }
 
 
+/**
+ * True for addresses that only route over a Tailscale tailnet: the CGNAT range
+ * 100.64.0.0/10, the ULA prefix fd7a:115c:a1e0::/48, or a MagicDNS `*.ts.net` name.
+ * Used to label reachability in the UI; never affects pinning.
+ */
+public fun isTailnetAddress(address: String): Boolean {
+    val trimmed = address.trim().removePrefix("[").removeSuffix("]")
+    if (trimmed.endsWith(".ts.net", ignoreCase = true)) return true
+    if (!isLiteralIp(trimmed)) return false
+    if (trimmed.contains(':')) {
+        return trimmed.lowercase().startsWith("fd7a:115c:a1e0:")
+    }
+    val parts = trimmed.split('.')
+    val a = parts.getOrNull(0)?.toIntOrNull() ?: return false
+    val b = parts.getOrNull(1)?.toIntOrNull() ?: return false
+    return a == 100 && b in 64..127
+}
+
 internal fun isLiteralIp(address: String): Boolean {
     val trimmed = address.trim().removePrefix("[").removeSuffix("]")
     if (trimmed.contains(':')) {

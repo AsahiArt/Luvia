@@ -9,6 +9,27 @@ import kotlinx.coroutines.test.runTest
 
 class ConnectTest {
     @Test
+    fun tailnetAddressesAreRecognised() {
+        assertTrue(isTailnetAddress("100.101.102.103"))
+        assertTrue(isTailnetAddress("100.64.0.1"))
+        assertFalse(isTailnetAddress("100.128.0.1"))
+        assertFalse(isTailnetAddress("192.168.1.10"))
+        assertTrue(isTailnetAddress("fd7a:115c:a1e0::1"))
+        assertFalse(isTailnetAddress("fd00::1"))
+        assertTrue(isTailnetAddress("studio.tail1234.ts.net"))
+        assertFalse(isTailnetAddress("studio.local"))
+        assertFalse(isTailnetAddress("studio"))
+    }
+
+    @Test
+    fun magicDnsNamesGetNoLocalAlias() {
+        assertEquals(
+            listOf("studio.tail1234.ts.net"),
+            expandUnqualifiedHostnames(listOf("studio.tail1234.ts.net")),
+        )
+    }
+
+    @Test
     fun orderedAddressesPrefersLiteralsThenHostnames() {
         val profile =
             sample(

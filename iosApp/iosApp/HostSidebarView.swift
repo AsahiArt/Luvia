@@ -1,3 +1,4 @@
+import LuviaShared
 import SwiftUI
 
 struct HostSidebarView: View {
@@ -159,10 +160,22 @@ private struct HostRow: View {
                 Text(host.name)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(DesignTokens.ink)
-                Text(statusLine)
-                    .font(.subheadline)
-                    .foregroundStyle(DesignTokens.inkMuted)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(statusLine)
+                        .font(.subheadline)
+                        .foregroundStyle(DesignTokens.inkMuted)
+                        .lineLimit(1)
+                    if ConnectKt.isTailnetAddress(address: host.address) {
+                        Label("Tailnet", systemImage: "point.3.connected.trianglepath.dotted")
+                            .font(.caption2.weight(.medium))
+                            .labelStyle(.titleAndIcon)
+                            .foregroundStyle(DesignTokens.connecting)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(DesignTokens.connecting.opacity(0.12), in: Capsule())
+                            .accessibilityLabel("Reached over Tailscale")
+                    }
+                }
                 if let failure = host.failureMessage, !failure.isEmpty {
                     Text(failure)
                         .font(.caption)
