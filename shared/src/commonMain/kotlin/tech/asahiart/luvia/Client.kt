@@ -40,6 +40,8 @@ import tech.asahiart.luvia.internal.mapWorkspaceListAsSummaries
 import tech.asahiart.luvia.internal.mapWorkspaceOpen
 import tech.asahiart.luvia.internal.wireName
 import tech.asahiart.luvia.internal.withIfRevision
+import tech.asahiart.luvia.internal.mapAcpAgents
+import tech.asahiart.luvia.internal.mapAcpSessionAck
 
 public class LuviaClient internal constructor(
     channels: ByteChannelFactory,
@@ -446,10 +448,14 @@ public class LuviaSession internal constructor(
         deps: List<String> = emptyList(),
         gate: String? = null,
         ifRevision: Long? = null,
+        workspaceId: String? = null,
     ): Outcome<TaskMutationResult> {
         val params =
             buildJsonObject {
                 put("title", title)
+                // Luvus 0.14+ scopes the ledger per project; a multi-project Host
+                // rejects an unscoped add with `workspace_required` (uhp-contract §7).
+                if (workspaceId != null) put("workspace_id", workspaceId)
                 if (paths.isNotEmpty()) {
                     put("paths", stringArray(paths))
                 }
@@ -516,6 +522,26 @@ public class LuviaSession internal constructor(
             withIfRevision(buildJsonObject { put("id", id) }, ifRevision),
             mutation = true,
         ) { mapTaskDone(it.asObjectOrEmpty()) }
+
+    public suspend fun acpAgents(): Outcome<List<AcpAgentKind>> =
+        engine.unary(UhpMethods.ACP_AGENTS, JsonObject(emptyMap()), mutation = false) {
+            mapAcpAgents(it)
+        }
+
+    public suspend fun openAcpSession(agentId: String, cwd: String): Outcome<AcpSession> {
+        val params =
+            buildJsonObject {
+                put("agent", agentId)
+                put("cwd", cwd)
+            }
+        return when (val opened = engine.openAcp(params)) {
+            is Outcome.Ok -> {
+                val (stream, ack) = opened.value
+                ok(AcpSession(engine, stream, mapAcpSessionAck(ack, agentId)))
+            }
+            is Outcome.Err -> fail(opened.failure)
+        }
+    }
 
     public fun close() {
         engine.close()

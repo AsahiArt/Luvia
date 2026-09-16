@@ -412,3 +412,123 @@ Three unrelated features share the word. None replaces `luvia-host`.
 Decision: keep `luvia-host bridge` → `luvus.sock` as the sole phone path.
 If Host-profile methods are ever needed, the bridge may front `luvus uhp proxy`
 for that namespace only; that is additive and does not change the Device contract.
+
+## 7. Delta 0.13.4 → 0.14.2 (`d94ff20`, 107 commits after `c42b78c`) for the UHP-first surface
+
+Read with ADR 0001. Protocol still `luvus-uhp` 1.0 (`src/api/mod.rs:12-14`). Luvia does not vendor the schema tree; live `uhp.capabilities.methods` is the method catalog. Ground: `/Users/misaka/Developer/OpenSource/luvus`.
+
+### Authorization / capabilities
+
+- Sock `required_scope` table is the same prefix machine (`src/api/capabilities.rs:296-338`): `session.snapshot` / `events.subscribe` stay `read`; `agent.*` → `agent`; `task.*`/`lease.*`/`automation.*` → `orchestration`; `workspace|pane|files|git|mission|diff|worktree|search` → `workspace`; `terminal.backend.*` → `terminal`; `module.*` → `extensions`; else `admin`. `task.next` is still in `READ_ONLY_METHODS` (`capabilities.rs:256`) and still claims.
+- Sock `uhp.capabilities` did **not** gain `access{}`. `#302` projects `access.{mode,allowed_methods,limits}` plus optional `authorization.scopes += machine` only on `luvus uhp access` (`src/uhp/gateway.rs:469-518`). Irrelevant to the bridge sock path.
+- New sock methods of note: `task.retry` (write, orchestration, also in `atomic_methods`, `capabilities.rs:114,431`). `machine.*` is **not** in sock `METHODS`; only Access (`src/machine/api.rs:8-20`, `capabilities.rs:347-348`).
+- Additive `limits`: `task_title_bytes`, `task_prompt_bytes`, `task_attempts`, `agent_row_titles`, … (`capabilities.rs:408-418`). Luvia `mapCapabilities` ignores them.
+
+### Control Access allow-list (`luvus uhp access`, not the phone path)
+
+`src/uhp/gateway.rs:564-590` — Control now allows `agent.keys` (`#297`), `pane.rename` (`#326`), `automation.{create,update,enable,disable,rebind,delete,run}`, `task.retry`, plus the old five (`workspace.focus`, `tab.focus`, `pane.focus`, `agent.prompt`, `terminal.backend.control`). Still no `diff.note.*` / `task.add`. Decision in §6 stands.
+
+### Agent surface (scope `agent`)
+
+| method | params delta | result delta | notes |
+|---|---|---|---|
+| `agent.list` | none | additive `workspace_id`, `terminal_id` | `#264` `agents.rs:55-71`. Luvia already maps `workspaceId`. |
+| `agent.get` | none | none | |
+| `agent.read` | none | additive `content_revision`, `terminal_id` | `agents.rs:319-320`. Luvia already maps both. |
+| `agent.prompt` | `until` is **array** of 1..4 states (`params.rs:576-593`); string → `invalid_request`. Luvia already sends a 1-array. | additive `observed_state` when evidence ≠ `queued` (`agent_workflow.rs:131-134`) | `#314`: `wait=true` requires a new `working`/`blocked` transition before matching `until`. New error `agent_not_ready` (`agent_workflow.rs:137-141`) — Luvia has no dedicated Failure. Default `wait=false` unchanged. |
+| `agent.keys` | optional pair `if_content_revision` + `terminal_id` (both or neither) (`agents.rs:193,226-252`) | still `{type:ok, pane}` | `#328`. Mismatch → `content_revision_conflict`. Extra keys rejected (`reject_api_fields`). Luvia already sends the fence. |
+| `agent.wait` | `#253`: `status` **or** `statuses` (1..4) (`request.schema.json:99-113`) | `{type:agent_wait, matched, pane, status}` | Luvia does not call it. |
+| `agent.sessions` | none | none | `agents.rs:603-608` still `{agent, session_id, cwd}`. |
+| `agent.resume` / `agent.fork` / `agent.name` | none | none | `agent.name` still silent (no event / no sequence bump). Catalog `$comment` at `event-catalog.schema.json:2`. |
+
+### Orchestration
+
+Task **status enum unchanged**: `queued claimed running blocked review done merging merged failed` (`orch/mod.rs:81-92`, catalog `event-catalog.schema.json` task.status). Luvia `parseTaskStatus` / `parseAgentStatus` already `else → Unknown` (`Mapping.kt:728-747`) — **no exhaustive-map break**.
+
+`task_json` additive fields (`projection.rs:57-91`): `prompt` (manual only; omitted for automation), `project{workspace_id,root}`, `attempt`, `previous_attempts[]`. Luvia `mapTask` ignores them (`Mapping.kt:1070-1098`).
+
+| method | params delta | result delta | notes |
+|---|---|---|---|
+| `task.list` | none (no project filter) | tasks[] additive fields above | Still global ledger dump (`orchestration.rs:394-399`). |
+| `task.get` | none | same object | |
+| `task.add` | optional `prompt` (LF ok, 32 KiB, `#304`); optional `workspace_id`/`pane`; **now** `reject_api_fields` (`orchestration.rs:362-376`) | task object additive | **BREAKING** on multi-project Hosts: omitted workspace → `workspace_required` (`orchestration.rs:1173-1177`). Luvia `addTask` sends only title/paths/deps/gate (`Client.kt:445-465`). Single-project still implicit. |
+| `task.start` | optional `focus` bool default true (`#360`, `orchestration.rs:432-438`) | unchanged start shape | Resolves project via `resolve_task_workspace` (`board.rs:393`). Can `workspace_mismatch` / `workspace_unavailable` / `workspace_required` for projectless legacy tasks. |
+| `task.claim` | none | additive task fields | Binds pane’s project (`orchestration.rs:461-463`); `workspace_mismatch` possible. |
+| `task.next` | now needs a project (workspace_id/pane or unambiguous session) | `none` vs `task` unchanged | **BREAKING if called** without workspace on multi-project (`orchestration.rs:572-596`). Phone must still never call it. |
+| `task.done` / `task.heartbeat` / `task.delete` | none | delete still `{type:task, task}` (`orchestration.rs:671-676`) | |
+| `task.retry` **new** | `{id}` | `{type:task, task}` **or** `{type:automation_run, run}` (`orchestration.rs:539-546`) | `#348`. Only `done|failed|review|blocked`; else `not_retryable` (`orch/mod.rs:656-662`). Emits `task.retried {id, attempt≥2}`. Gate on `methods`. |
+
+`#361` scopes **ownership of mutations/leases**, not `task.list`.
+
+### `session.snapshot`
+
+Still `{type, protocol, session, server_generation, event_sequence, workspaces[]}` with tabs/panes; **no tasks, no `workspace_id`/`tab_id`** (`core.rs:152-239`). Additive pane field `agent_name` (`#300`, `core.rs:186`) — operator alias. Luvia `mapSnapshot` reads `name`, not `agent_name` (`Mapping.kt:322`), so snapshot-derived `AgentSummary.name` stays null; `agent.list` already carries `name`.
+
+### Streams
+
+`events.subscribe` ack unchanged (`src/ipc/api.rs:2094-2099`): `{type:subscription_started, sequence, replayed, queue_capacity, loss_behavior:resync_required_then_close}`.
+
+`terminal.backend.control`/`observe` ack unchanged (`src/ipc/api.rs:1466-1477`). `#299` only fixes observe cursor vs emitted frame.
+
+### Events (catalog grew past the 0.13.4 “50”)
+
+Phone-relevant **new**:
+- `task.retried` `{id, attempt}` (`event-catalog.schema.json` `$defs.task_retried`). Luvia `parseBusEvent` → `Ignored` (not in the task name list, `Mapping.kt:788-792`).
+- `automation.*` run/definition events — `Ignored` today; only if the phone surfaces automations.
+- `pane.renamed` already mapped.
+
+`agent.name` still does **not** emit.
+
+### Machines (`#333`)
+
+`machine.list/get/status/sessions` (read) and `machine.add/rename/enable/disable/remove` (write, required `if_revision`). Access-only. Not a Device-contract change.
+
+### BREAKING for Luvia (sock)
+
+1. **`task.add` (and `task.start`/`task.claim`/`task.next`) project scope** — multi-project Host without `workspace_id`/`pane` → `workspace_required` / `workspace_mismatch`. Luvia does not send `workspace_id`.
+2. **`task.add` unknown keys** now `invalid_request` (Luvia’s current params are fine).
+3. **`agent.prompt` `wait=true`** — will not complete on a pre-existing idle/done; needs a new working/blocked observation (`#314`). Default `wait=false` OK.
+4. Status enums **not** extended; `Unknown` unused for this delta.
+5. No fields removed/renamed on methods Luvia already parses, except snapshot alias lives on `agent_name` (additive miss, not a parse break).
+
+### Verdict per Luvia method
+
+| method | verdict |
+|---|---|
+| `agent.list` | additive |
+| `agent.get` | unchanged |
+| `agent.read` | additive |
+| `agent.prompt` | additive (behavioral if `wait=true`) |
+| `agent.keys` | additive |
+| `agent.sessions` | unchanged |
+| `agent.resume` | unchanged |
+| `agent.fork` | unchanged |
+| `agent.name` | unchanged |
+| `diff.*` / `diff.note.*` | unchanged |
+| `git.status` / `git.log` | unchanged |
+| `task.list` | additive |
+| `task.get` | additive |
+| `task.add` | **breaking** (multi-project) |
+| `task.done` | unchanged |
+| `task.claim` | additive (can error `workspace_mismatch`) |
+| `task.delete` | unchanged |
+| `task.start` | additive (project errors) |
+| `task.next` | **breaking** if called; still forbidden |
+| `task.heartbeat` | unchanged |
+| `mission.snapshot` | unchanged |
+| `terminal.backend.*` | unchanged (ack/params) |
+| `files.*` | unchanged (`files.open` still TUI `{type:ok}`, `content.rs:567-581`) |
+| `search.*` | unchanged |
+| `worktree.*` | additive (`#234` lists every checkout) |
+| `automation.*` | additive (`#319` access on task contract) |
+| `workspace.*` | unchanged |
+| `pane.*` | additive (`pane.rename` on Control Access only) |
+| `session.snapshot` | additive (`agent_name`) |
+| `events.subscribe` | unchanged |
+
+### Luvia response to this delta
+
+- `LuviaSession.addTask` gained `workspaceId`; `TaskBoard.add` sends the focused workspace's id (from `agent.list` `workspace_id`, else Mission rows) so multi-project Hosts stop answering `workspace_required`. Null on single-project Hosts keeps the implicit project.
+- `task.next` remains forbidden (ADR 0001); the project-scoping change does not affect the phone.
+- `agent.prompt` stays `wait=false`; `agent_not_ready` surfaces as a generic server error.
+- `task.retry`, `automation.*`, `machine.*` are not surfaced; `task.retried` is `Ignored` by `parseBusEvent`.

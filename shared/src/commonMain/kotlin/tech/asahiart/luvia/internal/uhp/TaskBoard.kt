@@ -1,6 +1,7 @@
 package tech.asahiart.luvia.internal.uhp
 
 import tech.asahiart.luvia.Failure
+import tech.asahiart.luvia.HostUhpState
 import tech.asahiart.luvia.LuviaSession
 import tech.asahiart.luvia.Outcome
 import tech.asahiart.luvia.TaskMutationResult
@@ -49,8 +50,17 @@ internal class TaskBoard(private val ctx: UhpContext) {
         if (trimmed.isEmpty()) return
         ctx.update { it.copy(tasks = it.tasks.copy(mutating = true, errorText = null, boardChanged = false)) }
         ctx.launch {
-            val ifRevision = ctx.value().tasks.boardRevision
-            when (val result = session.addTask(title = trimmed, paths = paths, ifRevision = ifRevision)) {
+            val current = ctx.value()
+            val ifRevision = current.tasks.boardRevision
+            when (
+                val result =
+                    session.addTask(
+                        title = trimmed,
+                        paths = paths,
+                        ifRevision = ifRevision,
+                        workspaceId = activeWorkspaceId(current),
+                    )
+            ) {
                 is Outcome.Ok -> {
                     val task = result.value.task
                     ctx.update { current ->
@@ -267,6 +277,19 @@ internal class TaskBoard(private val ctx: UhpContext) {
                 false
             }
         }
+    }
+
+    /**
+     * Stable workspace id of the focused workspace, from `agent.list` rows
+     * (`workspace_id`, Luvus #264) or Mission rows. Null on single-project Hosts
+     * or older Luvus; the server then falls back to its implicit project.
+     */
+    private fun activeWorkspaceId(state: HostUhpState): String? {
+        state.agents.firstOrNull { it.focused && it.workspaceId != null }?.workspaceId?.let { return it }
+        val agentIds = state.agents.mapNotNull { it.workspaceId }.distinct()
+        if (agentIds.size == 1) return agentIds.first()
+        val missionIds = state.mission?.rows?.mapNotNull { it.workspaceId }?.distinct().orEmpty()
+        return missionIds.singleOrNull()
     }
 
     private fun applyMutationFailure(kind: UnconfirmedKind, taskId: String?, failure: Failure) {
