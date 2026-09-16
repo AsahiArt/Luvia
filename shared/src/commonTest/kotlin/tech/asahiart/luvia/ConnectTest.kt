@@ -35,6 +35,19 @@ class ConnectTest {
     }
 
     @Test
+    fun orderedAddressesAppendsLocalForBareHostname() {
+        val profile = sample(addresses = listOf("Yui", "192.168.1.16"))
+        assertEquals(listOf("192.168.1.16", "Yui", "Yui.local"), orderedAddresses(profile))
+    }
+
+    @Test
+    fun orderedAddressesDoesNotDuplicateExistingLocal() {
+        val profile = sample(addresses = listOf("Yui", "Yui.local"))
+        assertEquals(listOf("Yui", "Yui.local"), orderedAddresses(profile))
+    }
+
+
+    @Test
     fun isLiteralIpAcceptsV4AndV6() {
         assertTrue(isLiteralIp("192.168.1.33"))
         assertTrue(isLiteralIp("127.0.0.1"))

@@ -180,8 +180,26 @@ internal fun orderedAddresses(profile: HostProfile): List<String> {
     }
     val last = profile.lastConnectedAddress?.trim().orEmpty()
     if (isLiteralIp(last)) prefer(literals, last) else prefer(names, last)
-    return literals + names
+    return expandUnqualifiedHostnames(literals + names)
 }
+
+internal fun expandUnqualifiedHostnames(addresses: List<String>): List<String> {
+    val seen = LinkedHashSet<String>()
+    val out = ArrayList<String>()
+    for (address in addresses) {
+        if (seen.add(address)) out += address
+        val local = mdnsLocalAlias(address) ?: continue
+        if (seen.add(local)) out += local
+    }
+    return out
+}
+
+private fun mdnsLocalAlias(address: String): String? {
+    if (isLiteralIp(address) || address.contains('.') || address.contains(':')) return null
+    if (address.equals("localhost", ignoreCase = true)) return null
+    return "$address.local"
+}
+
 
 internal fun isLiteralIp(address: String): Boolean {
     val trimmed = address.trim().removePrefix("[").removeSuffix("]")
