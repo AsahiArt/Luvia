@@ -273,6 +273,11 @@ internal class SessionEngine(
             is Outcome.Err -> fail(opened.failure)
         }
 
+    internal suspend fun openAcp(params: JsonObject): Outcome<Pair<OpenStream, JsonElement>> =
+        openStreamWithAck(Methods.ACP_SESSION_OPEN, params)
+
+    internal suspend fun nextRequestId(): String = allocateId()
+
     fun controlFrames(stream: OpenStream): Flow<TerminalUpdate> = terminalFrames(stream)
 
     suspend fun writeControl(
@@ -318,7 +323,16 @@ internal class SessionEngine(
         }
     }
 
-    private suspend fun openStream(method: String, params: JsonObject): Outcome<OpenStream> {
+    private suspend fun openStream(method: String, params: JsonObject): Outcome<OpenStream> =
+        when (val opened = openStreamWithAck(method, params)) {
+            is Outcome.Ok -> ok(opened.value.first)
+            is Outcome.Err -> fail(opened.failure)
+        }
+
+    private suspend fun openStreamWithAck(
+        method: String,
+        params: JsonObject,
+    ): Outcome<Pair<OpenStream, JsonElement>> {
         val session = sessionName ?: return fail(Failure.Closed())
         if (method !in capabilities().methods) return fail(Failure.CapabilityMissing(method))
         var written = false
@@ -335,7 +349,7 @@ internal class SessionEngine(
             framer.writeFrame(encodeUhpRequest(UhpRequest(id, method, params, authToken)))
             written = true
             when (val response = decodeUhpResponse(framer.readFrame(), id)) {
-                is UhpResponse.Success -> ok(OpenStream(framer, channel))
+                is UhpResponse.Success -> ok(OpenStream(framer, channel) to response.result)
                 is UhpResponse.Failure -> {
                     framer.close()
                     fail(response.error.toFailure())

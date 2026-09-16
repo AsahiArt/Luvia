@@ -13,7 +13,9 @@ struct AgentsSectionView: View {
                     agents: model.uhp.agents,
                     query: $query,
                     errorMessage: model.uhp.errorMessage,
-                    onRefresh: { await model.loadAgents() }
+                    onRefresh: { await model.loadAgents() },
+                    canLaunchAcp: model.uhp.snapshot?.capabilities.acpSession == true,
+                    onLaunchAcp: { model.beginLaunchAcp() }
                 )
                 .modifier(
                     ConditionalSearchable(
@@ -23,6 +25,13 @@ struct AgentsSectionView: View {
                     )
                 )
                 .toolbar {
+                    if model.uhp.snapshot?.capabilities.acpSession == true {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("Launch", systemImage: "plus.circle") {
+                                model.beginLaunchAcp()
+                            }
+                        }
+                    }
                     if model.uhp.caps.agentSessions {
                         ToolbarItem(placement: .primaryAction) {
                             Button("Sessions") {
@@ -33,6 +42,9 @@ struct AgentsSectionView: View {
                 }
                 .sheet(isPresented: $model.uhp.isSessionsPresented) {
                     AgentSessionsSheet(model: model)
+                }
+                .sheet(isPresented: model.acpLaunchPresented) {
+                    AcpLaunchSheet(model: model)
                 }
             } else {
                 ContentUnavailableView(
@@ -53,6 +65,8 @@ struct AgentsListView: View {
     @Binding var query: String
     var errorMessage: String?
     var onRefresh: (() async -> Void)?
+    var canLaunchAcp = false
+    var onLaunchAcp: (() -> Void)?
 
     private var filtered: [AgentViewState] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -86,11 +100,15 @@ struct AgentsListView: View {
     var body: some View {
         Group {
             if agents.isEmpty {
-                ContentUnavailableView(
-                    "Agents",
-                    systemImage: "person.2",
-                    description: Text("No agents in this session.")
-                )
+                if canLaunchAcp {
+                    LaunchAgentCard { onLaunchAcp?() }
+                } else {
+                    ContentUnavailableView(
+                        "Agents",
+                        systemImage: "person.2",
+                        description: Text("No agents in this session.")
+                    )
+                }
             } else {
                 agentList
             }
@@ -146,6 +164,29 @@ struct AgentsListView: View {
                 }
             }
         }
+    }
+}
+
+struct LaunchAgentCard: View {
+    let onLaunch: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.Space.m) {
+            Text("Start something")
+                .font(DesignTokens.Typography.title)
+                .foregroundStyle(DesignTokens.ink)
+            Text("Launch a coding agent on this host and steer it from here.")
+                .font(.body)
+                .foregroundStyle(DesignTokens.inkMuted)
+            Button("Launch agent", action: onLaunch)
+                .buttonStyle(.borderedProminent)
+                .tint(DesignTokens.accent)
+        }
+        .padding(DesignTokens.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .luviaGlass()
+        .padding(DesignTokens.Space.l)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
 

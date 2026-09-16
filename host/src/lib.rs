@@ -14,6 +14,7 @@
 #[cfg(not(unix))]
 compile_error!("luvia-host supports macOS and Linux only; Windows is not supported");
 
+pub mod acp;
 pub mod audit;
 pub mod authkeys;
 pub mod bridge;

@@ -62,6 +62,11 @@ struct HostDetailView: View {
             .sheet(item: $model.uhp.moreSurface) { surface in
                 MoreSurfaceSheet(model: model, surface: surface)
             }
+            .fullScreenCover(isPresented: $model.uhp.isAcpPresented, onDismiss: {
+                model.closeAcp()
+            }) {
+                AcpSessionView(model: model)
+            }
         }
     }
 

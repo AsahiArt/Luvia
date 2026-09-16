@@ -71,7 +71,6 @@ struct BridgeTokens {
 #[derive(Debug)]
 struct PreparedRequest {
     id: String,
-    #[allow(dead_code)]
     method: String,
     injected: Vec<u8>,
     streaming: bool,
@@ -223,12 +222,19 @@ fn proxy_channel(
                 return Err(error);
             }
         };
+        if let Ok(method) = uhp::request_method(&request) {
+            match intercept_luvia_method(grant, paths, &method, &request, input, output)? {
+                LuviaIntercept::Fallthrough => {}
+                LuviaIntercept::Handled => continue,
+                LuviaIntercept::Stop(result) => return result,
+            }
+        }
         match prepare_request(grant, caps, tokens, &request) {
             Ok(prepared) => {
                 if prepared.streaming {
                     return proxy_stream(grant, paths, session, caps, &prepared, input, output);
                 }
-                proxy_unary(session, &prepared, output)?;
+                proxy_unary(paths, session, &prepared, output)?;
             }
             Err(error) => {
                 let id = request_id(&request);
@@ -236,6 +242,53 @@ fn proxy_channel(
                 let _ = crate::audit::denied(paths, &grant.id, grant.role, &method, error.code);
                 write_request_error(output, &id, &error)?;
             }
+        }
+    }
+}
+
+enum LuviaIntercept {
+    Fallthrough,
+    Handled,
+    Stop(Result<()>),
+}
+
+fn intercept_luvia_method(
+    grant: &Grant,
+    paths: &Paths,
+    method: &str,
+    request: &[u8],
+    input: &mut (impl BufRead + Send),
+    output: &mut (impl Write + Send),
+) -> Result<LuviaIntercept> {
+    if !method.starts_with("luvia.") {
+        return Ok(LuviaIntercept::Fallthrough);
+    }
+    let id = request_id(request);
+    if uhp::request_has_auth(request).unwrap_or(true) {
+        let error = Error::new("auth_rejected", "client-supplied auth is not allowed");
+        let _ = crate::audit::denied(paths, &grant.id, grant.role, method, error.code);
+        write_request_error(output, &id, &error)?;
+        return Ok(LuviaIntercept::Handled);
+    }
+    match method {
+        "luvia.acp.agents" => {
+            crate::acp::handle_agents(&id, paths, output)?;
+            Ok(LuviaIntercept::Handled)
+        }
+        "luvia.acp.session.open" => {
+            let params = crate::unique_json::parse_unique_value(request)
+                .ok()
+                .and_then(|value| value.get("params").cloned())
+                .unwrap_or(Value::Null);
+            Ok(LuviaIntercept::Stop(crate::acp::serve_session(
+                grant, paths, &id, &params, input, output,
+            )))
+        }
+        _ => {
+            let error = Error::new("forbidden", format!("method {method} is not permitted"));
+            let _ = crate::audit::denied(paths, &grant.id, grant.role, method, error.code);
+            write_request_error(output, &id, &error)?;
+            Ok(LuviaIntercept::Handled)
         }
     }
 }
@@ -270,6 +323,7 @@ fn prepare_request(
 }
 
 fn proxy_unary(
+    paths: &Paths,
     session: &DiscoveredSession,
     prepared: &PreparedRequest,
     output: &mut impl Write,
@@ -286,6 +340,11 @@ fn proxy_unary(
     let mut local_read = BufReader::new(stream.try_clone()?);
     match frames::read_frame(&mut local_read) {
         Ok(frame) => {
+            let frame = if prepared.method == "uhp.capabilities" {
+                crate::acp::augment_capabilities(&frame, paths)?
+            } else {
+                frame
+            };
             output.write_all(&frame)?;
             output.flush()?;
         }
@@ -693,5 +752,121 @@ mod tests {
         let err = reject_tty(false, true).unwrap_err();
         assert_eq!(err.code, "tty_refused");
         reject_tty(false, false).unwrap();
+    }
+
+    #[test]
+    fn capabilities_are_augmented_when_an_acp_agent_is_available() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::from_parts(
+            dir.path().join("host"),
+            dir.path().join("authorized_keys"),
+            dir.path().join("luvus"),
+        );
+        std::fs::create_dir_all(&paths.config_dir).unwrap();
+        std::fs::write(
+            paths.config_dir.join("acp-agents.json"),
+            br#"[{"id":"sh","name":"Shell","command":"/bin/sh"}]"#,
+        )
+        .unwrap();
+        let mut frame = serde_json::to_vec(&json!({
+            "id": "1",
+            "result": {
+                "methods": ["ping"],
+                "method_contracts": [
+                    {"method":"ping","access":"read","scope":"read","idempotent":true}
+                ]
+            }
+        }))
+        .unwrap();
+        frame.push(b'\n');
+        let out = crate::acp::augment_capabilities(&frame, &paths).unwrap();
+        assert!(out.ends_with(b"\n"));
+        let value: Value = serde_json::from_slice(&out[..out.len() - 1]).unwrap();
+        let methods = value["result"]["methods"].as_array().unwrap();
+        assert!(methods.iter().any(|method| method == "luvia.acp.agents"));
+        assert!(methods
+            .iter()
+            .any(|method| method == "luvia.acp.session.open"));
+        let contracts = value["result"]["method_contracts"].as_array().unwrap();
+        assert!(contracts.iter().any(|contract| {
+            contract["method"] == "luvia.acp.agents"
+                && contract["access"] == "read"
+                && contract["scope"] == "read"
+                && contract["idempotent"] == true
+        }));
+        assert!(contracts.iter().any(|contract| {
+            contract["method"] == "luvia.acp.session.open"
+                && contract["access"] == "write"
+                && contract["scope"] == "agent"
+                && contract["idempotent"] == false
+        }));
+    }
+
+    #[test]
+    fn luvia_acp_agents_is_answered_without_proxying() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::from_parts(
+            dir.path().join("host"),
+            dir.path().join("authorized_keys"),
+            dir.path().join("luvus"),
+        );
+        std::fs::create_dir_all(&paths.config_dir).unwrap();
+        std::fs::write(
+            paths.config_dir.join("acp-agents.json"),
+            br#"[{"id":"sh","name":"Shell","command":"/bin/sh"}]"#,
+        )
+        .unwrap();
+        let request = serde_json::to_vec(&json!({
+            "id": "1",
+            "method": "luvia.acp.agents",
+            "params": {}
+        }))
+        .unwrap();
+        let mut input = Cursor::new(Vec::new());
+        let mut output = Vec::new();
+        match intercept_luvia_method(
+            &grant(),
+            &paths,
+            "luvia.acp.agents",
+            &request,
+            &mut input,
+            &mut output,
+        )
+        .unwrap()
+        {
+            LuviaIntercept::Handled => {}
+            _ => panic!("expected unary ACP catalog handling"),
+        }
+        let value: Value = serde_json::from_slice(&output[..output.len() - 1]).unwrap();
+        assert_eq!(value["id"], "1");
+        assert_eq!(value["result"]["type"], "acp_agents");
+        assert!(value["result"]["agents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|agent| agent["id"] == "sh" && agent["available"] == true));
+    }
+
+    #[test]
+    fn luvia_methods_reject_client_supplied_auth() {
+        let paths = paths();
+        let request = br#"{"id":"1","method":"luvia.acp.agents","params":{},"auth":"secret"}"#;
+        let mut input = Cursor::new(Vec::new());
+        let mut output = Vec::new();
+        match intercept_luvia_method(
+            &grant(),
+            &paths,
+            "luvia.acp.agents",
+            request,
+            &mut input,
+            &mut output,
+        )
+        .unwrap()
+        {
+            LuviaIntercept::Handled => {}
+            _ => panic!("expected auth rejection to keep the channel open"),
+        }
+        let value: Value = serde_json::from_slice(&output[..output.len() - 1]).unwrap();
+        assert_eq!(value["error"]["code"], "auth_rejected");
     }
 }

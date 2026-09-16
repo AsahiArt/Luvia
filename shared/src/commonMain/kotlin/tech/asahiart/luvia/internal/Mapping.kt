@@ -117,6 +117,8 @@ internal object Methods {
     const val TERMINAL_TYPE: String = "terminal.backend.type_literal"
     const val TERMINAL_SUBMIT: String = "terminal.backend.submit_text"
     const val TERMINAL_KEY: String = "terminal.backend.send_key"
+    const val ACP_AGENTS: String = "luvia.acp.agents"
+    const val ACP_SESSION_OPEN: String = "luvia.acp.session.open"
 
     val MUTATIONS: Set<String> =
         setOf(
@@ -142,6 +144,7 @@ internal object Methods {
             TERMINAL_TYPE,
             TERMINAL_SUBMIT,
             TERMINAL_KEY,
+            ACP_SESSION_OPEN,
         )
 
     val REVISION_GUARDED: Set<String> =

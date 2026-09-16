@@ -52,6 +52,8 @@ cargo build --release -p luvia-host
 
 3. Scan the QR (or paste the code) on the phone. The payload pins every SSH host-key fingerprint (`hk`), lists reachable addresses in preference order (`addrs`), and includes `dk` so the phone can confirm the code belongs to the key it just generated.
 
+**Tailscale.** If the `tailscale` CLI is installed and the node is running, `luvia-host pair` places the node's tailnet IPs (`100.x`, `fd7a:115c:a1e0::`) and MagicDNS name ahead of LAN addresses in `addrs`, so the phone reaches the host from any network without port forwarding. The phone still pins the SSH host key; Tailscale only changes routing. Set `LUVIA_NO_TAILSCALE=1` to skip detection, or pass `--address` to override the list entirely. The host row shows a Tailnet badge when the active address is a tailnet address.
+
 Roles: `observer` (read) or `controller` (read plus workspace / agent / terminal / orchestration). Revoke with `luvia-host revoke <id>`.
 
 ## Build
@@ -139,6 +141,10 @@ Treat both as a **status glance, not a pager**. For Beta that means:
 - Nothing wakes the phone for an agent prompt that arrives while the app is fully suspended.
 
 Each surface is confined to one class per platform (`LiveActivityController`, `StatusNotificationController`), so a push path can be added later without touching the shared client.
+
+## ACP agents
+
+Besides Luvus panes, Luvia can launch any [Agent Client Protocol](https://agentclientprotocol.com) agent (Codex, Claude Code, Gemini CLI, …) directly on the host. `luvia-host bridge` acts as the ACP client: it spawns the agent as a child process, speaks JSON-RPC to it over stdio, and exposes the session to the phone as the `luvia.acp.*` UHP methods — streamed messages, tool calls, plan, and permission prompts you answer from the phone. Agents never see the SSH or Luvus credentials. Built-in agents are auto-detected on `PATH`; add or override entries in `~/.config/luvia/host/acp-agents.json` (`[{"id","name","command","args"}]`). Controller role required. The wire contract is in [`docs/acp-contract.md`](docs/acp-contract.md).
 
 ## Security model
 

@@ -471,6 +471,7 @@ final class UhpSurfaceState {
     var nameAgentText = ""
     var isForkAgentPresented = false
     var forkAgentName = ""
+    var isAcpPresented = false
 
     var isController: Bool {
         if let snapshot, snapshot.connected {
@@ -742,6 +743,7 @@ final class UhpSurfaceState {
         nameAgentText = ""
         isForkAgentPresented = false
         forkAgentName = ""
+        isAcpPresented = false
     }
 }
 

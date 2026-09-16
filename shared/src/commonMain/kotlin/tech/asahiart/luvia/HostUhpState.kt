@@ -71,6 +71,8 @@ public data class HostCapabilities(
     public val paneFocus: Boolean = false,
     public val paneClose: Boolean = false,
     public val paneRename: Boolean = false,
+    public val acpAgents: Boolean = false,
+    public val acpSession: Boolean = false,
 )
 
 public data class AgentDetailState(
@@ -172,6 +174,48 @@ public data class LayoutState(
     public val renameDraft: String = "",
 )
 
+public enum class AcpTranscriptRole { User, Agent, Thought }
+
+public sealed class AcpTranscriptItem {
+    public abstract val id: String
+
+    public data class Message(
+        public override val id: String,
+        public val role: AcpTranscriptRole,
+        public val text: String,
+        public val streaming: Boolean,
+    ) : AcpTranscriptItem()
+
+    public data class Tool(
+        public override val id: String,
+        public val call: AcpToolCall,
+    ) : AcpTranscriptItem()
+
+    public data class Turn(
+        public override val id: String,
+        public val stopReason: AcpStopReason,
+    ) : AcpTranscriptItem()
+}
+
+public enum class AcpRunState { Idle, Starting, Ready, Working, AwaitingPermission, Exited }
+
+public data class AcpState(
+    public val agents: List<AcpAgentKind> = emptyList(),
+    public val agentsLoading: Boolean = false,
+    public val showLaunch: Boolean = false,
+    public val launchAgentId: String? = null,
+    public val launchCwd: String = "",
+    public val open: Boolean = false,
+    public val info: AcpSessionInfo? = null,
+    public val run: AcpRunState = AcpRunState.Idle,
+    public val transcript: List<AcpTranscriptItem> = emptyList(),
+    public val plan: List<AcpPlanEntry> = emptyList(),
+    public val permission: AcpPermissionRequest? = null,
+    public val draft: String = "",
+    public val errorText: String? = null,
+    public val exitMessage: String? = null,
+)
+
 public data class HostUhpState(
     public val connected: Boolean = false,
     public val isObserver: Boolean = false,
@@ -187,6 +231,7 @@ public data class HostUhpState(
     public val worktrees: WorktreesState = WorktreesState(),
     public val automations: AutomationsState = AutomationsState(),
     public val layout: LayoutState = LayoutState(),
+    public val acp: AcpState = AcpState(),
     public val section: HostSection = HostSection.Agents,
     public val errorText: String? = null,
     public val loading: Boolean = false,
@@ -255,4 +300,6 @@ internal fun LuviaSession.toCapabilities(): HostCapabilities =
         paneFocus = supports(UhpMethods.PANE_FOCUS),
         paneClose = supports(UhpMethods.PANE_CLOSE),
         paneRename = supports(UhpMethods.PANE_RENAME),
+        acpAgents = supports(UhpMethods.ACP_AGENTS),
+        acpSession = supports(UhpMethods.ACP_SESSION_OPEN),
     )

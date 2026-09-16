@@ -28,6 +28,7 @@ extension AppModel {
         if state.agentDetail.open, let paneId = state.agentDetail.summary?.paneId {
             uhp.selectedAgentID = paneId
         }
+        uhp.isAcpPresented = state.acp.open
     }
 
 }

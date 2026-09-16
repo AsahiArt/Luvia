@@ -29,6 +29,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -37,6 +38,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -90,6 +92,16 @@ fun AgentsSection(
     onShowForkChange: (Boolean) -> Unit = {},
     onForkDraftChange: (String) -> Unit = {},
     onForkAgent: () -> Unit = {},
+    onLoadAcpAgents: () -> Unit = {},
+    onShowLaunchAcp: (Boolean) -> Unit = {},
+    onSelectAcpAgent: (String?) -> Unit = {},
+    onAcpCwdChange: (String) -> Unit = {},
+    onLaunchAcp: () -> Unit = {},
+    onAcpDraftChange: (String) -> Unit = {},
+    onPromptAcp: () -> Unit = {},
+    onAnswerAcpPermission: (String) -> Unit = {},
+    onCancelAcp: () -> Unit = {},
+    onCloseAcp: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     when {
@@ -97,6 +109,19 @@ fun AgentsSection(
             UhpEmptyPane(
                 title = "Agents",
                 message = "Connect to this host",
+                modifier = modifier,
+            )
+        }
+        state.acp.open -> {
+            AcpSessionPane(
+                host = host,
+                state = state,
+                onBack = onCloseAcp,
+                onDraftChange = onAcpDraftChange,
+                onPrompt = onPromptAcp,
+                onAnswerPermission = onAnswerAcpPermission,
+                onCancel = onCancelAcp,
+                onClose = onCloseAcp,
                 modifier = modifier,
             )
         }
@@ -127,6 +152,11 @@ fun AgentsSection(
                 onOpenAgent = onOpenAgent,
                 onCheckUnconfirmed = onCheckUnconfirmed,
                 onResumeSession = onResumeSession,
+                onLoadAcpAgents = onLoadAcpAgents,
+                onShowLaunchAcp = onShowLaunchAcp,
+                onSelectAcpAgent = onSelectAcpAgent,
+                onAcpCwdChange = onAcpCwdChange,
+                onLaunchAcp = onLaunchAcp,
                 modifier = modifier,
             )
         }
@@ -141,13 +171,23 @@ fun AgentListPane(
     onOpenAgent: (String) -> Unit,
     onCheckUnconfirmed: () -> Unit,
     onResumeSession: (String) -> Unit = {},
+    onLoadAcpAgents: () -> Unit = {},
+    onShowLaunchAcp: (Boolean) -> Unit = {},
+    onSelectAcpAgent: (String?) -> Unit = {},
+    onAcpCwdChange: (String) -> Unit = {},
+    onLaunchAcp: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    PullToRefreshBox(
-        isRefreshing = state.loading,
-        onRefresh = onRefresh,
-        modifier = modifier.fillMaxSize(),
-    ) {
+    val openLaunch = {
+        onLoadAcpAgents()
+        onShowLaunchAcp(true)
+    }
+    Box(modifier.fillMaxSize()) {
+        PullToRefreshBox(
+            isRefreshing = state.loading,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
@@ -179,10 +219,14 @@ fun AgentListPane(
             }
             if (state.agents.isEmpty()) {
                 item {
-                    Text(
-                        if (state.connected) "No Agents in the current snapshot." else "Connect to this host",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (state.capabilities.acpSession) {
+                        LaunchAgentCard(onLaunch = openLaunch)
+                    } else {
+                        Text(
+                            if (state.connected) "No Agents in the current snapshot." else "Connect to this host",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             } else {
                 val blocked = state.agents.filter { it.status == AgentStatus.Blocked }
@@ -227,6 +271,26 @@ fun AgentListPane(
                     )
                 }
             }
+        }
+        }
+        if (state.capabilities.acpSession) {
+            ExtendedFloatingActionButton(
+                text = { Text("Launch") },
+                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                onClick = openLaunch,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+            )
+        }
+        if (state.acp.showLaunch) {
+            AcpLaunchSheet(
+                state = state.acp,
+                onDismiss = { onShowLaunchAcp(false) },
+                onSelectAgent = onSelectAcpAgent,
+                onCwdChange = onAcpCwdChange,
+                onLaunch = onLaunchAcp,
+            )
         }
     }
 }

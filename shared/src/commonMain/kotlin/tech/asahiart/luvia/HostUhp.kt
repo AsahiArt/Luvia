@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import tech.asahiart.luvia.internal.uhp.AgentBoard
+import tech.asahiart.luvia.internal.uhp.AcpBoard
 import tech.asahiart.luvia.internal.uhp.AutomationBoard
 import tech.asahiart.luvia.internal.uhp.FilesBoard
 import tech.asahiart.luvia.internal.uhp.LayoutBoard
@@ -35,6 +36,7 @@ public class HostUhp(
     private val worktrees: WorktreeBoard = WorktreeBoard(ctx)
     private val automations: AutomationBoard = AutomationBoard(ctx)
     private val layout: LayoutBoard = LayoutBoard(ctx)
+    private val acp: AcpBoard = AcpBoard(ctx)
 
     public val state: StateFlow<HostUhpState> = stateFlow.asStateFlow()
 
@@ -48,7 +50,10 @@ public class HostUhp(
 
     public fun show(section: HostSection) {
         when (section) {
-            HostSection.Agents -> agents.load()
+            HostSection.Agents -> {
+                agents.load()
+                acp.loadAgents()
+            }
             HostSection.Files -> files.load()
             HostSection.Search -> search.shown()
             HostSection.Review -> review.load()
@@ -179,7 +184,28 @@ public class HostUhp(
 
     public fun renamePane() = layout.rename()
 
+    public fun loadAcpAgents() = acp.loadAgents()
+
+    public fun setShowLaunchAcp(show: Boolean) = acp.setShowLaunch(show)
+
+    public fun setLaunchAcpAgent(id: String?) = acp.setLaunchAgent(id)
+
+    public fun setLaunchAcpCwd(cwd: String) = acp.setLaunchCwd(cwd)
+
+    public fun launchAcp() = acp.launch()
+
+    public fun setAcpDraft(text: String) = acp.setDraft(text)
+
+    public fun promptAcp() = acp.prompt()
+
+    public fun answerAcpPermission(optionId: String) = acp.answerPermission(optionId)
+
+    public fun cancelAcp() = acp.cancel()
+
+    public fun closeAcp() = acp.close()
+
     public fun close() {
+        acp.close()
         job.cancel()
     }
 }

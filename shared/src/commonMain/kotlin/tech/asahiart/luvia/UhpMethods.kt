@@ -58,4 +58,6 @@ public object UhpMethods {
     public const val PANE_FOCUS: String = "pane.focus"
     public const val PANE_CLOSE: String = "pane.close"
     public const val PANE_RENAME: String = "pane.rename"
+    public const val ACP_AGENTS: String = Methods.ACP_AGENTS
+    public const val ACP_SESSION_OPEN: String = Methods.ACP_SESSION_OPEN
 }

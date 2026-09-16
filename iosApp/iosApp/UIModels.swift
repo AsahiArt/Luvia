@@ -231,6 +231,12 @@ enum MoreSurface: String, Identifiable, Hashable, Sendable {
     }
 }
 
+enum AcpRoute: Hashable, Identifiable, Sendable {
+    case session
+
+    var id: String { "session" }
+}
+
 struct FileTreeRowItem: Identifiable, Hashable, Sendable {
     var id: String { path }
     var path: String
