@@ -1,23 +1,35 @@
 package tech.asahiart.luvia.internal.uhp
 
+import tech.asahiart.luvia.AutomationDraft
+import tech.asahiart.luvia.AutomationTaskSpec
+import tech.asahiart.luvia.AutomationTrigger
+import tech.asahiart.luvia.BusEvent
+import tech.asahiart.luvia.HostSection
 import tech.asahiart.luvia.LuviaSession
 import tech.asahiart.luvia.Outcome
 import tech.asahiart.luvia.UhpMethods
 import tech.asahiart.luvia.automationHealth
 import tech.asahiart.luvia.closePane
 import tech.asahiart.luvia.closeWorkspace
+import tech.asahiart.luvia.createAutomation
 import tech.asahiart.luvia.createWorktree
+import tech.asahiart.luvia.deleteAutomation
 import tech.asahiart.luvia.disableAutomation
 import tech.asahiart.luvia.enableAutomation
 import tech.asahiart.luvia.focusPane
+import tech.asahiart.luvia.listAutomationHistory
 import tech.asahiart.luvia.listAutomations
 import tech.asahiart.luvia.listPanes
 import tech.asahiart.luvia.listWorktrees
 import tech.asahiart.luvia.openWorktree
+import tech.asahiart.luvia.previewAutomation
+import tech.asahiart.luvia.rebindAutomation
 import tech.asahiart.luvia.removeWorktree
 import tech.asahiart.luvia.renamePane
 import tech.asahiart.luvia.runAutomation
+import tech.asahiart.luvia.updateAutomation
 import tech.asahiart.luvia.userMessage
+
 
 internal class WorktreeBoard(private val ctx: UhpContext) {
     fun load() {
@@ -171,6 +183,154 @@ internal class AutomationBoard(private val ctx: UhpContext) {
         mutate(id, UhpMethods.AUTOMATION_RUN) { it.runAutomation(id) }
     }
 
+    fun create(draft: AutomationDraft) {
+        val session = ctx.session() ?: return
+        val state = ctx.value()
+        if (!state.canMutate || state.automations.mutating) return
+        if (!session.supports(UhpMethods.AUTOMATION_CREATE)) return
+        val name = draft.name.trim()
+        if (name.isEmpty()) return
+        ctx.update { it.copy(automations = it.automations.copy(mutating = true, editorError = null, errorText = null)) }
+        ctx.launch {
+            val task = draft.task.withDefaultWorkspace(activeWorkspaceId(ctx.value()))
+            when (
+                val result =
+                    session.createAutomation(
+                        name = name,
+                        trigger = draft.trigger,
+                        task = task,
+                        enabled = draft.enabled,
+                        target = draft.target,
+                        policy = draft.policy,
+                        idempotencyKey = newIdempotencyKey(),
+                    )
+            ) {
+                is Outcome.Ok -> {
+                    ctx.update { it.copy(automations = it.automations.copy(mutating = false, editorError = null)) }
+                    refresh()
+                }
+                is Outcome.Err ->
+                    ctx.update {
+                        it.copy(automations = it.automations.copy(mutating = false, editorError = result.failure.userMessage()))
+                    }
+            }
+        }
+    }
+
+    fun update(id: String, draft: AutomationDraft) {
+        val session = ctx.session() ?: return
+        val state = ctx.value()
+        if (!state.canMutate || state.automations.mutating || id.isBlank()) return
+        if (!session.supports(UhpMethods.AUTOMATION_UPDATE)) return
+        val name = draft.name.trim()
+        if (name.isEmpty()) return
+        ctx.update { it.copy(automations = it.automations.copy(mutating = true, editorError = null, errorText = null)) }
+        ctx.launch {
+            val task = draft.task.withDefaultWorkspace(activeWorkspaceId(ctx.value()))
+            when (
+                val result =
+                    session.updateAutomation(
+                        id = id,
+                        name = name,
+                        trigger = draft.trigger,
+                        task = task,
+                        enabled = draft.enabled,
+                        target = draft.target,
+                        policy = draft.policy,
+                    )
+            ) {
+                is Outcome.Ok -> {
+                    ctx.update { it.copy(automations = it.automations.copy(mutating = false, editorError = null)) }
+                    refresh()
+                }
+                is Outcome.Err ->
+                    ctx.update {
+                        it.copy(automations = it.automations.copy(mutating = false, editorError = result.failure.userMessage()))
+                    }
+            }
+        }
+    }
+
+    fun delete(id: String) {
+        mutate(id, UhpMethods.AUTOMATION_DELETE) { it.deleteAutomation(id) }
+    }
+
+    fun rebind(id: String, pane: String, terminalId: String?) {
+        mutate(id, UhpMethods.AUTOMATION_REBIND) { it.rebindAutomation(id, pane = pane, terminalId = terminalId) }
+    }
+
+    fun loadHistory(id: String, limit: Long = 20) {
+        val session = ctx.session() ?: return
+        if (!session.supports(UhpMethods.AUTOMATION_HISTORY) || id.isBlank()) return
+        ctx.update { it.copy(automations = it.automations.copy(historyLoading = id)) }
+        ctx.launch {
+            when (val result = session.listAutomationHistory(id = id, limit = limit)) {
+                is Outcome.Ok ->
+                    ctx.update {
+                        it.copy(
+                            automations = it.automations.copy(
+                                history = it.automations.history + (id to result.value),
+                                historyLoading = null,
+                            ),
+                        )
+                    }
+                is Outcome.Err ->
+                    ctx.update {
+                        it.copy(
+                            automations = it.automations.copy(
+                                historyLoading = null,
+                                errorText = result.failure.userMessage(),
+                            ),
+                        )
+                    }
+            }
+        }
+    }
+
+    fun preview(trigger: AutomationTrigger) {
+        val session = ctx.session() ?: return
+        if (!session.supports(UhpMethods.AUTOMATION_PREVIEW)) return
+        ctx.update { it.copy(automations = it.automations.copy(previewLoading = true, editorError = null)) }
+        ctx.launch {
+            when (val result = session.previewAutomation(trigger)) {
+                is Outcome.Ok ->
+                    ctx.update {
+                        it.copy(
+                            automations = it.automations.copy(
+                                preview = result.value.occurrencesUtc,
+                                previewLoading = false,
+                            ),
+                        )
+                    }
+                is Outcome.Err ->
+                    ctx.update {
+                        it.copy(
+                            automations = it.automations.copy(
+                                previewLoading = false,
+                                editorError = result.failure.userMessage(),
+                            ),
+                        )
+                    }
+            }
+        }
+    }
+
+    fun clearPreview() {
+        ctx.update { it.copy(automations = it.automations.copy(preview = null, previewLoading = false)) }
+    }
+
+    fun onBusEvent(event: BusEvent.AutomationChanged) {
+        if (ctx.value().section != HostSection.Automations) return
+        load()
+        val runEvent = event.name.startsWith("automation.run_") || event.name == "automation.ran"
+        if (!runEvent) return
+        val id = event.id ?: return
+        val state = ctx.value().automations
+        if (id in state.history || state.historyLoading == id) {
+            loadHistory(id)
+        }
+    }
+
     private fun mutate(id: String, method: String, call: suspend (LuviaSession) -> Outcome<*>) {
         val session = ctx.session() ?: return
         val state = ctx.value()
@@ -234,6 +394,18 @@ internal class AutomationBoard(private val ctx: UhpContext) {
         }
     }
 }
+
+private fun AutomationTaskSpec.withDefaultWorkspace(workspaceId: String?): AutomationTaskSpec {
+    if (this.workspaceId.isNotBlank() || workspaceId.isNullOrBlank()) return this
+    return copy(workspaceId = workspaceId)
+}
+
+private fun newIdempotencyKey(): String {
+    val alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+    val rng = kotlin.random.Random.Default
+    return buildString(32) { repeat(32) { append(alphabet[rng.nextInt(alphabet.length)]) } }
+}
+
 
 internal class LayoutBoard(private val ctx: UhpContext) {
     fun load() {

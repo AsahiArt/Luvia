@@ -123,6 +123,8 @@ mod tests {
             key: "AAAA".into(),
             comment: String::new(),
             created_at: 0,
+            push: None,
+
         }
     }
 

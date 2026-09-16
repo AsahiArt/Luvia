@@ -201,6 +201,50 @@ class BusApplyTest {
         assertEquals("9", (lease as BusEvent.LeaseChanged).pane)
     }
 
+    @Test
+    fun taskRetriedMapsToTaskPayload() {
+        val event =
+            parseBusEvent(
+                UhpEvent(
+                    "task.retried",
+                    8,
+                    buildJsonObject {
+                        put("id", "t1")
+                        put("attempt", 2)
+                    },
+                ),
+            )
+        val payload = assertIs<BusEvent.TaskPayload>(event)
+        assertEquals("task.retried", payload.name)
+        assertEquals("t1", payload.id)
+    }
+
+    @Test
+    fun automationEnabledMapsToAutomationChanged() {
+        val event =
+            parseBusEvent(
+                UhpEvent(
+                    "automation.enabled",
+                    9,
+                    buildJsonObject { put("id", "a1") },
+                ),
+            )
+        val changed = assertIs<BusEvent.AutomationChanged>(event)
+        assertEquals("automation.enabled", changed.name)
+        assertEquals("a1", changed.id)
+        val run =
+            parseBusEvent(
+                UhpEvent(
+                    "automation.run_started",
+                    10,
+                    buildJsonObject { put("automation_id", "a1") },
+                ),
+            )
+        val runChanged = assertIs<BusEvent.AutomationChanged>(run)
+        assertEquals("a1", runChanged.id)
+    }
+
+
     private fun sampleSnapshot(focusedPane: String): SessionSnapshot =
         SessionSnapshot(
             sessionName = "default",

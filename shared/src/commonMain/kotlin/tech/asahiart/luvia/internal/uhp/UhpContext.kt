@@ -25,3 +25,12 @@ internal class UhpContext(
 
     fun launch(block: suspend CoroutineScope.() -> Unit): Job = scope.launch(block = block)
 }
+
+internal fun activeWorkspaceId(state: HostUhpState): String? {
+    state.agents.firstOrNull { it.focused && it.workspaceId != null }?.workspaceId?.let { return it }
+    val agentIds = state.agents.mapNotNull { it.workspaceId }.distinct()
+    if (agentIds.size == 1) return agentIds.first()
+    val missionIds = state.mission?.rows?.mapNotNull { it.workspaceId }?.distinct().orEmpty()
+    return missionIds.singleOrNull()
+}
+

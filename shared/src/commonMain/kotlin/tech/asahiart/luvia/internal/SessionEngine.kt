@@ -61,6 +61,8 @@ internal class SessionEngine(
     private var sessionName: String? = null
     private var caps: Capabilities? = null
     private var connectionFreshness: ConnectionFreshness = ConnectionFreshness.Offline
+    private var backendName: String = "luvus"
+
     private var closed: Boolean = false
     private var nextId: Int = 0
 
@@ -76,6 +78,8 @@ internal class SessionEngine(
     )
 
     fun freshness(): ConnectionFreshness = connectionFreshness
+    fun backend(): String = backendName
+
 
     fun close() {
         closed = true
@@ -344,7 +348,8 @@ internal class SessionEngine(
         val framer = NdjsonFramer(channel)
         return try {
             framer.writeFrame(encodeOpenRequest(session))
-            decodeOpenResponse(framer.readFrame(), session)
+            backendName = decodeOpenResponse(framer.readFrame(), session)
+
             val id = allocateId()
             framer.writeFrame(encodeUhpRequest(UhpRequest(id, method, params, authToken)))
             written = true
@@ -380,7 +385,8 @@ internal class SessionEngine(
         return try {
             exchange { framer ->
                 framer.writeFrame(encodeOpenRequest(session))
-                decodeOpenResponse(framer.readFrame(), session)
+                backendName = decodeOpenResponse(framer.readFrame(), session)
+
                 val id = allocateId()
                 framer.writeFrame(encodeUhpRequest(UhpRequest(id, method, params, authToken)))
                 written = true

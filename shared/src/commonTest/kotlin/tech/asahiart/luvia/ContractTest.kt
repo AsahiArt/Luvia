@@ -177,6 +177,19 @@ class ContractTest {
     }
 
     @Test
+    fun snapshotMapsPaneAgentName() {
+        val json =
+            """{"event_sequence":1,"protocol":{"major":1,"minor":0,"name":"luvus-uhp"},"server_generation":"aa","session":"default","type":"session_snapshot","workspaces":[{"index":1,"name":"ws","pinned":false,"active":true,"tabs":[{"index":1,"panes":[{"pane_id":"1","kind":"terminal","focused":true,"agent_status":"idle","agent_session":"s1","agent_name":"codex"}]}]}]}"""
+        val snapshot = mapSnapshot(parseObject(json))
+        assertEquals("codex", snapshot.panes.single().agentName)
+        assertEquals("codex", snapshot.agents.single().name)
+        val named =
+            """{"event_sequence":1,"protocol":{"major":1,"minor":0,"name":"luvus-uhp"},"server_generation":"aa","session":"default","type":"session_snapshot","workspaces":[{"index":1,"name":"ws","pinned":false,"active":true,"tabs":[{"index":1,"panes":[{"pane_id":"1","kind":"terminal","focused":true,"agent_status":"idle","agent_session":"s1","name":"reviewer","agent_name":"codex"}]}]}]}"""
+        assertEquals("reviewer", mapSnapshot(parseObject(named)).agents.single().name)
+    }
+
+
+    @Test
     fun afterSequenceIsSentOnSubscribe() = runTest {
         val seen = mutableListOf<UhpRequest>()
         val session = openSession(backgroundScope) { seen += it }

@@ -23,6 +23,7 @@ data class HostUiModel(
     val connected: Boolean = false,
     val hasSnapshot: Boolean = false,
     val firstBlockedPaneId: String? = null,
+    val backend: String = "luvus",
 )
 
 enum class ConnectionBadge { Live, Connecting, Stale, Offline }

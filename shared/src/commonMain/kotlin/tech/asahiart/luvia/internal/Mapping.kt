@@ -109,6 +109,8 @@ internal object Methods {
     const val TASK_START: String = "task.start"
     const val TASK_HEARTBEAT: String = "task.heartbeat"
     const val TASK_DONE: String = "task.done"
+    const val TASK_RETRY: String = "task.retry"
+
     const val TERMINAL_INVENTORY: String = "terminal.backend.inventory"
     const val TERMINAL_SNAPSHOT: String = "terminal.backend.snapshot"
     const val TERMINAL_CAPTURE: String = "terminal.backend.capture"
@@ -133,6 +135,8 @@ internal object Methods {
             TASK_START,
             TASK_HEARTBEAT,
             TASK_DONE,
+            TASK_RETRY,
+
             DIFF_REFRESH,
             DIFF_NOTE_ADD,
             DIFF_NOTE_EDIT,
@@ -303,6 +307,7 @@ internal fun mapSnapshot(result: JsonObject): SessionSnapshot {
                         agentSession = pane.optionalString("agent_session"),
                         rootProcessPid = root?.optionalStrictLong("pid"),
                         rootProcessStartMarker = root?.optionalString("start_marker"),
+                        agentName = pane.optionalString("agent_name"),
                     )
                 val agentKind = pane.optionalString("agent")
                 val agentStatus = pane.optionalString("agent_status")
@@ -316,7 +321,7 @@ internal fun mapSnapshot(result: JsonObject): SessionSnapshot {
                     agents +=
                         AgentSummary(
                             paneId = paneId,
-                            name = pane.optionalString("name"),
+                            name = pane.optionalString("name") ?: pane.optionalString("agent_name"),
                             status = parseAgentStatus(agentStatus),
                             agent = agentKind,
                             authority = pane.optionalString("agent_authority"),
@@ -325,6 +330,7 @@ internal fun mapSnapshot(result: JsonObject): SessionSnapshot {
                             cwd = pane.optionalString("cwd"),
                         )
                 }
+
             }
         }
     }
@@ -789,7 +795,9 @@ internal fun parseBusEvent(event: UhpEvent): BusEvent {
         "task.deleted", "task.started", "task.ready", "task.needs_compaction",
         "task.gate_running", "task.gate_passed", "task.gate_failed",
         "task.merged", "task.merge_conflict", "task.merge_started", "task.merge_failed",
+        "task.retried",
         ->
+
             BusEvent.TaskPayload(
                 sequence = event.sequence,
                 name = event.name,
@@ -870,7 +878,20 @@ internal fun parseBusEvent(event: UhpEvent): BusEvent {
                 label = data.optionalObject("detail")?.optionalString("label")
                     ?: data.optionalString("label"),
             )
-        else -> BusEvent.Ignored(sequence = event.sequence, name = event.name)
+        else ->
+            if (event.name.startsWith("automation.")) {
+                BusEvent.AutomationChanged(
+                    sequence = event.sequence,
+                    name = event.name,
+                    id = data.optionalString("id")
+                        ?: data.optionalObject("automation")?.optionalString("id")
+                        ?: data.optionalString("automation_id")
+                        ?: data.optionalObject("run")?.optionalString("automation_id"),
+                )
+            } else {
+                BusEvent.Ignored(sequence = event.sequence, name = event.name)
+            }
+
     }
 }
 
@@ -922,7 +943,9 @@ internal fun projectBusEvent(
                 base.copy(pullSession = true)
             }
         is BusEvent.ResyncRequired -> base.copy(resync = true)
+        is BusEvent.AutomationChanged -> base
         is BusEvent.Ignored -> base
+
     }
 }
 

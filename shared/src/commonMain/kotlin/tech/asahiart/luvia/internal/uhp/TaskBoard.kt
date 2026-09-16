@@ -135,6 +135,38 @@ internal class TaskBoard(private val ctx: UhpContext) {
         }
     }
 
+    fun retry(taskId: String) {
+        val session = ctx.session() ?: return
+        val state = ctx.value()
+        if (!state.canMutate || state.tasks.mutating || state.tasks.unconfirmed != null) return
+        if (!session.supports(UhpMethods.TASK_RETRY)) return
+        ctx.update { it.copy(tasks = it.tasks.copy(mutating = true, errorText = null, boardChanged = false)) }
+        ctx.launch {
+            when (
+                val result =
+                    session.retryTask(taskId, workspaceId = activeWorkspaceId(ctx.value()))
+            ) {
+                is Outcome.Ok -> {
+                    ctx.update { current ->
+                        current.copy(
+                            tasks = current.tasks.copy(
+                                mutating = false,
+                                unconfirmed = null,
+                                unconfirmedTaskId = null,
+                                boardRevision = result.value.revision ?: current.tasks.boardRevision,
+                                revisions = current.tasks.revisions +
+                                    (taskId to (result.value.revision ?: current.tasks.revisions[taskId] ?: 0L)),
+                            ),
+                        )
+                    }
+                    refresh()
+                }
+                is Outcome.Err -> applyMutationFailure(UnconfirmedKind.RetryTask, taskId, result.failure)
+            }
+        }
+    }
+
+
     fun claim(taskId: String) {
         mutate(taskId, UhpMethods.TASK_CLAIM, UnconfirmedKind.ClaimTask) { session, ifRevision ->
             session.claimTask(taskId, ifRevision = ifRevision)
@@ -284,13 +316,9 @@ internal class TaskBoard(private val ctx: UhpContext) {
      * (`workspace_id`, Luvus #264) or Mission rows. Null on single-project Hosts
      * or older Luvus; the server then falls back to its implicit project.
      */
-    private fun activeWorkspaceId(state: HostUhpState): String? {
-        state.agents.firstOrNull { it.focused && it.workspaceId != null }?.workspaceId?.let { return it }
-        val agentIds = state.agents.mapNotNull { it.workspaceId }.distinct()
-        if (agentIds.size == 1) return agentIds.first()
-        val missionIds = state.mission?.rows?.mapNotNull { it.workspaceId }?.distinct().orEmpty()
-        return missionIds.singleOrNull()
-    }
+    private fun activeWorkspaceId(state: HostUhpState): String? =
+        tech.asahiart.luvia.internal.uhp.activeWorkspaceId(state)
+
 
     private fun applyMutationFailure(kind: UnconfirmedKind, taskId: String?, failure: Failure) {
         if (failure is Failure.RevisionConflict) {

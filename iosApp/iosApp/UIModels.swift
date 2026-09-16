@@ -32,6 +32,7 @@ struct AgentViewState: Identifiable, Hashable, Sendable {
     var workspace: String?
     var branch: String?
     var cwd: String?
+    var terminalId: String?
     var isBlocked: Bool { statusKind == .blocked }
 }
 
@@ -85,6 +86,7 @@ enum UnconfirmedAction: Hashable, Sendable {
     case completeTask
     case claimTask
     case deleteTask
+    case retryTask
     case openFile
     case revealFile
     case activateSearch
@@ -130,6 +132,8 @@ enum UnconfirmedAction: Hashable, Sendable {
             "The Task may have been claimed. Check the board."
         case .deleteTask:
             "The Task may have been deleted. Check the board."
+        case .retryTask:
+            "The Task may have been retried. Check the board."
         case .openFile:
             "This file may have been opened on the Host. Check Files."
         case .revealFile:
@@ -199,6 +203,8 @@ struct UhpCaps: Equatable, Sendable {
     var paneClose = false
     var workspaceList = false
     var workspaceClose = false
+    var taskRetry = false
+    var push = false
 }
 
 enum MoreSurface: String, Identifiable, Hashable, Sendable {
@@ -391,6 +397,9 @@ struct HostViewState: Identifiable, Hashable, Sendable {
     var agents: [AgentViewState]
     var tasks: [TaskViewState]
     var terminalLocator: TerminalLocator?
+    var backend: String
+    var paneTerminalIds: [String: String]
+    var workspaces: [WorkspaceItem]
 
     init(
         id: String,
@@ -410,7 +419,10 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         failureMessage: String? = nil,
         agents: [AgentViewState] = [],
         tasks: [TaskViewState] = [],
-        terminalLocator: TerminalLocator? = nil
+        terminalLocator: TerminalLocator? = nil,
+        backend: String = "luvus",
+        paneTerminalIds: [String: String] = [:],
+        workspaces: [WorkspaceItem] = []
     ) {
         self.id = id
         self.name = name
@@ -430,6 +442,9 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         self.agents = agents
         self.tasks = tasks
         self.terminalLocator = terminalLocator
+        self.backend = backend
+        self.paneTerminalIds = paneTerminalIds
+        self.workspaces = workspaces
     }
 
     init(_ runtime: HostRuntime) {
@@ -447,9 +462,35 @@ struct HostViewState: Identifiable, Hashable, Sendable {
             agentSummaries = []
             taskSummaries = KotlinLists.array(runtime.tasks)
         }
-
         let link = HostViewState.linkPresentation(runtime)
-        let agents = agentSummaries.map { AgentViewState($0) }
+
+        let paneSummaries: [PaneSummary] = snapshot.map { KotlinLists.array($0.panes as Any) } ?? []
+        var terminalIds: [String: String] = [:]
+        for pane in paneSummaries {
+            if let terminalId = pane.terminalId {
+                terminalIds[pane.paneId] = terminalId
+            }
+        }
+        let workspaceItems: [WorkspaceItem] = {
+            guard let snapshot else { return [] }
+            let list: [WorkspaceSummary] = KotlinLists.array(snapshot.workspaces as Any)
+            return list.map { workspace in
+                WorkspaceItem(
+                    index: Int(workspace.index),
+                    name: workspace.name,
+                    isActive: workspace.active,
+                    isPinned: workspace.pinned,
+                    cwd: workspace.cwd,
+                    branch: workspace.branch,
+                    tabCount: Int(workspace.tabCount)
+                )
+            }
+        }()
+        let agents = agentSummaries.map { summary in
+            var agent = AgentViewState(summary)
+            agent.terminalId = terminalIds[summary.paneId]
+            return agent
+        }
         let tasks = taskSummaries.map { TaskViewState($0) }
         let locator = HostViewState.locator(from: snapshot)
 
@@ -473,7 +514,10 @@ struct HostViewState: Identifiable, Hashable, Sendable {
             failureMessage: link.failure,
             agents: agents,
             tasks: tasks,
-            terminalLocator: locator
+            terminalLocator: locator,
+            backend: runtime.backend,
+            paneTerminalIds: terminalIds,
+            workspaces: workspaceItems
         )
     }
 
@@ -599,7 +643,19 @@ func kotlinInt64(_ value: Any?) -> Int64? {
     if let value = value as? Int64 { return value }
     if let value = value as? Int32 { return Int64(value) }
     if let value = value as? Int { return Int64(value) }
+    if let value = value as? UInt64 { return Int64(bitPattern: value) }
+    if let value = value as? KotlinLong { return value.int64Value }
     if let value = value as? NSNumber { return value.int64Value }
+    return nil
+}
+
+func kotlinInt(_ value: Any?) -> Int? {
+    if let value = value as? Int { return value }
+    if let value = value as? Int32 { return Int(value) }
+    if let value = value as? Int64 { return Int(value) }
+    if let value = value as? KotlinInt { return Int(value.intValue) }
+    if let value = value as? NSNumber { return value.intValue }
+    if let value = kotlinInt64(value) { return Int(value) }
     return nil
 }
 

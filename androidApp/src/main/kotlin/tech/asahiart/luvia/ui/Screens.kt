@@ -75,6 +75,9 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Switch
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -97,6 +100,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -113,6 +117,7 @@ import tech.asahiart.luvia.isTailnetAddress
 import tech.asahiart.luvia.TerminalKey
 import tech.asahiart.luvia.ui.theme.LuviaTheme
 import tech.asahiart.luvia.HostSection
+import tech.asahiart.luvia.PushRegistrar
 
 @Composable
 fun HostListPane(
@@ -259,17 +264,10 @@ private fun HostRow(
                             overflow = TextOverflow.Ellipsis,
                         )
                         if (isTailnetAddress(host.address)) {
-                            Text(
-                                "Tailnet",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = LuviaTheme.extended.connecting,
-                                modifier = Modifier
-                                    .background(
-                                        LuviaTheme.extended.connecting.copy(alpha = 0.12f),
-                                        RoundedCornerShape(50),
-                                    )
-                                    .padding(horizontal = 6.dp, vertical = 1.dp),
-                            )
+                            HostBadge("Tailnet", LuviaTheme.extended.connecting)
+                        }
+                        if (host.backend.equals("herdr", ignoreCase = true)) {
+                            HostBadge("Herdr", LuviaTheme.extended.live)
                         }
                     }
                     host.errorMessage?.let { error ->
@@ -338,6 +336,18 @@ private fun HostAvatar(name: String, connection: ConnectionBadge) {
 }
 
 @Composable
+internal fun HostBadge(label: String, color: Color) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelSmall,
+        color = color,
+        modifier = Modifier
+            .background(color.copy(alpha = 0.12f), RoundedCornerShape(50))
+            .padding(horizontal = 6.dp, vertical = 1.dp),
+    )
+}
+
+@Composable
 fun HostDetailPane(
     host: HostUiModel,
     section: HostSection,
@@ -353,6 +363,10 @@ fun HostDetailPane(
     onUpdateConnection: (alias: String, hosts: String, port: String, username: String) -> Unit = { _, _, _, _ -> },
     onSelectTerminalPane: (String) -> Unit = {},
     sections: List<HostSection> = HostSection.entries,
+    pushCapable: Boolean = false,
+    pushEnabled: Boolean = false,
+    hasPushDistributor: Boolean = true,
+    onSetPushEnabled: (Boolean) -> Unit = {},
     agentsContent: @Composable (Modifier) -> Unit = { EmptyPane("Agents", "Connect to this host", modifier = it) },
     filesContent: @Composable (Modifier) -> Unit = { EmptyPane("Files", "Connect to this host", modifier = it) },
     searchContent: @Composable (Modifier) -> Unit = { EmptyPane("Search", "Connect to this host", modifier = it) },
@@ -366,6 +380,7 @@ fun HostDetailPane(
     var confirmUnpair by remember { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
     var editingConnection by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     val visible = sections.ifEmpty { HostSection.entries }
     val tabs = visible.filter { it.isPrimaryTab }
     Scaffold(
@@ -375,7 +390,15 @@ fun HostDetailPane(
             TopAppBar(
                 title = {
                     Column {
-                        Text(host.name, maxLines = 1)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(host.name, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                            if (host.backend.equals("herdr", ignoreCase = true)) {
+                                HostBadge("Herdr", LuviaTheme.extended.live)
+                            }
+                        }
                         Text(host.sessionName ?: host.address, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
                 },
@@ -425,6 +448,13 @@ fun HostDetailPane(
                                 onClick = {
                                     overflowOpen = false
                                     editingConnection = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Settings") },
+                                onClick = {
+                                    overflowOpen = false
+                                    showSettings = true
                                 },
                             )
                             DropdownMenuItem(
@@ -506,6 +536,16 @@ fun HostDetailPane(
             },
         )
     }
+    if (showSettings) {
+        HostSettingsSheet(
+            host = host,
+            pushCapable = pushCapable,
+            pushEnabled = pushEnabled,
+            hasPushDistributor = hasPushDistributor,
+            onSetPushEnabled = onSetPushEnabled,
+            onDismiss = { showSettings = false },
+        )
+    }
  }
 
 private fun HostSection.barIcon(): ImageVector = when (this) {
@@ -576,6 +616,67 @@ private fun EditConnectionDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
+}
+
+@Composable
+private fun HostSettingsSheet(
+    host: HostUiModel,
+    pushCapable: Boolean,
+    pushEnabled: Boolean,
+    hasPushDistributor: Boolean,
+    onSetPushEnabled: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val uriHandler = LocalUriHandler.current
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Settings", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                host.address,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (host.backend.equals("herdr", ignoreCase = true)) {
+                HostBadge("Herdr", LuviaTheme.extended.live)
+            }
+            if (pushCapable) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Wake me for approvals", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "A content-free push when an agent is blocked or asks for permission.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = pushEnabled,
+                        onCheckedChange = onSetPushEnabled,
+                        enabled = hasPushDistributor || pushEnabled,
+                    )
+                }
+                if (!hasPushDistributor) {
+                    Text(
+                        "No UnifiedPush distributor is installed, so this phone cannot receive wakes.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(onClick = { uriHandler.openUri(PushRegistrar.UNIFIEDPUSH_DOCS) }) {
+                        Text("Learn more at unifiedpush.org")
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
 }
 
 

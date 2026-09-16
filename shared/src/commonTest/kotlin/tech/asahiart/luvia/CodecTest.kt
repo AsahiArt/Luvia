@@ -159,6 +159,35 @@ class CodecTest {
     }
 
     @Test
+    fun discoverAcceptsBackendKey() {
+        val herdr =
+            decodeDiscoverResponse(
+                """{"version":1,"sessions":[{"name":"herdr","default":false,"running":true,"transport":"unix_socket","backend":"herdr"}]}""",
+            )
+        assertEquals("herdr", herdr.sessions.single().name)
+        assertEquals("herdr", herdr.sessions.single().backend)
+        val unknown =
+            decodeDiscoverResponse(
+                """{"version":1,"sessions":[{"name":"default","default":true,"running":true,"transport":"unix_socket","backend":"other"}]}""",
+            )
+        assertEquals("luvus", unknown.sessions.single().backend)
+        val omitted =
+            decodeDiscoverResponse(
+                """{"version":1,"sessions":[{"name":"default","default":true,"running":true,"transport":"unix_socket"}]}""",
+            )
+        assertEquals("luvus", omitted.sessions.single().backend)
+        assertEquals("herdr", decodeOpenResponse(
+            """{"version":1,"status":"ready","session":"herdr","server":{"backend":"herdr"}}""",
+            "herdr",
+        ))
+        assertEquals("luvus", decodeOpenResponse(
+            """{"version":1,"status":"ready","session":"default"}""",
+            "default",
+        ))
+    }
+
+
+    @Test
     fun emptyParamsEncode() {
         val encoded = encodeUhpRequest(UhpRequest("r1", "uhp.capabilities", JsonObject(emptyMap())))
         decodeUhpRequest(encoded)

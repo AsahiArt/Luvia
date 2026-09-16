@@ -531,4 +531,5 @@ Phone-relevant **new**:
 - `LuviaSession.addTask` gained `workspaceId`; `TaskBoard.add` sends the focused workspace's id (from `agent.list` `workspace_id`, else Mission rows) so multi-project Hosts stop answering `workspace_required`. Null on single-project Hosts keeps the implicit project.
 - `task.next` remains forbidden (ADR 0001); the project-scoping change does not affect the phone.
 - `agent.prompt` stays `wait=false`; `agent_not_ready` surfaces as a generic server error.
-- `task.retry`, `automation.*`, `machine.*` are not surfaced; `task.retried` is `Ignored` by `parseBusEvent`.
+- **Implemented:** `task.retry` (`LuviaSession.retryTask` / `HostUhp.retryTask`), `task.retried` → `BusEvent.TaskPayload`, `session.snapshot` `pane.agent_name` → `PaneSummary.agentName`, `automation.*` events → `BusEvent.AutomationChanged` with live AutomationBoard refresh. `machine.*` is still not surfaced.
+

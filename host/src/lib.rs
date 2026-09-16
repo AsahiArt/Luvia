@@ -26,14 +26,18 @@ pub mod endpoint;
 pub mod error;
 pub mod frames;
 pub mod grant;
+pub mod herdr;
 pub mod hostinfo;
 pub mod paircode;
 pub mod paths;
 pub mod prelude;
+pub mod push;
 pub mod role;
 pub mod sshkey;
 pub mod uhp;
 pub mod unique_json;
+pub mod watch;
+
 
 pub use cli::run;
 pub use error::{Error, Result};

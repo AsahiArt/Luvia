@@ -6,17 +6,36 @@ use crate::error::{Error, Result};
 use crate::paths::Paths;
 use crate::prelude::{self, DEFAULT_SESSION_NAME};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Backend {
+    Luvus,
+    Herdr,
+}
+
+impl Backend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Backend::Luvus => "luvus",
+            Backend::Herdr => "herdr",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiscoveredSession {
     pub name: String,
     pub default: bool,
     pub address: PathBuf,
     pub evidence: Evidence,
+    pub backend: Backend,
+    pub running: bool,
+    /// Herdr `--session` name; `None` for the default session advertised as `herdr`.
+    pub herdr_session: Option<String>,
 }
 
 impl DiscoveredSession {
     pub fn metadata(&self) -> serde_json::Map<String, serde_json::Value> {
-        prelude::session_metadata(&self.name, self.default, true)
+        prelude::session_metadata(&self.name, self.default, self.running, self.backend.as_str())
     }
 }
 
@@ -26,35 +45,37 @@ pub fn discover_running(paths: &Paths) -> Result<Vec<DiscoveredSession>> {
         sessions.push(session);
     }
     let sessions_dir = paths.luvus_home.join("sessions");
-    let entries = match std::fs::read_dir(&sessions_dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(sessions),
+    match std::fs::read_dir(&sessions_dir) {
+        Ok(entries) => {
+            let mut names = Vec::new();
+            for entry in entries {
+                let entry = entry?;
+                let file_type = match entry.file_type() {
+                    Ok(file_type) => file_type,
+                    Err(_) => continue,
+                };
+                if file_type.is_symlink() || !file_type.is_dir() {
+                    continue;
+                }
+                let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                    continue;
+                };
+                if name != DEFAULT_SESSION_NAME && prelude::validate_session_name(&name).is_ok() {
+                    names.push(name);
+                }
+            }
+            names.sort_unstable();
+            for name in names {
+                let dir = sessions_dir.join(&name);
+                if let Some(session) = probe_session(&dir, &name, false) {
+                    sessions.push(session);
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
-    };
-    let mut names = Vec::new();
-    for entry in entries {
-        let entry = entry?;
-        let file_type = match entry.file_type() {
-            Ok(file_type) => file_type,
-            Err(_) => continue,
-        };
-        if file_type.is_symlink() || !file_type.is_dir() {
-            continue;
-        }
-        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
-            continue;
-        };
-        if name != DEFAULT_SESSION_NAME && prelude::validate_session_name(&name).is_ok() {
-            names.push(name);
-        }
     }
-    names.sort_unstable();
-    for name in names {
-        let dir = sessions_dir.join(&name);
-        if let Some(session) = probe_session(&dir, &name, false) {
-            sessions.push(session);
-        }
-    }
+    sessions.extend(crate::herdr::discover());
     Ok(sessions)
 }
 
@@ -88,6 +109,9 @@ fn probe_session(session_dir: &Path, name: &str, default: bool) -> Option<Discov
         default,
         address,
         evidence,
+        backend: Backend::Luvus,
+        running: true,
+        herdr_session: None,
     })
 }
 

@@ -22,6 +22,7 @@ extension AppModel {
     }
 
     func applyHostUhp(_ state: HostUhpState) {
+        let wasConnected = hasLiveSession
         hasLiveSession = state.connected
         uhp.snapshot = state
         uhp.localError = nil
@@ -29,6 +30,10 @@ extension AppModel {
             uhp.selectedAgentID = paneId
         }
         uhp.isAcpPresented = state.acp.open
+        if pendingPresentAcp, state.acp.open {
+            pendingPresentAcp = false
+        }
+        syncPushAfterConnect(wasConnected: wasConnected, connected: state.connected)
     }
 
 }
@@ -75,7 +80,9 @@ extension UhpCaps {
             paneFocus: caps.paneFocus,
             paneClose: caps.paneClose,
             workspaceList: caps.workspaceList,
-            workspaceClose: caps.workspaceClose
+            workspaceClose: caps.workspaceClose,
+            taskRetry: caps.taskRetry,
+            push: caps.push
         )
     }
 }
@@ -110,6 +117,7 @@ extension UnconfirmedAction {
         case .completeTask: self = .completeTask
         case .claimTask: self = .claimTask
         case .deleteTask: self = .deleteTask
+        case .retryTask: self = .retryTask
         default: self = .agentPrompt
         }
     }

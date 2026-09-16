@@ -20,6 +20,7 @@ lifecycle = "2.9.4"
 camerax = "1.4.2"
 mlkit-barcode = "17.3.0"
 compose-icons = "1.7.3"
+unifiedpush = "3.3.3"
 
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity" }
@@ -48,6 +49,7 @@ kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-c
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
+unifiedpush-connector = { module = "org.unifiedpush.android:connector", version.ref = "unifiedpush" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }

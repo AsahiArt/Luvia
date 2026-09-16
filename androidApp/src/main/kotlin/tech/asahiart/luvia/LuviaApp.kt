@@ -30,6 +30,7 @@ fun LuviaApp(launchIntent: Intent? = null) {
     val runtimes by viewModel.hosts.collectAsStateWithLifecycle()
     val pairing by viewModel.pairing.collectAsStateWithLifecycle()
     val terminals by viewModel.terminals.collectAsStateWithLifecycle()
+    val pushRegistration by viewModel.pushRegistration.collectAsStateWithLifecycle()
     val notifications = remember { StatusNotificationController(context) }
     var askedNotificationPermission by rememberSaveable { mutableStateOf(false) }
     var notificationPermissionEpoch by remember { mutableIntStateOf(0) }
@@ -104,5 +105,8 @@ fun LuviaApp(launchIntent: Intent? = null) {
         onSendTerminalKey = viewModel::sendTerminalKey,
         onTerminalShown = { id -> viewModel.ensureTerminal(id) },
         onSelectTerminalPane = { id, pane -> viewModel.ensureTerminal(id, pane) },
+        pushEnabled = pushRegistration != null,
+        hasPushDistributor = PushRegistrar.hasDistributor(context),
+        onSetPushEnabled = { enabled -> viewModel.setWakeEnabled(enabled, context) },
     )
 }

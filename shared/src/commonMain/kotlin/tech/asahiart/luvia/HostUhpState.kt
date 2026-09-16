@@ -24,6 +24,8 @@ public enum class UnconfirmedKind {
     CompleteTask,
     ClaimTask,
     DeleteTask,
+    RetryTask,
+
 }
 
 public data class HostCapabilities(
@@ -73,6 +75,9 @@ public data class HostCapabilities(
     public val paneRename: Boolean = false,
     public val acpAgents: Boolean = false,
     public val acpSession: Boolean = false,
+    public val taskRetry: Boolean = false,
+    public val push: Boolean = false,
+
 )
 
 public data class AgentDetailState(
@@ -160,6 +165,12 @@ public data class AutomationsState(
     public val loading: Boolean = false,
     public val mutating: Boolean = false,
     public val errorText: String? = null,
+    public val history: Map<String, List<AutomationRun>> = emptyMap(),
+    public val historyLoading: String? = null,
+    public val preview: List<Long>? = null,
+    public val previewLoading: Boolean = false,
+    public val editorError: String? = null,
+
 )
 
 public data class LayoutState(
@@ -235,7 +246,9 @@ public data class HostUhpState(
     public val section: HostSection = HostSection.Agents,
     public val errorText: String? = null,
     public val loading: Boolean = false,
+    public val backend: String = "luvus",
 ) {
+
     public val canMutate: Boolean get() = connected && !isObserver
 
     public fun visibleSections(): List<HostSection> {
@@ -302,4 +315,7 @@ internal fun LuviaSession.toCapabilities(): HostCapabilities =
         paneRename = supports(UhpMethods.PANE_RENAME),
         acpAgents = supports(UhpMethods.ACP_AGENTS),
         acpSession = supports(UhpMethods.ACP_SESSION_OPEN),
+        taskRetry = supports(UhpMethods.TASK_RETRY),
+        push = supports(UhpMethods.PUSH_REGISTER),
+
     )

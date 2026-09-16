@@ -13,9 +13,10 @@ struct HostDetailView: View {
     var onRequestControl: () -> Void
 
     @State private var agentQuery = ""
+    @State private var path = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             TabView(selection: $section) {
                 AgentsSectionView(model: model, host: host, query: $agentQuery)
                     .tabItem {
@@ -66,6 +67,19 @@ struct HostDetailView: View {
                 model.closeAcp()
             }) {
                 AcpSessionView(model: model)
+            }
+            .onChange(of: model.pendingOpenAgentID) { _, id in
+                guard let id else { return }
+                section = .agents
+                path.append(id)
+                model.pendingOpenAgentID = nil
+            }
+            .onChange(of: model.pendingPresentAcp) { _, present in
+                guard present else { return }
+                if model.uhp.snapshot?.acp.open == true {
+                    model.uhp.isAcpPresented = true
+                    model.pendingPresentAcp = false
+                }
             }
         }
     }
@@ -137,7 +151,7 @@ extension View {
 
 private struct EditConnectionSheet: View {
     let host: HostViewState
-    let model: AppModel
+    @Bindable var model: AppModel
     @Environment(\.dismiss) private var dismiss
 
     @State private var alias: String
@@ -172,6 +186,16 @@ private struct EditConnectionSheet: View {
                         .autocorrectionDisabled()
                 } footer: {
                     Text("Comma-separated hosts. SSH host keys stay pinned from pairing.")
+                }
+                if model.uhp.caps.push {
+                    Section {
+                        Toggle("Wake me for approvals", isOn: Binding(
+                            get: { model.isPushEnabled },
+                            set: { model.setWakeForApprovals($0) }
+                        ))
+                    } footer: {
+                        Text("Wake this phone when an agent is blocked or an ACP agent asks for permission. The Host never sends transcript text.")
+                    }
                 }
                 if let errorMessage {
                     Section {

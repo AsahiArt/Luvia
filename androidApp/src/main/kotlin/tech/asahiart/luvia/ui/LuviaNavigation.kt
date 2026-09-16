@@ -65,6 +65,9 @@ fun LuviaNavigation(
     onSendTerminalKey: (String, TerminalKey) -> Unit = { _, _ -> },
     onTerminalShown: (String) -> Unit,
     onSelectTerminalPane: (String, String) -> Unit = { _, _ -> },
+    pushEnabled: Boolean = false,
+    hasPushDistributor: Boolean = true,
+    onSetPushEnabled: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val backStack = rememberNavBackStack(HostsRoute)
@@ -118,6 +121,9 @@ fun LuviaNavigation(
                         onSendTerminalKey = onSendTerminalKey,
                         onTerminalShown = onTerminalShown,
                         onSelectTerminalPane = onSelectTerminalPane,
+                        pushEnabled = pushEnabled,
+                        hasPushDistributor = hasPushDistributor,
+                        onSetPushEnabled = onSetPushEnabled,
                         showList = false,
                     )
                 }
@@ -145,6 +151,9 @@ fun LuviaNavigation(
                 onSendTerminalKey = onSendTerminalKey,
                 onTerminalShown = onTerminalShown,
                 onSelectTerminalPane = onSelectTerminalPane,
+                pushEnabled = pushEnabled,
+                hasPushDistributor = hasPushDistributor,
+                onSetPushEnabled = onSetPushEnabled,
                 showList = true,
             )
         }
@@ -174,6 +183,9 @@ private fun DetailNav(
     onSendTerminalKey: (String, TerminalKey) -> Unit,
     onTerminalShown: (String) -> Unit,
     onSelectTerminalPane: (String, String) -> Unit,
+    pushEnabled: Boolean,
+    hasPushDistributor: Boolean,
+    onSetPushEnabled: (Boolean) -> Unit,
     showList: Boolean,
 ) {
     val context = LocalContext.current
@@ -261,6 +273,10 @@ private fun DetailNav(
                         onUpdateConnection = { alias, hosts, port, username ->
                             onUpdateConnection(route.id, alias, hosts, port, username)
                         },
+                        pushCapable = uhp.capabilities.push,
+                        pushEnabled = pushEnabled,
+                        hasPushDistributor = hasPushDistributor,
+                        onSetPushEnabled = onSetPushEnabled,
                         sections = visible,
                         agentsContent = { modifier ->
                             AgentsSection(
@@ -356,6 +372,13 @@ private fun DetailNav(
                                 onEnable = { id -> surface.enableAutomation(id) },
                                 onDisable = { id -> surface.disableAutomation(id) },
                                 onRun = { id -> surface.runAutomation(id) },
+                                onCreate = { draft -> surface.createAutomation(draft) },
+                                onUpdate = { id, draft -> surface.updateAutomation(id, draft) },
+                                onDelete = { id -> surface.deleteAutomation(id) },
+                                onRebind = { id, pane, terminalId -> surface.rebindAutomation(id, pane, terminalId) },
+                                onLoadHistory = { id -> surface.loadAutomationHistory(id) },
+                                onPreview = { trigger -> surface.previewAutomation(trigger) },
+                                onClearPreview = { surface.clearAutomationPreview() },
                                 modifier = modifier,
                             )
                         },
@@ -372,6 +395,7 @@ private fun DetailNav(
                                 onCompleteTask = { id -> surface.completeTask(id) },
                                 onClaimTask = { id -> surface.claimTask(id) },
                                 onDeleteTask = { id -> surface.deleteTask(id) },
+                                onRetryTask = { id -> surface.retryTask(id) },
                                 onCheckUnconfirmed = { surface.checkTasks() },
                                 modifier = modifier,
                             )

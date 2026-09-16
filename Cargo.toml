@@ -1,5 +1,6 @@
 [workspace]
-members = ["host", "transport"]
+members = ["host", "transport", "relay"]
+
 resolver = "2"
 
 [workspace.package]

@@ -1,0 +1,4 @@
+"push.title" = "Luvia";
+"push.blocked" = "%@ agents need you";
+"push.permission" = "%@ waiting on permission";
+"push.done" = "%@ done";

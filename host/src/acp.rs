@@ -256,7 +256,9 @@ pub fn serve_session(
         agent_in,
         agent_out,
         &mut child,
+        paths,
     )
+
 }
 
 fn builtins() -> Vec<AgentSpec> {
@@ -604,6 +606,7 @@ struct SessionState {
     finished: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_session(
     session_id: &str,
     next_rpc_id: u64,
@@ -612,6 +615,7 @@ fn run_session(
     agent_in: ChildStdin,
     mut agent_out: impl BufRead + Send,
     child: &mut ChildGuard,
+    paths: &Paths,
 ) -> Result<()> {
     let output = Mutex::new(output);
     let agent_in = Mutex::new(Some(agent_in));
@@ -634,6 +638,7 @@ fn run_session(
                 &state,
                 &cv,
                 &child,
+                paths,
             );
             mark_finished(&state, &cv);
             result
@@ -667,6 +672,7 @@ fn mark_finished(state: &Mutex<SessionState>, cv: &Condvar) {
     cv.notify_all();
 }
 
+#[allow(clippy::too_many_arguments)]
 fn agent_to_phone(
     session_id: &str,
     agent_out: &mut impl BufRead,
@@ -675,6 +681,7 @@ fn agent_to_phone(
     state: &Mutex<SessionState>,
     cv: &Condvar,
     child: &Mutex<&mut ChildGuard>,
+    paths: &Paths,
 ) -> Result<()> {
     let mut sequence = 0u64;
     loop {
@@ -692,6 +699,7 @@ fn agent_to_phone(
                     state,
                     cv,
                     &mut sequence,
+                    paths,
                 )?;
             }
             Err(frames::FrameError::Eof) | Err(frames::FrameError::MissingLf) => {
@@ -724,6 +732,7 @@ fn exit_message(code: Option<i32>) -> &'static str {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_agent_message(
     session_id: &str,
     value: Value,
@@ -732,6 +741,7 @@ fn handle_agent_message(
     state: &Mutex<SessionState>,
     cv: &Condvar,
     sequence: &mut u64,
+    paths: &Paths,
 ) -> Result<()> {
     let has_method = value.get("method").is_some();
     let has_id = value.get("id").is_some();
@@ -746,6 +756,10 @@ fn handle_agent_message(
                 state.pending.insert(request_id.clone(), rpc_id);
             }
             cv.notify_all();
+            let paths = paths.clone();
+            let _ = std::thread::spawn(move || {
+                crate::push::wake(&paths, crate::push::WakeKind::Permission, 1);
+            });
             *sequence += 1;
             emit(
                 output,
@@ -1381,6 +1395,8 @@ mod tests {
             key: "AAAA".into(),
             comment: String::new(),
             created_at: 0,
+            push: None,
+
         }
     }
 

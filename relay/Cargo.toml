@@ -1,0 +1,29 @@
+[package]
+name = "luvia-relay"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "Apache-2.0"
+description = "Content-free APNs / UnifiedPush / FCM wake relay for Luvia"
+authors = ["AsahiArt"]
+publish = false
+
+[[bin]]
+name = "luvia-relay"
+path = "src/main.rs"
+
+[lib]
+name = "luvia_relay"
+path = "src/lib.rs"
+
+[dependencies]
+axum = { version = "0.8", default-features = false, features = ["json", "tokio", "http1"] }
+jsonwebtoken = "9"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net", "sync"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+

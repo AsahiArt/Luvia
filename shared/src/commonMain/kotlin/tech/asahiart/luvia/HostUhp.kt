@@ -23,7 +23,9 @@ public class HostUhp(
     session: () -> LuviaSession?,
     runtime: () -> HostRuntime?,
     scope: CoroutineScope,
+    private val manager: HostManager? = null,
 ) {
+
     private val job: Job = SupervisorJob(scope.coroutineContext[Job])
     private val uhpScope: CoroutineScope = CoroutineScope(scope.coroutineContext + job)
     private val stateFlow: MutableStateFlow<HostUhpState> = MutableStateFlow(HostUhpState())
@@ -123,6 +125,8 @@ public class HostUhp(
     public fun addTask(title: String, paths: List<String>) = tasks.add(title, paths)
 
     public fun completeTask(taskId: String) = tasks.complete(taskId)
+    public fun retryTask(taskId: String) = tasks.retry(taskId)
+
 
     public fun claimTask(taskId: String) = tasks.claim(taskId)
 
@@ -167,6 +171,37 @@ public class HostUhp(
     public fun disableAutomation(id: String) = automations.disable(id)
 
     public fun runAutomation(id: String) = automations.run(id)
+
+    public fun createAutomation(draft: AutomationDraft) = automations.create(draft)
+
+    public fun updateAutomation(id: String, draft: AutomationDraft) = automations.update(id, draft)
+
+    public fun deleteAutomation(id: String) = automations.delete(id)
+
+    public fun rebindAutomation(id: String, pane: String, terminalId: String? = null) =
+        automations.rebind(id, pane, terminalId)
+
+    public fun loadAutomationHistory(id: String, limit: Long = 20) = automations.loadHistory(id, limit)
+
+    public fun previewAutomation(trigger: AutomationTrigger) = automations.preview(trigger)
+
+    public fun clearAutomationPreview() = automations.clearPreview()
+
+    public fun setPushEnabled(enabled: Boolean) {
+        val mgr = manager ?: return
+        if (enabled) {
+            val registration = mgr.pushRegistration.value ?: return
+            mgr.registerPush(registration)
+        } else {
+            mgr.unregisterPush()
+        }
+    }
+
+    internal fun applyBusEvent(event: BusEvent) {
+        if (event is BusEvent.AutomationChanged) {
+            automations.onBusEvent(event)
+        }
+    }
 
     public fun focusWorkspace(index: Int) = layout.focusWorkspace(index)
 
@@ -232,6 +267,12 @@ public class HostUhpRegistry(
                 }
             }
         }
+        registryScope.launch {
+            manager.busEvents.collect { (hostId, event) ->
+                workspaces[hostId]?.applyBusEvent(event)
+            }
+        }
+
     }
 
     public fun workspace(hostId: String): HostUhp {
@@ -241,7 +282,9 @@ public class HostUhpRegistry(
                 session = { manager.session(hostId) },
                 runtime = { manager.hosts.value.firstOrNull { it.profile.id == hostId } },
                 scope = registryScope,
+                manager = manager,
             )
+
         workspaces[hostId] = created
         collectJobs[hostId] =
             registryScope.launch {

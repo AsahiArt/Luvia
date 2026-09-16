@@ -132,8 +132,11 @@ private fun LayoutPane(
                 }
             }
             items(layout.panes, key = { it.pane }) { pane ->
+                val agentName = state.agents.firstOrNull { it.paneId == pane.pane }?.name
+                    ?: pane.agent
                 PaneRow(
                     pane = pane,
+                    agentName = agentName,
                     canFocus = canFocusPane && !layout.mutating,
                     canClose = canClosePane && !layout.mutating,
                     canRename = canRenamePane && !layout.mutating,
@@ -263,6 +266,7 @@ private fun WorkspaceRow(
 @Composable
 private fun PaneRow(
     pane: PaneListEntry,
+    agentName: String?,
     canFocus: Boolean,
     canClose: Boolean,
     canRename: Boolean,
@@ -287,6 +291,16 @@ private fun PaneRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+            val subtitle = agentName?.takeIf { it.isNotBlank() && it != pane.agent && it != pane.pane }
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             val detail = listOfNotNull(
                 pane.pane.takeIf { it != pane.agent },

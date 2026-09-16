@@ -127,6 +127,16 @@ public data class AutomationPolicySpec(
     public val misfireGraceSeconds: Long? = null,
 )
 
+public data class AutomationDraft(
+    public val name: String,
+    public val enabled: Boolean = true,
+    public val trigger: AutomationTrigger,
+    public val target: AutomationTarget = AutomationTarget.NewWorker,
+    public val task: AutomationTaskSpec,
+    public val policy: AutomationPolicySpec? = null,
+)
+
+
 public data class Automation(
     public val id: String,
     public val name: String,

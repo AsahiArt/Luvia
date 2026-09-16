@@ -40,6 +40,8 @@ import tech.asahiart.luvia.internal.mapWorkspaceListAsSummaries
 import tech.asahiart.luvia.internal.mapWorkspaceOpen
 import tech.asahiart.luvia.internal.wireName
 import tech.asahiart.luvia.internal.withIfRevision
+import tech.asahiart.luvia.internal.optionalBoolean
+
 import tech.asahiart.luvia.internal.mapAcpAgents
 import tech.asahiart.luvia.internal.mapAcpSessionAck
 
@@ -68,6 +70,9 @@ public class LuviaSession internal constructor(
         get() = engine.freshness()
 
     public fun supports(method: String): Boolean = method in capabilities.methods
+    public val backend: String
+        get() = engine.backend()
+
 
     public suspend fun snapshot(): Outcome<SessionSnapshot> = engine.snapshot()
 
@@ -522,6 +527,40 @@ public class LuviaSession internal constructor(
             withIfRevision(buildJsonObject { put("id", id) }, ifRevision),
             mutation = true,
         ) { mapTaskDone(it.asObjectOrEmpty()) }
+
+    public suspend fun retryTask(
+        id: String,
+        workspaceId: String? = null,
+    ): Outcome<TaskMutationResult> {
+        val params =
+            buildJsonObject {
+                put("id", id)
+                if (workspaceId != null) put("workspace_id", workspaceId)
+            }
+        return engine.unary(UhpMethods.TASK_RETRY, params, mutation = true) {
+            mapTaskMutation(it.asObjectOrEmpty())
+        }
+    }
+
+    public suspend fun registerPush(reg: PushRegistration): Outcome<Unit> {
+        val params =
+            buildJsonObject {
+                put("kind", reg.kind)
+                put("token", reg.token)
+                if (reg.environment != null) put("environment", reg.environment)
+            }
+        return engine.unary(UhpMethods.PUSH_REGISTER, params, mutation = true) { result ->
+            result.asObjectOrEmpty().optionalBoolean("registered")
+            Unit
+        }
+    }
+
+    public suspend fun unregisterPush(): Outcome<Unit> =
+        engine.unary(UhpMethods.PUSH_UNREGISTER, JsonObject(emptyMap()), mutation = true) { result ->
+            result.asObjectOrEmpty().optionalBoolean("registered")
+            Unit
+        }
+
 
     public suspend fun acpAgents(): Outcome<List<AcpAgentKind>> =
         engine.unary(UhpMethods.ACP_AGENTS, JsonObject(emptyMap()), mutation = false) {

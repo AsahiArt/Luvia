@@ -117,6 +117,8 @@ mod tests {
             key: "SECRETPEM".into(),
             comment: String::new(),
             created_at: 0,
+            push: None,
+
         };
         paired(&paths, &grant).unwrap();
         denied(&paths, &grant.id, grant.role, "server.stop", "forbidden").unwrap();

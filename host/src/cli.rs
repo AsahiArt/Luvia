@@ -92,6 +92,12 @@ pub enum Command {
         #[arg(long)]
         device: String,
     },
+    /// Subscribe to Luvus (or poll Herdr) and post content-free push wakes
+    Watch {
+        /// Herdr poll interval in seconds when Luvus is not running
+        #[arg(long, default_value_t = 5)]
+        interval_secs: u64,
+    },
 }
 
 pub fn run() -> Result<()> {
@@ -153,6 +159,8 @@ pub fn run() -> Result<()> {
             Ok(())
         }
         Command::Bridge { device } => crate::bridge::run(&paths, &device),
+        Command::Watch { interval_secs } => crate::watch::run(&paths, interval_secs),
+
     }
 }
 
@@ -242,6 +250,17 @@ mod tests {
             other => panic!("expected pair, got {other:?}"),
         }
     }
+
+    #[test]
+    fn watch_parses_interval_secs() {
+        let cli = Cli::try_parse_from(["luvia-host", "watch", "--interval-secs", "5"])
+            .expect("watch must parse");
+        match cli.command {
+            Command::Watch { interval_secs } => assert_eq!(interval_secs, 5),
+            other => panic!("expected watch, got {other:?}"),
+        }
+    }
+
 
     #[test]
     fn help_states_macos_linux_only() {

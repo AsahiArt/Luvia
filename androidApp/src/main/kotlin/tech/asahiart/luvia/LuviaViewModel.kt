@@ -28,6 +28,7 @@ data class PairingUiState(
 class LuviaViewModel(
     store: HostStore,
     vault: DeviceKeyVault,
+    private val appContext: Context,
 ) : ViewModel() {
     private val manager = HostManager(store, vault, viewModelScope)
     private val uhpRegistry = HostUhpRegistry(manager, viewModelScope)
@@ -43,6 +44,25 @@ class LuviaViewModel(
 
     private val _terminals = MutableStateFlow<Map<String, TerminalUiModel>>(emptyMap())
     val terminals: StateFlow<Map<String, TerminalUiModel>> = _terminals.asStateFlow()
+    val pushRegistration: StateFlow<PushRegistration?> = manager.pushRegistration
+
+    private val pushListener = object : PushRegistrar.Listener {
+        override fun onEndpoint(endpoint: String) {
+            applyPushEndpoint(endpoint)
+        }
+
+        override fun onUnregistered() {
+            manager.setPushRegistration(null)
+        }
+    }
+
+    init {
+        PushRegistrar.listener = pushListener
+        if (PushRegistrar.wantsPush(appContext)) {
+            PushRegistrar.cachedEndpoint(appContext)?.let { applyPushEndpoint(it) }
+            PushRegistrar.registerApp(appContext)
+        }
+    }
 
 
     fun beginPairing(deviceLabel: String, role: HostRole) {
@@ -276,8 +296,32 @@ class LuviaViewModel(
 
     fun refreshSection(hostId: String, section: HostSection) = uhpRegistry.refreshSection(hostId, section)
 
+    fun setWakeEnabled(enabled: Boolean, uiContext: Context) {
+        if (enabled) {
+            PushRegistrar.registerApp(uiContext)
+            PushRegistrar.cachedEndpoint(appContext)?.let { applyPushEndpoint(it) }
+        } else {
+            manager.hosts.value.forEach { runtime ->
+                uhpRegistry.workspace(runtime.profile.id).setPushEnabled(false)
+            }
+            PushRegistrar.unregisterApp(appContext)
+            manager.setPushRegistration(null)
+        }
+    }
+
+    private fun applyPushEndpoint(endpoint: String) {
+        val registration = PushRegistration(kind = "unifiedpush", token = endpoint)
+        manager.setPushRegistration(registration)
+        manager.hosts.value.forEach { runtime ->
+            uhpRegistry.workspace(runtime.profile.id).setPushEnabled(true)
+        }
+    }
+
 
     override fun onCleared() {
+        if (PushRegistrar.listener === pushListener) {
+            PushRegistrar.listener = null
+        }
         observeJobs.values.forEach { it.cancel() }
         observeJobs.clear()
         controls.values.forEach { it.close() }
@@ -387,6 +431,7 @@ class LuviaViewModel(
             return LuviaViewModel(
                 HostStore(File(app.filesDir, "hosts.json").absolutePath),
                 DeviceKeyVault(app),
+                app,
             ) as T
         }
     }
@@ -431,6 +476,7 @@ internal fun HostRuntime.toUi(): HostUiModel {
         isObserver = profile.role == HostRole.Observer,
         connected = connected,
         hasSnapshot = snapshot != null,
+        backend = backend,
         firstBlockedPaneId = agents.firstOrNull { it.status == AgentStatus.Blocked }?.paneId,
     )
 }
@@ -481,6 +527,7 @@ private fun terminalPaneChoices(runtime: HostRuntime): List<TerminalPaneChoice> 
         TerminalPaneChoice(
             paneId = pane.paneId,
             title = listOfNotNull(
+                pane.agentName?.takeIf { it.isNotBlank() },
                 agent?.name?.takeIf { it.isNotBlank() },
                 agent?.agent?.takeIf { it.isNotBlank() },
                 pane.cwd?.substringAfterLast('/'),

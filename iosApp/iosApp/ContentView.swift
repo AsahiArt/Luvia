@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 struct ContentView: View {
-    @State private var model = AppModel()
+    @Bindable var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var lastBlockedTotal = 0
 
@@ -64,5 +64,5 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(model: AppModel())
 }

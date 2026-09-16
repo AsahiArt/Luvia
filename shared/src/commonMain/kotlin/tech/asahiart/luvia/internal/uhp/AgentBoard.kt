@@ -32,12 +32,14 @@ internal class AgentBoard(private val ctx: UhpContext) {
                     current.capabilities
                 },
                 agents = snapshotAgents.ifEmpty { current.agents },
+                backend = runtime.backend,
                 agentDetail = current.agentDetail.copy(
                     summary = snapshotAgents.firstOrNull { it.paneId == openPane }
                         ?: current.agentDetail.summary,
                 ),
             )
         }
+
         val newStatus = snapshotAgents.firstOrNull { it.paneId == openPane }?.status
         if (wasOpen && openPane != null && newStatus != null && oldStatus != null && newStatus != oldStatus) {
             ctx.launch { loadDetail(openPane) }
@@ -56,6 +58,7 @@ internal class AgentBoard(private val ctx: UhpContext) {
                         isObserver = runtime?.profile?.role == HostRole.Observer,
                         capabilities = tech.asahiart.luvia.HostCapabilities(),
                         agents = runtime?.snapshot?.agents.orEmpty().ifEmpty { it.agents },
+                        backend = runtime?.backend ?: "luvus",
                     )
                 }
                 return@launch
@@ -67,8 +70,10 @@ internal class AgentBoard(private val ctx: UhpContext) {
                     errorText = null,
                     isObserver = runtime?.profile?.role == HostRole.Observer,
                     capabilities = session.toCapabilities(),
+                    backend = runtime?.backend ?: it.backend,
                 )
             }
+
             val snapshotAgents = runtime?.snapshot?.agents.orEmpty()
             val listed =
                 if (session.supports(UhpMethods.AGENT_LIST)) {

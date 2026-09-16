@@ -28,6 +28,8 @@ public object UhpMethods {
     public const val TASK_LIST: String = Methods.TASK_LIST
     public const val TASK_ADD: String = Methods.TASK_ADD
     public const val TASK_DONE: String = Methods.TASK_DONE
+    public const val TASK_RETRY: String = "task.retry"
+
     public const val TASK_CLAIM: String = "task.claim"
     public const val TASK_DELETE: String = "task.delete"
     public const val TERMINAL_OBSERVE: String = Methods.TERMINAL_OBSERVE
@@ -51,6 +53,14 @@ public object UhpMethods {
     public const val AUTOMATION_DISABLE: String = "automation.disable"
     public const val AUTOMATION_RUN: String = "automation.run"
     public const val AUTOMATION_HEALTH: String = "automation.health"
+    public const val AUTOMATION_CREATE: String = "automation.create"
+    public const val AUTOMATION_GET: String = "automation.get"
+    public const val AUTOMATION_UPDATE: String = "automation.update"
+    public const val AUTOMATION_DELETE: String = "automation.delete"
+    public const val AUTOMATION_REBIND: String = "automation.rebind"
+    public const val AUTOMATION_HISTORY: String = "automation.history"
+    public const val AUTOMATION_PREVIEW: String = "automation.preview"
+
     public const val WORKSPACE_LIST: String = Methods.WORKSPACE_LIST
     public const val WORKSPACE_FOCUS: String = Methods.WORKSPACE_FOCUS
     public const val WORKSPACE_CLOSE: String = "workspace.close"
@@ -60,4 +70,7 @@ public object UhpMethods {
     public const val PANE_RENAME: String = "pane.rename"
     public const val ACP_AGENTS: String = Methods.ACP_AGENTS
     public const val ACP_SESSION_OPEN: String = Methods.ACP_SESSION_OPEN
+    public const val PUSH_REGISTER: String = "luvia.push.register"
+    public const val PUSH_UNREGISTER: String = "luvia.push.unregister"
+
 }

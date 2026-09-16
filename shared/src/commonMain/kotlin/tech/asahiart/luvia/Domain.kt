@@ -36,6 +36,12 @@ public enum class BridgeTransport {
     NamedPipe,
 }
 
+public enum class HostBackend {
+    Luvus,
+    Herdr,
+}
+
+
 public enum class ResyncReason {
     Gap,
     Overflow,
@@ -110,7 +116,9 @@ public data class DiscoveredSession(
     public val isDefault: Boolean,
     public val running: Boolean,
     public val transport: BridgeTransport,
+    public val backend: String = "luvus",
 )
+
 
 public data class Capabilities(
     public val protocolName: String,
@@ -144,7 +152,10 @@ public data class PaneSummary(
     public val agentSession: String? = null,
     public val rootProcessPid: Long? = null,
     public val rootProcessStartMarker: String? = null,
+    public val agentName: String? = null,
 )
+
+
 
 public data class AgentSummary(
     public val paneId: String,
@@ -180,6 +191,8 @@ public data class SessionSnapshot(
     public val panes: List<PaneSummary>,
     public val agents: List<AgentSummary>,
 )
+
+
 
 public data class TerminalIdentity(
     public val serverGeneration: String,
@@ -334,3 +347,26 @@ public sealed class ReviewLine {
 
     public class New(public val line: Int) : ReviewLine()
 }
+
+public data class PushRegistration(
+    public val kind: String,
+    public val token: String,
+    public val environment: String? = null,
+)
+
+public val TaskStatus.isRetryable: Boolean
+    get() =
+        when (this) {
+            TaskStatus.Failed -> true
+            TaskStatus.Queued,
+            TaskStatus.Claimed,
+            TaskStatus.Running,
+            TaskStatus.Blocked,
+            TaskStatus.Review,
+            TaskStatus.Done,
+            TaskStatus.Merging,
+            TaskStatus.Merged,
+            TaskStatus.Unknown,
+            -> false
+        }
+

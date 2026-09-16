@@ -6,7 +6,7 @@ import LuviaShared
 @MainActor
 @Observable
 final class AppModel {
-    private nonisolated(unsafe) let manager: HostManager
+    nonisolated(unsafe) let manager: HostManager
     nonisolated(unsafe) let uhpRegistry: HostUhpRegistry
     @ObservationIgnored private nonisolated(unsafe) var hostsTask: _Concurrency.Task<Void, Never>?
     @ObservationIgnored private nonisolated(unsafe) var terminalTask: _Concurrency.Task<Void, Never>?
@@ -26,6 +26,12 @@ final class AppModel {
     private(set) var holdsTerminalControl = false
     var hasLiveSession = false
     var uhp = UhpSurfaceState()
+    var isPushEnabled = false
+    var cachedPushToken: String?
+    var pendingOpenAgentID: String?
+    var pendingPresentAcp = false
+    var pendingBlockedWake = false
+    var pushSyncedHostIDs: Set<String> = []
 
     var selectedHost: HostViewState? {
         hosts.first { $0.id == selectedHostID }
@@ -46,6 +52,7 @@ final class AppModel {
                 }
             }
         }
+        restorePushRegistration()
     }
 
     deinit {

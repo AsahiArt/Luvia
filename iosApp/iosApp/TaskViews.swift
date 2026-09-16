@@ -40,6 +40,7 @@ struct TasksListView: View {
     @State private var pendingComplete: TaskViewState?
     @State private var pendingClaim: TaskViewState?
     @State private var pendingDelete: TaskViewState?
+    @State private var pendingRetry: TaskViewState?
 
     private var grouped: [(status: String, tasks: [TaskViewState])] {
         let order = ["blocked", "running", "claimed", "queued", "review", "failed", "merging", "merged", "done"]
@@ -117,6 +118,14 @@ struct TasksListView: View {
                                         && canComplete(task.status)
                                     {
                                         Button("Complete") { pendingComplete = task }
+                                            .disabled(model.uhp.isSending)
+                                    }
+                                    if model.uhp.isController
+                                        && model.uhp.caps.taskRetry
+                                        && model.uhp.unconfirmed == nil
+                                        && canRetry(task.status)
+                                    {
+                                        Button("Retry") { pendingRetry = task }
                                             .disabled(model.uhp.isSending)
                                     }
                                 }
@@ -210,6 +219,24 @@ struct TasksListView: View {
         } message: {
             Text(pendingDelete?.title ?? "This Task will be removed from the board.")
         }
+        .confirmationDialog(
+            "Retry this Task?",
+            isPresented: Binding(
+                get: { pendingRetry != nil },
+                set: { if !$0 { pendingRetry = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Retry") {
+                if let id = pendingRetry?.id {
+                    pendingRetry = nil
+                    _Concurrency.Task { await model.retryTask(id) }
+                }
+            }
+            Button("Cancel", role: .cancel) { pendingRetry = nil }
+        } message: {
+            Text(pendingRetry?.title ?? "This Task will be retried on the Host.")
+        }
     }
 
     private func canComplete(_ status: String) -> Bool {
@@ -219,6 +246,10 @@ struct TasksListView: View {
 
     private func canClaim(_ status: String) -> Bool {
         status.lowercased() == "queued"
+    }
+
+    private func canRetry(_ status: String) -> Bool {
+        status.lowercased() == "failed"
     }
 
     private func displayStatus(_ status: String) -> String {

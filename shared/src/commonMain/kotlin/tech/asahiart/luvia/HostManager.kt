@@ -10,6 +10,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -36,7 +40,9 @@ public data class HostRuntime(
     public val snapshot: SessionSnapshot?,
     public val tasks: List<TaskSummary>,
     public val freshness: ConnectionFreshness,
+    public val backend: String = "luvus",
 )
+
 
 public data class PairingDraft(
     public val deviceLabel: String,
@@ -63,8 +69,36 @@ public class HostManager(
     private var catalogHosts: List<HostProfile> = emptyList()
     private val hostsState: MutableStateFlow<List<HostRuntime>> =
         MutableStateFlow(emptyList())
+    private val pushRegistrationState: MutableStateFlow<PushRegistration?> = MutableStateFlow(null)
+    private var pushEnabled: Boolean = false
+    private val busEventsFlow: MutableSharedFlow<Pair<String, BusEvent>> =
+        MutableSharedFlow(extraBufferCapacity = 32)
+
 
     public val hosts: StateFlow<List<HostRuntime>> = hostsState.asStateFlow()
+    public val pushRegistration: StateFlow<PushRegistration?> = pushRegistrationState.asStateFlow()
+    internal val busEvents: SharedFlow<Pair<String, BusEvent>> = busEventsFlow.asSharedFlow()
+
+    public fun setPushRegistration(registration: PushRegistration?) {
+        if (registration == null) {
+            pushRegistrationState.value = null
+            unregisterPush()
+        } else {
+            registerPush(registration)
+        }
+    }
+
+    public fun registerPush(registration: PushRegistration) {
+        pushRegistrationState.value = registration
+        pushEnabled = true
+        mgrScope.launch { pushToLiveHosts(registration) }
+    }
+
+    public fun unregisterPush() {
+        pushEnabled = false
+        mgrScope.launch { unregisterLiveHosts() }
+    }
+
     init {
         mgrScope.launch {
             store.catalog.collect { catalog ->
@@ -346,10 +380,12 @@ public class HostManager(
                 }
                 is Outcome.Ok -> result.value
             }
-        val sessionName =
-            discovered.firstOrNull { it.isDefault }?.name
-                ?: discovered.firstOrNull()?.name
-                ?: "default"
+        val chosen =
+            discovered.firstOrNull { it.isDefault && it.running }
+                ?: discovered.firstOrNull { it.running }
+                ?: discovered.firstOrNull { it.isDefault }
+                ?: discovered.firstOrNull()
+        val sessionName = chosen?.name ?: "default"
         val session =
             when (val result = connected.host.client.open(sessionName)) {
                 is Outcome.Err -> {
@@ -358,6 +394,8 @@ public class HostManager(
                 }
                 is Outcome.Ok -> result.value
             }
+        val backend =
+            session.backend.takeIf { it == "herdr" } ?: chosen?.backend ?: "luvus"
         mutex.withLock {
             live.remove(hostId)?.close()
             live[hostId] =
@@ -366,6 +404,7 @@ public class HostManager(
                     session = session,
                     address = connected.address,
                     sessionName = sessionName,
+                    backend = backend,
                 )
         }
         val pulled = pullSessionState(hostId, session)
@@ -374,6 +413,9 @@ public class HostManager(
             mutex.withLock { live.remove(hostId) }
             return fail(pulled.failure)
         }
+
+        syncPushAfterConnect(session)
+
         store.updateStatus(hostId, HostStatus.Reachable, nowEpochMs())
         setLink(hostId, HostLink.Online(connected.address, sessionName))
         return ok(session)
@@ -465,6 +507,10 @@ public class HostManager(
                 pullSessionState(hostId, session)
                 return
             }
+            is BusEvent.AutomationChanged -> {
+                busEventsFlow.tryEmit(hostId to event)
+                return
+            }
             is BusEvent.AgentStatusChanged,
             is BusEvent.TaskPayload,
             is BusEvent.PaneChanged,
@@ -479,6 +525,7 @@ public class HostManager(
             pullSessionState(hostId, session)
             return
         }
+
         var tasks = projection.tasks
         if (projection.relistTasks) {
             tasks =
@@ -557,7 +604,9 @@ public class HostManager(
                     snapshot = snapshot,
                     tasks = tasks,
                     freshness = freshness,
+                    backend = session?.backend ?: "luvus",
                 )
+
             }
     }
 
@@ -566,7 +615,9 @@ public class HostManager(
         val session: LuviaSession,
         val address: String,
         val sessionName: String?,
+        val backend: String = "luvus",
     ) {
+
         var snapshot: SessionSnapshot? = null
         var tasks: List<TaskSummary> = emptyList()
         var agents: List<AgentSummary> = emptyList()
@@ -578,6 +629,39 @@ public class HostManager(
             connection.host.client.close()
         }
     }
+
+    private suspend fun pushToLiveHosts(registration: PushRegistration) {
+        val sessions = mutex.withLock { live.values.map { it.session } }
+        for (session in sessions) {
+            if (!session.supports(UhpMethods.PUSH_REGISTER)) continue
+            when (session.registerPush(registration)) {
+                is Outcome.Ok -> Unit
+                is Outcome.Err -> Unit
+            }
+        }
+    }
+
+    private suspend fun unregisterLiveHosts() {
+        val sessions = mutex.withLock { live.values.map { it.session } }
+        for (session in sessions) {
+            if (!session.supports(UhpMethods.PUSH_UNREGISTER)) continue
+            when (session.unregisterPush()) {
+                is Outcome.Ok -> Unit
+                is Outcome.Err -> Unit
+            }
+        }
+    }
+
+    private suspend fun syncPushAfterConnect(session: LuviaSession) {
+        if (!pushEnabled) return
+        val registration = pushRegistrationState.value ?: return
+        if (!session.supports(UhpMethods.PUSH_REGISTER)) return
+        when (session.registerPush(registration)) {
+            is Outcome.Ok -> Unit
+            is Outcome.Err -> Unit
+        }
+    }
+
 }
 
 private data class Reachability(

@@ -104,12 +104,18 @@ pub fn discover_response(sessions: Vec<Value>) -> Value {
     })
 }
 
-pub fn session_metadata(name: &str, default: bool, running: bool) -> Map<String, Value> {
+pub fn session_metadata(
+    name: &str,
+    default: bool,
+    running: bool,
+    backend: &str,
+) -> Map<String, Value> {
     let mut object = Map::new();
     object.insert("name".into(), Value::String(name.to_string()));
     object.insert("default".into(), Value::Bool(default));
     object.insert("running".into(), Value::Bool(running));
     object.insert("transport".into(), Value::String("unix_socket".into()));
+    object.insert("backend".into(), Value::String(backend.to_string()));
     object
 }
 
@@ -118,6 +124,17 @@ pub fn ready_frame(session: &str) -> Value {
         "version": PRELUDE_VERSION,
         "status": "ready",
         "session": session,
+    })
+}
+
+pub fn ready_frame_with_backend(session: &str, backend: &str) -> Value {
+    serde_json::json!({
+        "version": PRELUDE_VERSION,
+        "status": "ready",
+        "session": session,
+        "server": {
+            "backend": backend,
+        },
     })
 }
 
@@ -188,6 +205,8 @@ mod tests {
     #[test]
     fn session_name_rejects_path_chars() {
         assert!(validate_session_name("default").is_ok());
+        assert!(validate_session_name("herdr").is_ok());
+        assert!(validate_session_name("herdr-work").is_ok());
         assert!(validate_session_name("../etc").is_err());
         assert!(validate_session_name("a/b").is_err());
         assert!(validate_session_name("has space").is_err());

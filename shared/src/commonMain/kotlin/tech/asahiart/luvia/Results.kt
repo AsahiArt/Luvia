@@ -342,10 +342,17 @@ public sealed class BusEvent {
         public val leases: List<String>,
     ) : BusEvent()
 
+    public class AutomationChanged(
+        override val sequence: Long,
+        public val name: String,
+        public val id: String?,
+    ) : BusEvent()
+
     public class Ignored(
         override val sequence: Long,
         public val name: String,
     ) : BusEvent()
+
 }
 
 public data class AgentReadResult(

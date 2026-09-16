@@ -82,7 +82,7 @@ extension AppModel {
         }
     }
 
-    func runHostAutomation(_ id: String) async {
+    func runHostAutomation(_ id: String) {
         hostUhp()?.runAutomation(id: id)
     }
 
@@ -149,4 +149,37 @@ extension AppModel {
     func deleteTask(_ id: String) async {
         hostUhp()?.deleteTask(taskId: id)
     }
+
+    func retryTask(_ id: String) async {
+        hostUhp()?.retryTask(taskId: id)
+    }
+
+    func createHostAutomation(_ draft: AutomationDraft) {
+        hostUhp()?.createAutomation(draft: draft)
+    }
+
+    func updateHostAutomation(id: String, draft: AutomationDraft) {
+        hostUhp()?.updateAutomation(id: id, draft: draft)
+    }
+
+    func deleteHostAutomation(_ id: String) {
+        hostUhp()?.deleteAutomation(id: id)
+    }
+
+    func rebindHostAutomation(id: String, pane: String, terminalId: String?) {
+        hostUhp()?.rebindAutomation(id: id, pane: pane, terminalId: terminalId)
+    }
+
+    func loadAutomationHistory(_ id: String) {
+        hostUhp()?.loadAutomationHistory(id: id, limit: 20)
+    }
+
+    func previewHostAutomation(_ trigger: AutomationTrigger) {
+        hostUhp()?.previewAutomation(trigger: trigger)
+    }
+
+    func clearAutomationPreview() {
+        hostUhp()?.clearAutomationPreview()
+    }
+
 }

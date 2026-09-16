@@ -56,6 +56,10 @@ cargo build --release -p luvia-host
 
 Roles: `observer` (read) or `controller` (read plus workspace / agent / terminal / orchestration). Revoke with `luvia-host revoke <id>`.
 
+## Herdr
+
+`luvia-host` can front a running [Herdr](https://herdr.dev) server in addition to Luvus. Discovery lists a `herdr` session (and `herdr-<name>` for other Herdr sessions) next to Luvus. Opening one skips Luvus token minting, shells out to the installed `herdr` CLI, and answers the UHP subset the phone already renders — agents, panes, workspaces, snapshot, and live status — without exposing Herdr's socket. Methods Herdr has no equivalent for are omitted from `uhp.capabilities`. See [`docs/herdr-backend.md`](docs/herdr-backend.md).
+
 ## Build
 
 From the repository root. Prefer `make`; CI runs the same targets. `make android` / `make ios` / `make mobile` install and launch on **every connected physical phone** (USB or wireless), and fall back to emulator / Simulator if none are present.
@@ -145,6 +149,17 @@ Each surface is confined to one class per platform (`LiveActivityController`, `S
 ## ACP agents
 
 Besides Luvus panes, Luvia can launch any [Agent Client Protocol](https://agentclientprotocol.com) agent (Codex, Claude Code, Gemini CLI, …) directly on the host. `luvia-host bridge` acts as the ACP client: it spawns the agent as a child process, speaks JSON-RPC to it over stdio, and exposes the session to the phone as the `luvia.acp.*` UHP methods — streamed messages, tool calls, plan, and permission prompts you answer from the phone. Agents never see the SSH or Luvus credentials. Built-in agents are auto-detected on `PATH`; add or override entries in `~/.config/luvia/host/acp-agents.json` (`[{"id","name","command","args"}]`). Controller role required. The wire contract is in [`docs/acp-contract.md`](docs/acp-contract.md).
+
+## Push wakes
+
+SSH dies when the phone sleeps, so `luvia-host watch` (and the bridge, for ACP permission prompts) POSTs a content-free wake through a relay to APNs / UnifiedPush / FCM. The relay never sees terminal text — only a token, a wake kind, a count, and an 8-hex host hash.
+
+Point the host at a relay with `~/.config/luvia/host/relay.json`: `{ "url": "https://relay.example.com", "key": "<bearer>" }`. Then run `luvia-host watch` next to Luvus (it polls Herdr if Luvus is down).
+
+launchd: `ProgramArguments = ["/usr/local/bin/luvia-host", "watch"]`, `KeepAlive = true`. systemd --user: `ExecStart=/usr/local/bin/luvia-host watch` and `Restart=always`.
+
+Self-host `luvia-relay` (same binary as hosted) with `LUVIA_RELAY_KEYS` and optional APNs/FCM env; the contract is [`docs/push-relay.md`](docs/push-relay.md).
+
 
 ## Security model
 

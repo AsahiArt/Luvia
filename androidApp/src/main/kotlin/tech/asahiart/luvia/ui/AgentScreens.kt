@@ -905,6 +905,7 @@ internal fun UnconfirmedBanner(kind: UnconfirmedKind, onCheck: () -> Unit) {
                         UnconfirmedKind.CompleteTask -> "Complete Task Unconfirmed"
                         UnconfirmedKind.ClaimTask -> "Claim Task Unconfirmed"
                         UnconfirmedKind.DeleteTask -> "Delete Task Unconfirmed"
+                        UnconfirmedKind.RetryTask -> "Retry Task Unconfirmed"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onTertiaryContainer,

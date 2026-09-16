@@ -175,6 +175,16 @@ private struct HostRow: View {
                             .background(DesignTokens.connecting.opacity(0.12), in: Capsule())
                             .accessibilityLabel("Reached over Tailscale")
                     }
+                    if host.backend == "herdr" {
+                        Label("Herdr", systemImage: "square.stack.3d.up")
+                            .font(.caption2.weight(.medium))
+                            .labelStyle(.titleAndIcon)
+                            .foregroundStyle(DesignTokens.stale)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(DesignTokens.stale.opacity(0.12), in: Capsule())
+                            .accessibilityLabel("Herdr backend")
+                    }
                 }
                 if let failure = host.failureMessage, !failure.isEmpty {
                     Text(failure)
@@ -217,6 +227,9 @@ private struct HostRow: View {
 
     private var accessibilityText: String {
         var parts = [host.name, host.connection.rawValue]
+        if host.backend == "herdr" {
+            parts.append("Herdr")
+        }
         if host.blockedAgents > 0 {
             parts.append("\(host.blockedAgents) blocked")
         }

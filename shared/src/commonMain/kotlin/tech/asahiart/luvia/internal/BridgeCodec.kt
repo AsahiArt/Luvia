@@ -53,7 +53,7 @@ internal fun decodeDiscoverResponse(text: String): BridgeDiscoverResult {
             val session = el as? JsonObject
                 ?: throw CodecException(CodecException.Kind.Schema, "session must be an object")
             rejectPathKeys(session)
-            rejectUnknown(session, setOf("name", "default", "running", "transport"))
+            rejectUnknown(session, setOf("name", "default", "running", "transport", "backend"))
             requireKeys(session, setOf("name", "default", "running", "transport"))
             val name = session.string("name")
             if (!SESSION_NAME.matches(name)) {
@@ -64,18 +64,19 @@ internal fun decodeDiscoverResponse(text: String): BridgeDiscoverResult {
                 isDefault = session.boolean("default"),
                 running = session.boolean("running"),
                 transport = parseTransport(session.string("transport")),
+                backend = parseHostBackend(session.optionalString("backend")),
             )
         }
     return BridgeDiscoverResult(sessions)
 }
 
-internal fun decodeOpenResponse(text: String, expectedSession: String) {
+internal fun decodeOpenResponse(text: String, expectedSession: String): String {
     val obj = parseObject(text)
     rejectPathKeys(obj)
     if ("error" in obj) {
         throw bridgeError(obj)
     }
-    rejectUnknown(obj, setOf("version", "status", "session"))
+    rejectUnknown(obj, setOf("version", "status", "session", "server"))
     requireKeys(obj, setOf("version", "status", "session"))
     requireVersion1(obj)
     val status = obj.string("status")
@@ -86,7 +87,9 @@ internal fun decodeOpenResponse(text: String, expectedSession: String) {
     if (session != expectedSession) {
         throw CodecException(CodecException.Kind.Schema, "opened session mismatch")
     }
+    return parseHostBackend(obj.optionalObject("server")?.optionalString("backend"))
 }
+
 
 private fun requireVersion1(obj: JsonObject) {
     val version = obj.strictLong("version")
@@ -101,6 +104,10 @@ private fun parseTransport(value: String): BridgeTransport =
         "windows_named_pipe", "named_pipe" -> BridgeTransport.NamedPipe
         else -> throw CodecException(CodecException.Kind.Schema, "unknown bridge transport")
     }
+
+internal fun parseHostBackend(raw: String?): String =
+    if (raw == "herdr") "herdr" else "luvus"
+
 
 private fun rejectPathKeys(obj: JsonObject) {
     val hit = obj.keys.firstOrNull { it in FORBIDDEN_PATH_KEYS || it.contains("path") }

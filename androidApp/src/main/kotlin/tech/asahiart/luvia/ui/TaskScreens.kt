@@ -33,6 +33,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import tech.asahiart.luvia.TaskSummary
 import tech.asahiart.luvia.HostUhpState
+import tech.asahiart.luvia.TaskStatus
+import tech.asahiart.luvia.isRetryable
 import tech.asahiart.luvia.UnconfirmedKind
 
 @Composable
@@ -44,6 +46,7 @@ fun TasksSection(
     onCompleteTask: (String) -> Unit,
     onClaimTask: (String) -> Unit = {},
     onDeleteTask: (String) -> Unit = {},
+    onRetryTask: (String) -> Unit = {},
     onCheckUnconfirmed: () -> Unit,
     onShowAddChange: (Boolean) -> Unit,
     onCompleteIdChange: (String?) -> Unit,
@@ -66,6 +69,7 @@ fun TasksSection(
                 onCompleteTask = onCompleteTask,
                 onClaimTask = onClaimTask,
                 onDeleteTask = onDeleteTask,
+                onRetryTask = onRetryTask,
                 onCheckUnconfirmed = onCheckUnconfirmed,
                 onShowAddChange = onShowAddChange,
                 onCompleteIdChange = onCompleteIdChange,
@@ -85,6 +89,7 @@ private fun TaskListPane(
     onCompleteTask: (String) -> Unit,
     onClaimTask: (String) -> Unit,
     onDeleteTask: (String) -> Unit,
+    onRetryTask: (String) -> Unit,
     onCheckUnconfirmed: () -> Unit,
     onShowAddChange: (Boolean) -> Unit,
     onCompleteIdChange: (String?) -> Unit,
@@ -154,6 +159,8 @@ private fun TaskListPane(
                     )
                 }
                 items(tasks, key = { it.id }) { task ->
+                    val retrying = state.tasks.unconfirmed == UnconfirmedKind.RetryTask &&
+                        state.tasks.unconfirmedTaskId == task.id
                     TaskRow(
                         task = task,
                         canComplete = state.canMutate &&
@@ -167,10 +174,16 @@ private fun TaskListPane(
                         canDelete = state.canMutate &&
                             state.capabilities.taskDelete &&
                             state.tasks.unconfirmed == null,
-                        completing = state.tasks.mutating,
+                        canRetry = state.canMutate &&
+                            state.capabilities.taskRetry &&
+                            state.tasks.unconfirmed == null &&
+                            task.status.toTaskStatus().isRetryable,
+                        completing = state.tasks.mutating || retrying,
+                        retrying = retrying,
                         onComplete = { onCompleteIdChange(task.id) },
                         onClaim = { onClaimTask(task.id) },
                         onDelete = { onDeleteIdChange(task.id) },
+                        onRetry = { onRetryTask(task.id) },
                     )
                 }
             }
@@ -235,10 +248,13 @@ private fun TaskRow(
     canComplete: Boolean,
     canClaim: Boolean,
     canDelete: Boolean,
+    canRetry: Boolean,
     completing: Boolean,
+    retrying: Boolean,
     onComplete: () -> Unit,
     onClaim: () -> Unit,
     onDelete: () -> Unit,
+    onRetry: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -254,6 +270,13 @@ private fun TaskRow(
                     fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (retrying) {
+                    Text(
+                        "Retrying…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (canClaim) {
@@ -261,6 +284,9 @@ private fun TaskRow(
                 }
                 if (canComplete) {
                     FilledTonalButton(onClick = onComplete, enabled = !completing) { Text("Complete") }
+                }
+                if (canRetry) {
+                    FilledTonalButton(onClick = onRetry, enabled = !completing) { Text("Retry") }
                 }
                 if (canDelete) {
                     TextButton(onClick = onDelete, enabled = !completing) { Text("Delete") }
@@ -337,4 +363,17 @@ private fun TaskSummary.isCompletable(): Boolean {
 private fun TaskSummary.isClaimable(): Boolean {
     val status = status.lowercase()
     return status == "queued" || status == "open" || status.isEmpty()
+}
+
+private fun String.toTaskStatus(): TaskStatus = when (lowercase()) {
+    "queued" -> TaskStatus.Queued
+    "claimed" -> TaskStatus.Claimed
+    "running" -> TaskStatus.Running
+    "blocked" -> TaskStatus.Blocked
+    "review" -> TaskStatus.Review
+    "done" -> TaskStatus.Done
+    "merging" -> TaskStatus.Merging
+    "merged" -> TaskStatus.Merged
+    "failed" -> TaskStatus.Failed
+    else -> TaskStatus.Unknown
 }

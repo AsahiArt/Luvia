@@ -20,6 +20,17 @@ pub struct Grant {
     #[serde(default)]
     pub comment: String,
     pub created_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub push: Option<PushRegistration>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct PushRegistration {
+    pub kind: String,
+    pub token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
+    pub updated_at: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -186,6 +197,7 @@ pub fn pair_device(
         key: key.blob.clone(),
         comment: key.comment.clone(),
         created_at,
+        push: None,
     };
     let line = ManagedKeyLine::from_grant(&grant, exe)?;
     authkeys::assert_key_not_present(paths, &line)?;
@@ -197,6 +209,17 @@ pub fn pair_device(
     }
     Ok(grant)
 }
+
+pub fn save_grant(paths: &Paths, grant: &Grant) -> Result<()> {
+    validate_device_id(&grant.id)?;
+    paths.ensure_host_dirs()?;
+    let _lock = LockFile::exclusive(&paths.lock_path)?;
+    let path = grant_path(paths, &grant.id);
+    paths::reject_symlink(&path, "grant")?;
+    let encoded = serde_json::to_vec_pretty(grant)?;
+    paths::write_atomic(&path, &encoded)
+}
+
 
 pub fn revoke_device(paths: &Paths, id: &str) -> Result<Grant> {
     validate_device_id(id)?;
@@ -296,4 +319,52 @@ mod tests {
         let keys = paths::read_nofollow_to_string(&paths.authorized_keys).unwrap();
         assert!(!keys.contains(&grant.id));
     }
+
+    #[test]
+    fn save_grant_round_trips_push_registration() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("ssh")).unwrap();
+        let paths = test_paths(dir.path());
+        let exe = Path::new("/usr/local/bin/luvia-host");
+        let mut grant =
+            pair_device(&paths, "phone", Role::Controller, &sample_key("phone"), exe).unwrap();
+        grant.push = Some(PushRegistration {
+            kind: "apns".into(),
+            token: "abc123".into(),
+            environment: Some("sandbox".into()),
+            updated_at: 42,
+        });
+        save_grant(&paths, &grant).unwrap();
+        let loaded = load_grant(&paths, &grant.id).unwrap();
+        assert_eq!(loaded.push, grant.push);
+        let public = serde_json::to_value(grant.to_public()).unwrap();
+        assert!(public.get("push").is_none());
+    }
+
+    #[test]
+    fn missing_push_field_defaults_to_none() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("ssh")).unwrap();
+        let paths = test_paths(dir.path());
+        paths.ensure_host_dirs().unwrap();
+        let id = "ab".repeat(16);
+        let path = paths.devices_dir.join(format!("{id}.json"));
+        fs::write(
+            &path,
+            r#"{
+                "id": "abababababababababababababababab",
+                "name": "phone",
+                "role": "observer",
+                "fingerprint": "SHA256:test",
+                "key_type": "ssh-ed25519",
+                "key": "AAAA",
+                "comment": "",
+                "created_at": 1
+            }"#,
+        )
+        .unwrap();
+        let grant = load_grant(&paths, &id).unwrap();
+        assert!(grant.push.is_none());
+    }
+
 }

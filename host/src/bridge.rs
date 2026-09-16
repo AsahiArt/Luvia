@@ -148,8 +148,26 @@ fn open_session(
             return Err(error);
         }
     };
+    if selected.backend == crate::discovery::Backend::Herdr {
+        if crate::herdr::resolve_bin().is_none() {
+            let error = Error::new("backend_unavailable", "herdr is not available");
+            write_prelude_error(output, &error)?;
+            return Err(error);
+        }
+        write_json_frame(
+            output,
+            &prelude::ready_frame_with_backend(&selected.name, "herdr"),
+        )?;
+        let _lease = match crate::channels::acquire(paths, &grant.id, 80) {
+            Ok(lease) => lease,
+            Err(error) => {
+                write_prelude_error(output, &error)?;
+                return Err(error);
+            }
+        };
+        return crate::herdr::serve(grant, paths, &selected, input, output);
+    }
     write_json_frame(output, &prelude::ready_frame(&selected.name))?;
-
     let caps = match uhp::fetch_capabilities(&selected.address, selected.evidence) {
         Ok(caps) => caps,
         Err(error) => {
@@ -284,6 +302,10 @@ fn intercept_luvia_method(
                 grant, paths, &id, &params, input, output,
             )))
         }
+        "luvia.push.register" | "luvia.push.unregister" => {
+            crate::push::try_handle(grant, paths, method, request, output)?;
+            Ok(LuviaIntercept::Handled)
+        }
         _ => {
             let error = Error::new("forbidden", format!("method {method} is not permitted"));
             let _ = crate::audit::denied(paths, &grant.id, grant.role, method, error.code);
@@ -341,7 +363,8 @@ fn proxy_unary(
     match frames::read_frame(&mut local_read) {
         Ok(frame) => {
             let frame = if prepared.method == "uhp.capabilities" {
-                crate::acp::augment_capabilities(&frame, paths)?
+                let frame = crate::acp::augment_capabilities(&frame, paths)?;
+                crate::push::augment_capabilities(&frame, paths)?
             } else {
                 frame
             };
@@ -548,6 +571,7 @@ mod tests {
             key: "AAAA".into(),
             comment: String::new(),
             created_at: 0,
+            push: None,
         }
     }
 
@@ -558,6 +582,7 @@ mod tests {
             std::path::PathBuf::from("/tmp/luvia-host-test-luvus"),
         )
     }
+
 
     fn tokens() -> BridgeTokens {
         BridgeTokens {
