@@ -583,7 +583,6 @@ mod tests {
         )
     }
 
-
     fn tokens() -> BridgeTokens {
         BridgeTokens {
             session: MintedToken {

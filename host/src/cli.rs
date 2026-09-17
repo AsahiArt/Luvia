@@ -160,7 +160,6 @@ pub fn run() -> Result<()> {
         }
         Command::Bridge { device } => crate::bridge::run(&paths, &device),
         Command::Watch { interval_secs } => crate::watch::run(&paths, interval_secs),
-
     }
 }
 
@@ -260,7 +259,6 @@ mod tests {
             other => panic!("expected watch, got {other:?}"),
         }
     }
-
 
     #[test]
     fn help_states_macos_linux_only() {

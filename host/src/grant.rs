@@ -220,7 +220,6 @@ pub fn save_grant(paths: &Paths, grant: &Grant) -> Result<()> {
     paths::write_atomic(&path, &encoded)
 }
 
-
 pub fn revoke_device(paths: &Paths, id: &str) -> Result<Grant> {
     validate_device_id(id)?;
     paths.ensure_host_dirs()?;
@@ -366,5 +365,4 @@ mod tests {
         let grant = load_grant(&paths, &id).unwrap();
         assert!(grant.push.is_none());
     }
-
 }

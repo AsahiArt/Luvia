@@ -107,7 +107,11 @@ fn session_list(bin: &Path) -> Result<Vec<DiscoveredSession>> {
     Ok(sessions)
 }
 
-fn herdr_discovered(name: String, running: bool, herdr_session: Option<String>) -> DiscoveredSession {
+fn herdr_discovered(
+    name: String,
+    running: bool,
+    herdr_session: Option<String>,
+) -> DiscoveredSession {
     DiscoveredSession {
         name,
         default: false,
@@ -302,7 +306,8 @@ fn write_capabilities(
     id: &str,
     output: &mut impl Write,
 ) -> Result<()> {
-    let version = server_version(session.herdr_session.as_deref()).unwrap_or_else(|_| "0.9.0".into());
+    let version =
+        server_version(session.herdr_session.as_deref()).unwrap_or_else(|_| "0.9.0".into());
     let result = json!({
         "protocol": {
             "name": "luvus-uhp",
@@ -372,7 +377,12 @@ pub fn snapshot(herdr_session: Option<&str>, session_name: &str) -> Result<Value
     let workspaces = run_herdr(&bin, herdr_session, &["workspace", "list"])?;
     let panes = run_herdr(&bin, herdr_session, &["pane", "list"])?;
     let agents = run_herdr(&bin, herdr_session, &["agent", "list"])?;
-    Ok(translate_snapshot(session_name, &workspaces, &panes, &agents))
+    Ok(translate_snapshot(
+        session_name,
+        &workspaces,
+        &panes,
+        &agents,
+    ))
 }
 
 /// Build the Luvus `session.snapshot` object from Herdr CLI JSON (`result` wrapping optional).
@@ -420,7 +430,9 @@ pub fn translate_snapshot(
             let active = ws.get("focused").and_then(Value::as_bool).unwrap_or(false);
             let group: Vec<Value> = pane_rows
                 .iter()
-                .filter(|pane| string_field(pane, "workspace_id").as_deref() == Some(ws_id.as_str()))
+                .filter(|pane| {
+                    string_field(pane, "workspace_id").as_deref() == Some(ws_id.as_str())
+                })
                 .cloned()
                 .collect();
             workspaces_out.push(workspace_object(
@@ -513,9 +525,7 @@ fn translate_snapshot_pane(pane: &Value, agents_by_pane: &BTreeMap<String, Value
             .or_else(|| string_field(pane, "agent_status"))
             .as_deref(),
     );
-    let agent_name = agent
-        .and_then(agent_label)
-        .or_else(|| agent_label(pane));
+    let agent_name = agent.and_then(agent_label).or_else(|| agent_label(pane));
     let agent_kind = agent
         .and_then(|row| string_field(row, "agent"))
         .or_else(|| string_field(pane, "agent"));
@@ -716,7 +726,10 @@ fn agent_keys(herdr_session: Option<&str>, params: &Value) -> Result<Value> {
     let mut translated = Vec::new();
     for key in keys {
         let Some(name) = key.as_str() else {
-            return Err(Error::new("invalid_params", "agent.keys entries must be strings"));
+            return Err(Error::new(
+                "invalid_params",
+                "agent.keys entries must be strings",
+            ));
         };
         translated.push(translate_key(name)?);
     }
@@ -781,10 +794,7 @@ pub fn translate_key(uhp: &str) -> Result<String> {
         "space" => Ok("space".into()),
         "backspace" => Ok("backspace".into()),
         "up" | "down" | "left" | "right" => Ok(lower),
-        _ => Err(Error::new(
-            "invalid_params",
-            format!("unknown key {uhp}"),
-        )),
+        _ => Err(Error::new("invalid_params", format!("unknown key {uhp}"))),
     }
 }
 
@@ -843,7 +853,10 @@ pub fn watches_from_lists(panes: &Value, agents: &Value) -> Vec<PaneWatch> {
                 agent_kind: agent
                     .and_then(|row| string_field(row, "agent"))
                     .or_else(|| string_field(pane, "agent")),
-                focused: pane.get("focused").and_then(Value::as_bool).unwrap_or(false),
+                focused: pane
+                    .get("focused")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
                 workspace_id: string_field(pane, "workspace_id").unwrap_or_default(),
                 tab_id: string_field(pane, "tab_id").unwrap_or_default(),
                 terminal_id: string_field(pane, "terminal_id"),
@@ -854,7 +867,11 @@ pub fn watches_from_lists(panes: &Value, agents: &Value) -> Vec<PaneWatch> {
 }
 
 /// Emit topology/status events. `initial` also writes a snapshot of the current set.
-pub fn diff_events(previous: &[PaneWatch], current: &[PaneWatch], sequence: &mut u64) -> Vec<Value> {
+pub fn diff_events(
+    previous: &[PaneWatch],
+    current: &[PaneWatch],
+    sequence: &mut u64,
+) -> Vec<Value> {
     let mut events = Vec::new();
     let previous_by_id: BTreeMap<&str, &PaneWatch> = previous
         .iter()
@@ -984,7 +1001,12 @@ fn subscribe(
                 if stop.load(Ordering::Relaxed) {
                     return Ok(());
                 }
-                match poll_once(herdr_session.as_deref(), &mut previous, &mut sequence, initial) {
+                match poll_once(
+                    herdr_session.as_deref(),
+                    &mut previous,
+                    &mut sequence,
+                    initial,
+                ) {
                     Ok(events) => {
                         initial = false;
                         for event in events {
@@ -1063,7 +1085,8 @@ fn read_follow_ups(
             Ok(frame) => {
                 let payload = &frame[..frame.len() - 1];
                 let id = request_id(payload);
-                let method = crate::uhp::request_method(payload).unwrap_or_else(|_| "unknown".into());
+                let method =
+                    crate::uhp::request_method(payload).unwrap_or_else(|_| "unknown".into());
                 let error = Error::new(
                     "forbidden",
                     format!("method {method} is not permitted on an active stream"),
@@ -1093,12 +1116,9 @@ fn run_herdr(bin: &Path, session: Option<&str>, args: &[&str]) -> Result<Value> 
         command.arg("--session").arg(session);
     }
     command.args(args);
-    let output = command.output().map_err(|error| {
-        Error::new(
-            "backend_error",
-            format!("failed to spawn herdr: {error}"),
-        )
-    })?;
+    let output = command
+        .output()
+        .map_err(|error| Error::new("backend_error", format!("failed to spawn herdr: {error}")))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1136,10 +1156,7 @@ fn require_target(params: &Value) -> Result<String> {
             }
         }
     }
-    Err(Error::new(
-        "invalid_params",
-        "missing target/pane",
-    ))
+    Err(Error::new("invalid_params", "missing target/pane"))
 }
 
 fn workspace_filter(params: &Value) -> Option<String> {
@@ -1285,7 +1302,10 @@ mod tests {
         assert_eq!(translate_key("ctrl+c").unwrap(), "ctrl+c");
         assert_eq!(translate_key("up").unwrap(), "up");
         assert_eq!(translate_key("y").unwrap(), "y");
-        assert_eq!(translate_key("unknown-key").unwrap_err().code, "invalid_params");
+        assert_eq!(
+            translate_key("unknown-key").unwrap_err().code,
+            "invalid_params"
+        );
         assert_eq!(translate_key("delete").unwrap_err().code, "invalid_params");
         assert_eq!(translate_key("pageup").unwrap_err().code, "invalid_params");
     }

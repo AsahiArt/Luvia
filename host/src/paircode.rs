@@ -124,7 +124,6 @@ mod tests {
             comment: String::new(),
             created_at: 0,
             push: None,
-
         }
     }
 

@@ -5,7 +5,6 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-
 use serde_json::{json, Value};
 
 use crate::discovery::{self, Backend, DiscoveredSession};
@@ -68,11 +67,8 @@ pub fn run(paths: &Paths, interval_secs: u64) -> Result<()> {
 }
 
 fn watch_luvus(paths: &Paths, session: &DiscoveredSession) -> Result<()> {
-    let session_token = uhp::mint_token(
-        &session.address,
-        session.evidence,
-        Role::session_scopes(),
-    )?;
+    let session_token =
+        uhp::mint_token(&session.address, session.evidence, Role::session_scopes())?;
     let action_token = match uhp::mint_token(
         &session.address,
         session.evidence,
@@ -127,9 +123,7 @@ fn watch_luvus_with_tokens(
                     saw_ack = true;
                     continue;
                 }
-                if value.get("event").and_then(Value::as_str)
-                    == Some("events.resync_required")
-                {
+                if value.get("event").and_then(Value::as_str) == Some("events.resync_required") {
                     return Ok(());
                 }
                 handle_bus_event(paths, session, action_token, &mut statuses, &value);
@@ -210,7 +204,6 @@ fn tasks_all_done(session: &DiscoveredSession, action_token: &MintedToken) -> Op
     all_tasks_done(task_values(&value))
 }
 
-
 fn watch_herdr(paths: &Paths, interval: Duration) -> Result<()> {
     let mut prev: HashMap<String, String> = HashMap::new();
     let mut seeded = false;
@@ -233,7 +226,10 @@ fn watch_herdr(paths: &Paths, interval: Duration) -> Result<()> {
                 seeded = true;
             }
             Err(error) => {
-                eprintln!("luvia-host watch: herdr agent list failed: {}", error.message);
+                eprintln!(
+                    "luvia-host watch: herdr agent list failed: {}",
+                    error.message
+                );
             }
         }
         sleep_interruptible(interval);
@@ -248,10 +244,7 @@ fn herdr_agent_statuses() -> Result<HashMap<String, String>> {
         .map_err(|error| Error::new("backend_error", error.to_string()))?;
     if !output.status.success() {
         let message = String::from_utf8_lossy(&output.stderr);
-        return Err(Error::new(
-            "backend_error",
-            message.trim().to_string(),
-        ));
+        return Err(Error::new("backend_error", message.trim().to_string()));
     }
     let value: Value = serde_json::from_slice(&output.stdout)
         .map_err(|_| Error::new("backend_error", "herdr returned non-JSON"))?;
@@ -347,7 +340,6 @@ pub(crate) fn statuses_from_agents(value: &Value) -> HashMap<String, String> {
     map
 }
 
-
 pub(crate) fn task_values(value: &Value) -> Vec<Value> {
     let root = value.get("result").unwrap_or(value);
     root.get("tasks")
@@ -360,9 +352,10 @@ pub(crate) fn all_tasks_done(tasks: Vec<Value>) -> Option<u32> {
     if tasks.is_empty() {
         return None;
     }
-    if tasks.iter().all(|task| {
-        task.get("status").and_then(Value::as_str) == Some("done")
-    }) {
+    if tasks
+        .iter()
+        .all(|task| task.get("status").and_then(Value::as_str) == Some("done"))
+    {
         Some(tasks.len() as u32)
     } else {
         None
@@ -431,15 +424,16 @@ fn install_stop_handlers() {
     }
     unsafe {
         libc::signal(libc::SIGINT, handle_stop as *const () as libc::sighandler_t);
-        libc::signal(libc::SIGTERM, handle_stop as *const () as libc::sighandler_t);
+        libc::signal(
+            libc::SIGTERM,
+            handle_stop as *const () as libc::sighandler_t,
+        );
     }
 }
-
 
 fn strip_lf(frame: &[u8]) -> &[u8] {
     frame.strip_suffix(b"\n").unwrap_or(frame)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -517,7 +511,10 @@ mod tests {
 
     #[test]
     fn push_watch_backoff_caps_at_sixty_seconds() {
-        assert_eq!(capped_backoff(Duration::from_secs(2)), Duration::from_secs(4));
+        assert_eq!(
+            capped_backoff(Duration::from_secs(2)),
+            Duration::from_secs(4)
+        );
         assert_eq!(
             capped_backoff(Duration::from_secs(32)),
             Duration::from_secs(60)

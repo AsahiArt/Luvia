@@ -258,7 +258,6 @@ pub fn serve_session(
         &mut child,
         paths,
     )
-
 }
 
 fn builtins() -> Vec<AgentSpec> {
@@ -1396,7 +1395,6 @@ mod tests {
             comment: String::new(),
             created_at: 0,
             push: None,
-
         }
     }
 

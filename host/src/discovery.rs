@@ -35,7 +35,12 @@ pub struct DiscoveredSession {
 
 impl DiscoveredSession {
     pub fn metadata(&self) -> serde_json::Map<String, serde_json::Value> {
-        prelude::session_metadata(&self.name, self.default, self.running, self.backend.as_str())
+        prelude::session_metadata(
+            &self.name,
+            self.default,
+            self.running,
+            self.backend.as_str(),
+        )
     }
 }
 

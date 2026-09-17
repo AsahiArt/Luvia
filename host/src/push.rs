@@ -137,10 +137,7 @@ pub fn load_relay(paths: &Paths) -> Result<RelayConfig> {
     paths::reject_symlink(&path, "relay config")?;
     let text = paths::read_nofollow_to_string(&path)?;
     if text.is_empty() {
-        return Err(Error::new(
-            "relay_unconfigured",
-            "relay.json is missing",
-        ));
+        return Err(Error::new("relay_unconfigured", "relay.json is missing"));
     }
     let config: RelayConfig = serde_json::from_str(&text)?;
     if config.url.trim().is_empty() || config.key.is_empty() {
@@ -338,7 +335,6 @@ fn wake_inner(paths: &Paths, wake: WakeKind, count: u32) -> Result<()> {
     );
     let response = post_wake(&config, &body)?;
     let _ = response.accepted;
-
 
     for (grant, _) in &sending {
         dedupe
@@ -554,7 +550,6 @@ mod tests {
     use super::*;
     use crate::role::Role;
 
-
     fn test_paths(root: &std::path::Path) -> Paths {
         Paths::from_parts(
             root.join("host"),
@@ -658,11 +653,7 @@ mod tests {
     #[test]
     fn push_host_request_json_matches_contract() {
         let body = build_wake_body(
-            vec![(
-                "apns".into(),
-                "deadbeef".into(),
-                Some("production".into()),
-            )],
+            vec![("apns".into(), "deadbeef".into(), Some("production".into()))],
             WakeKind::Blocked,
             2,
             "a1b2c3d4",
@@ -682,7 +673,10 @@ mod tests {
                 "sent_at": 1726500000
             })
         );
-        assert_eq!(wake_url("https://relay.example.com/"), "https://relay.example.com/v1/wake");
+        assert_eq!(
+            wake_url("https://relay.example.com/"),
+            "https://relay.example.com/v1/wake"
+        );
         assert_eq!(host_id_for("studio.local").len(), 8);
         assert!(host_id_for("studio.local")
             .bytes()
@@ -724,7 +718,6 @@ mod tests {
         remove_gone_tokens(&paths, &gone);
         assert!(grant::load_grant(&paths, &grant.id).unwrap().push.is_none());
     }
-
 
     #[test]
     fn push_wake_dedupes_same_device_and_kind_for_60s() {

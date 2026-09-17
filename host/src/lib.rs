@@ -38,6 +38,5 @@ pub mod uhp;
 pub mod unique_json;
 pub mod watch;
 
-
 pub use cli::run;
 pub use error::{Error, Result};
