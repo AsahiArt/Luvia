@@ -1,15 +1,15 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use axum::Router;
 use axum::body::Bytes;
 use axum::extract::State;
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Router;
-use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
 pub const APNS_JWT_TTL: Duration = Duration::from_secs(50 * 60);
@@ -86,13 +86,12 @@ impl AppState {
             fcm_token: Mutex::new(None),
         })
     }
-
 }
 
 impl Config {
     pub fn from_env() -> Result<Self, String> {
-        let listen = std::env::var("LUVIA_RELAY_LISTEN")
-            .unwrap_or_else(|_| "0.0.0.0:8787".to_string());
+        let listen =
+            std::env::var("LUVIA_RELAY_LISTEN").unwrap_or_else(|_| "0.0.0.0:8787".to_string());
         let keys = std::env::var("LUVIA_RELAY_KEYS").map_err(|_| {
             "LUVIA_RELAY_KEYS is required (comma-separated bearer keys)".to_string()
         })?;
@@ -149,8 +148,8 @@ struct ServiceAccount {
 }
 
 fn load_fcm_service_account(path: &str) -> Result<FcmConfig, String> {
-    let text =
-        std::fs::read_to_string(path).map_err(|error| format!("read FCM service account: {error}"))?;
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| format!("read FCM service account: {error}"))?;
     let account: ServiceAccount = serde_json::from_str(&text)
         .map_err(|error| format!("parse FCM service account: {error}"))?;
     Ok(FcmConfig {
@@ -212,7 +211,9 @@ async fn wake(State(state): State<Arc<AppState>>, headers: HeaderMap, body: Byte
 }
 
 fn authorized(keys: &[String], headers: &HeaderMap) -> bool {
-    let Some(value) = headers.get(header::AUTHORIZATION).and_then(|value| value.to_str().ok())
+    let Some(value) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
     else {
         return false;
     };
@@ -229,10 +230,7 @@ pub fn validate_wake_request(request: &WakeRequest) -> Result<(), String> {
     if request.targets.is_empty() {
         return Err("targets must not be empty".into());
     }
-    if !matches!(
-        request.wake.as_str(),
-        "blocked" | "permission" | "done"
-    ) {
+    if !matches!(request.wake.as_str(), "blocked" | "permission" | "done") {
         return Err("wake must be blocked, permission, or done".into());
     }
     if request.host.len() != 8
@@ -255,7 +253,6 @@ pub fn validate_wake_request(request: &WakeRequest) -> Result<(), String> {
         {
             return Err("environment must be sandbox or production".into());
         }
-
     }
     Ok(())
 }
@@ -326,7 +323,10 @@ async fn send_apns(
         .header("apns-push-type", "alert")
         .header("apns-priority", "10")
         .header("apns-topic", &apns.topic)
-        .header("apns-expiration", apns_expiration(request.sent_at).to_string())
+        .header(
+            "apns-expiration",
+            apns_expiration(request.sent_at).to_string(),
+        )
         .json(&payload)
         .send()
         .await
@@ -355,7 +355,6 @@ async fn apns_jwt(state: &AppState, apns: &ApnsConfig) -> Result<String, String>
         {
             return Ok(token.clone());
         }
-
     }
     let token = encode_apns_jwt(apns, unix_now())?;
     let mut cache = state.apns_jwt.lock().await;
@@ -447,10 +446,7 @@ async fn send_fcm(
         .map_err(|error| error.to_string())?;
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
-    if status.as_u16() == 404
-        || body.contains("UNREGISTERED")
-        || body.contains("NOT_FOUND")
-    {
+    if status.as_u16() == 404 || body.contains("UNREGISTERED") || body.contains("NOT_FOUND") {
         return Ok(SendResult::Gone);
     }
     if status.is_success() {
@@ -468,12 +464,10 @@ async fn fcm_access_token(state: &AppState, fcm: &FcmConfig) -> Result<String, S
         {
             return Ok(token.clone());
         }
-
     }
     let assertion = encode_fcm_jwt(fcm, unix_now())?;
-    let form = format!(
-        "grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion={assertion}"
-    );
+    let form =
+        format!("grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion={assertion}");
     let response = state
         .http
         .post("https://oauth2.googleapis.com/token")
@@ -485,10 +479,7 @@ async fn fcm_access_token(state: &AppState, fcm: &FcmConfig) -> Result<String, S
     if !response.status().is_success() {
         return Err(format!("FCM oauth HTTP {}", response.status()));
     }
-    let value: Value = response
-        .json()
-        .await
-        .map_err(|error| error.to_string())?;
+    let value: Value = response.json().await.map_err(|error| error.to_string())?;
     let token = value
         .get("access_token")
         .and_then(Value::as_str)
@@ -565,7 +556,11 @@ mod tests {
 
         let mut empty = valid.clone();
         empty.targets.clear();
-        assert!(validate_wake_request(&empty).unwrap_err().contains("targets"));
+        assert!(
+            validate_wake_request(&empty)
+                .unwrap_err()
+                .contains("targets")
+        );
 
         let mut wake = serde_json::from_value::<WakeRequest>(sample_request()).unwrap();
         wake.wake = "nudge".into();
@@ -603,8 +598,14 @@ mod tests {
                 }
             })
         );
-        assert_eq!(apns_payload("permission", "abcd1234", 1)["aps"]["alert"]["loc-key"], "push.permission");
-        assert_eq!(apns_payload("done", "abcd1234", 3)["aps"]["alert"]["loc-key"], "push.done");
+        assert_eq!(
+            apns_payload("permission", "abcd1234", 1)["aps"]["alert"]["loc-key"],
+            "push.permission"
+        );
+        assert_eq!(
+            apns_payload("done", "abcd1234", 3)["aps"]["alert"]["loc-key"],
+            "push.done"
+        );
         assert_eq!(apns_expiration(1726500000), 1726500600);
     }
 
@@ -613,11 +614,18 @@ mod tests {
         let app = router(test_state());
         let response = app
             .clone()
-            .oneshot(Request::builder().uri("/healthz").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/healthz")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), 64).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 64)
+            .await
+            .unwrap();
         assert_eq!(&body[..], b"ok");
 
         let unauth = router(test_state())

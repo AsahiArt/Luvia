@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use luvia_relay::{router, AppState, Config};
+use luvia_relay::{AppState, Config, router};
 
 #[tokio::main]
 async fn main() {
