@@ -5,10 +5,11 @@ One line per device:
 
     device <udid> <coredevice-id> <usb|network>
 
-If none are paired, prints `simulator [<udid>]`. Paired network devices
-are eligible even when the CoreDevice tunnel is down; `devicectl install`
-brings the link up. IOS_UDID selects a specific device or simulator.
-IOS_FORCE_SIM=1 / IOS_FORCE_DEVICE=1 override the default preference.
+Paired wireless devices are eligible even when the CoreDevice tunnel is
+down; `devicectl install` often brings the link up. A device that is only
+paired and currently unreachable is still listed — `make ios` continues
+if at least one install succeeds. IOS_UDID selects a specific device or
+simulator. IOS_FORCE_SIM=1 / IOS_FORCE_DEVICE=1 override the default.
 """
 
 from __future__ import annotations
@@ -95,7 +96,6 @@ def main() -> int:
     if forced:
         print(f"simulator {forced}")
         return 0
-
     eligible = [row for row in physical if row[0] >= 1]
     eligible.sort(key=lambda row: -row[0])
     if eligible:

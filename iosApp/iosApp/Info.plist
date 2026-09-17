@@ -10,9 +10,5 @@
 	<string>Luvia uses the camera to scan the pairing QR code printed by luvia-host.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>remote-notification</string>
-	</array>
 </dict>
 </plist>

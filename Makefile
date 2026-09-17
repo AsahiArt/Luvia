@@ -215,18 +215,23 @@ ios: ios-sync-shared ## Build, install, and launch on every paired iPhone (else 
 	    -derivedDataPath "$(IOS_DERIVED)" \
 	    -allowProvisioningUpdates \
 	    build; \
-	  fail=0; pids=(); \
+	  fail=0; ok=0; pids=(); \
 	  while read -r _k udid ident how; do \
 	    ( \
 	      echo "Installing on $$udid ($$how)"; \
-	      xcrun devicectl device install app --device "$$ident" "$(IOS_APP_DEVICE)"; \
-	      xcrun devicectl device process launch --device "$$ident" "$(IOS_BUNDLE_ID)"; \
+	      xcrun devicectl device install app --device "$$ident" "$(IOS_APP_DEVICE)" && \
+	      xcrun devicectl device process launch --device "$$ident" "$(IOS_BUNDLE_ID)" && \
 	      echo "Launched $(IOS_BUNDLE_ID) on $$udid ($$how)"; \
 	    ) & \
 	    pids+=("$$!"); \
 	  done <<<"$$devices"; \
-	  if [ "$${#pids[@]}" -gt 0 ]; then for pid in "$${pids[@]}"; do wait "$$pid" || fail=1; done; fi; \
-	  if [ "$$fail" != 0 ]; then echo "iOS install/launch failed on at least one device." >&2; exit 1; fi; \
+	  if [ "$${#pids[@]}" -gt 0 ]; then \
+	    for pid in "$${pids[@]}"; do \
+	      if wait "$$pid"; then ok=1; else fail=1; fi; \
+	    done; \
+	  fi; \
+	  if [ "$$ok" = 0 ]; then echo "iOS install/launch failed on every device." >&2; exit 1; fi; \
+	  if [ "$$fail" != 0 ]; then echo "iOS install/launch skipped at least one unreachable device."; fi; \
 	else \
 	  udid="$$(printf '%s\n' "$$pick" | awk '/^simulator/{print $$2}')"; \
 	  if [ -z "$$udid" ]; then \
@@ -251,7 +256,7 @@ ios: ios-sync-shared ## Build, install, and launch on every paired iPhone (else 
 	    CODE_SIGNING_REQUIRED=NO \
 	    build; \
 	  xcrun simctl bootstatus "$$udid" -b >/dev/null; \
-	  open -a "$$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID "$$udid" || true; \
+	  open -a Simulator --args -CurrentDeviceUDID "$$udid" || true; \
 	  xcrun simctl install "$$udid" "$(IOS_APP_SIM)"; \
 	  xcrun simctl launch "$$udid" "$(IOS_BUNDLE_ID)"; \
 	  echo "Launched $(IOS_BUNDLE_ID) on Simulator $$udid"; \
