@@ -11,6 +11,7 @@ import androidx.compose.ui.text.withStyle
 import tech.asahiart.luvia.AnsiRgb
 import tech.asahiart.luvia.AnsiSpan
 import tech.asahiart.luvia.parseAnsi
+import tech.asahiart.luvia.ui.theme.LuviaTheme
 
 internal fun ansiAnnotatedString(
     text: String,
@@ -47,6 +48,7 @@ private fun AnsiSpan.toSpanStyle(
     return SpanStyle(
         color = fg,
         background = if (background != null || inverse) bg else Color.Unspecified,
+        fontFamily = LuviaTheme.mono,
         fontWeight = if (bold) FontWeight.Bold else null,
         fontStyle = if (italic) FontStyle.Italic else null,
         textDecoration = when (decorations.size) {

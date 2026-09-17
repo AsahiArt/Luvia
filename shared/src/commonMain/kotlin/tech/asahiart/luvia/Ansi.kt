@@ -29,8 +29,8 @@ public data class AnsiSpan(
 )
 
 /**
- * Maps Powerline / Nerd Font private-use glyphs to ASCII so system
- * monospace does not render missing-glyph boxes.
+ * Maps Powerline / Nerd Font private-use glyphs to ASCII for plaintext
+ * surfaces (notifications, Live Activities) that do not load the terminal font.
  */
 public fun replaceTerminalGlyphs(text: String): String {
     if (text.isEmpty()) return text
@@ -87,7 +87,7 @@ private fun mapTerminalGlyph(cp: Int): String? =
  */
 public fun parseAnsi(text: String): List<AnsiSpan> {
     if (text.isEmpty()) return emptyList()
-    val source = replaceTerminalGlyphs(text)
+    val source = text
     val spans = ArrayList<AnsiSpan>()
     val buf = StringBuilder(source.length)
     var style = SgrStyle()
@@ -146,7 +146,7 @@ public fun parseAnsi(text: String): List<AnsiSpan> {
  */
 public fun stripAnsi(text: String): String {
     if (text.isEmpty()) return text
-    return parseAnsi(text).joinToString("") { it.text }
+    return replaceTerminalGlyphs(parseAnsi(text).joinToString("") { it.text })
 }
 
 private data class SgrStyle(

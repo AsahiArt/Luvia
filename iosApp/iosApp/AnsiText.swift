@@ -5,7 +5,7 @@ func ansiAttributedString(
     _ text: String,
     defaultForeground: Color,
     defaultBackground: Color,
-    font: Font = .system(.footnote, design: .monospaced)
+    font: Font = DesignTokens.Typography.mono
 ) -> AttributedString {
     let spans = parseAnsi(text: text)
     if spans.isEmpty { return AttributedString() }

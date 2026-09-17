@@ -22,7 +22,7 @@ Warm Minimal. iOS uses Liquid Glass (iOS 26) with material fallback. Android use
 ## Typography
 - Display: New York (`Font.system(..., design: .serif)`) for Luvia / No Hosts / pairing titles
 - Body: SF Pro
-- Mono: SF Mono for fingerprints, install command, terminal
+- Mono: SF Mono for fingerprints and install command; JetBrains Mono NL Nerd Font Mono for Terminal and Agent transcripts
 - Android display: `FontFamily.Serif` on headline/title
 
 ## Spacing

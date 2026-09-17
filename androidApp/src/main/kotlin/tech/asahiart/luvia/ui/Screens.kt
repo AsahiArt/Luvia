@@ -835,7 +835,7 @@ fun TerminalPane(
                     Text(
                         displayed,
                         color = defaultFg,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = LuviaTheme.mono,
                         style = MaterialTheme.typography.bodySmall,
                         softWrap = false,
                         modifier = Modifier

@@ -52,3 +52,9 @@ complete graph and versions are in Cargo.lock.
 
 Gobley (dev.gobley.cargo / dev.gobley.uniffi) is a build-time Gradle
 plugin (Mozilla Public License 2.0) and is not linked into the apps.
+
+This product includes JetBrains Mono NL Nerd Font Mono (Regular),
+derived from JetBrains Mono (SIL Open Font License 1.1) and patched by
+Nerd Fonts (https://github.com/ryanoasis/nerd-fonts, v3.4.0). The OFL
+text is in third_party/jetbrains-mono-nerd/OFL.txt. The font is used
+for Terminal frames and Agent transcripts.

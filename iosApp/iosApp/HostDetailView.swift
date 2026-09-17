@@ -338,6 +338,7 @@ private struct TerminalPane: View {
                             defaultBackground: TerminalChrome.background
                         )
                     )
+                    .font(DesignTokens.Typography.mono)
                     .fixedSize(horizontal: true, vertical: false)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)

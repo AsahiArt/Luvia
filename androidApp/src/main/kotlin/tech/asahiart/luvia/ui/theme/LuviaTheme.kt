@@ -17,8 +17,11 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import tech.asahiart.luvia.R
 
 private val CanvasLight = Color(0xFFF4F0EA)
 private val SurfaceLight = Color(0xFFFFFBF6)
@@ -198,6 +201,10 @@ object LuviaTheme {
         @Composable
         @ReadOnlyComposable
         get() = LocalLuviaExtendedColors.current
+
+    val mono: FontFamily = FontFamily(
+        Font(R.font.jetbrains_mono_nf, FontWeight.Normal),
+    )
 }
 
 @Composable

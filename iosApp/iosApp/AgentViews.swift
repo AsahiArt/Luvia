@@ -415,7 +415,7 @@ struct AgentDetailView: View {
                 defaultBackground: Color(uiColor: .systemBackground)
             )
         )
-        .font(.system(.footnote, design: .monospaced))
+        .font(DesignTokens.Typography.mono)
         .fixedSize(horizontal: true, vertical: false)
         .frame(maxWidth: .infinity, alignment: .leading)
         .textSelection(.enabled)

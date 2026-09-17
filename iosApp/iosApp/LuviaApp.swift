@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        TerminalFont.register()
         UNUserNotificationCenter.current().delegate = self
         if let userInfo = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
             pendingUserInfo = userInfo
@@ -72,6 +73,9 @@ struct LuviaApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()
 
+    init() {
+        TerminalFont.register()
+    }
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)

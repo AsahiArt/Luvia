@@ -10,5 +10,9 @@
 	<string>Luvia uses the camera to scan the pairing QR code printed by luvia-host.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>JetBrainsMonoNLNerdFontMono-Regular.ttf</string>
+	</array>
 </dict>
 </plist>

@@ -73,6 +73,7 @@ import tech.asahiart.luvia.TranscriptSegment
 import tech.asahiart.luvia.transcriptSegments
 import tech.asahiart.luvia.HostUhpState
 import tech.asahiart.luvia.UnconfirmedKind
+import tech.asahiart.luvia.ui.theme.LuviaTheme
 
 @Composable
 fun AgentsSection(
@@ -673,7 +674,7 @@ fun AgentDetailPane(
                                             Text(
                                                 ansiAnnotatedString(stable, onSurface, surface),
                                                 style = MaterialTheme.typography.bodySmall,
-                                                fontFamily = FontFamily.Monospace,
+                                                fontFamily = LuviaTheme.mono,
                                                 softWrap = false,
                                             )
                                         }
@@ -681,7 +682,7 @@ fun AgentDetailPane(
                                             Text(
                                                 ansiAnnotatedString(addedSuffix, onSurface, surface),
                                                 style = MaterialTheme.typography.bodySmall,
-                                                fontFamily = FontFamily.Monospace,
+                                                fontFamily = LuviaTheme.mono,
                                                 softWrap = false,
                                                 modifier = Modifier.background(highlightColor.copy(alpha = highlight.value)),
                                             )

@@ -1,6 +1,6 @@
+import CoreText
 import SwiftUI
 import UIKit
-
 enum DesignTokens {
     static let canvas = Color(light: "F4F0EA", dark: "161412")
     static let surface = Color(light: "FFFBF6", dark: "1E1B18")
@@ -30,6 +30,7 @@ enum DesignTokens {
         static let display = Font.system(.largeTitle, design: .serif).weight(.bold)
         static let title = Font.system(.title2, design: .serif).weight(.semibold)
         static let heading = Font.system(.headline, design: .serif)
+        static let mono = Font.custom(TerminalFont.postScriptName, size: 13, relativeTo: .footnote)
     }
 
     enum Terminal {
@@ -48,6 +49,21 @@ extension View {
             self.glassEffect(.regular, in: shape)
         } else {
             self.background(.ultraThinMaterial, in: shape)
+        }
+    }
+}
+
+enum TerminalFont {
+    static let postScriptName = "JetBrainsMonoNLNFM-Regular"
+    private static let fileName = "JetBrainsMonoNLNerdFontMono-Regular"
+
+    static func register() {
+        let urls = [
+            Bundle.main.url(forResource: fileName, withExtension: "ttf"),
+            Bundle.main.url(forResource: fileName, withExtension: "ttf", subdirectory: "Fonts"),
+        ]
+        for url in urls.compactMap({ $0 }) {
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
         }
     }
 }
