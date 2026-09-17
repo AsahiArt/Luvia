@@ -100,7 +100,8 @@ private fun TaskListPane(
     val showAdd = state.tasks.showAdd
     val completeId = state.tasks.completeId
     val deleteId = state.tasks.deleteId
-    val grouped = state.tasks.tasks.groupBy { it.status.ifBlank { "unknown" } }
+    val projectTasks = state.projectTasks()
+    val grouped = projectTasks.groupBy { it.status.ifBlank { "unknown" } }
     PullToRefreshBox(
         isRefreshing = state.tasks.loading,
         onRefresh = onRefresh,
@@ -113,7 +114,16 @@ private fun TaskListPane(
         ) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Tasks", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    Column(Modifier.weight(1f)) {
+                        Text("Tasks", style = MaterialTheme.typography.titleSmall)
+                        state.projectLabel()?.let { project ->
+                            Text(
+                                project,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                     if (state.canMutate && state.capabilities.taskAdd && state.tasks.unconfirmed == null) {
                         Button(onClick = { onShowAddChange(true) }, enabled = !state.tasks.mutating) { Text("Add Task") }
                     }
@@ -135,7 +145,7 @@ private fun TaskListPane(
             state.tasks.unconfirmed?.let { kind ->
                 item { UnconfirmedBanner(kind = kind, onCheck = onCheckUnconfirmed) }
             }
-            if (state.tasks.tasks.isEmpty() && !state.tasks.loading) {
+            if (projectTasks.isEmpty() && !state.tasks.loading) {
                 item {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
@@ -144,7 +154,8 @@ private fun TaskListPane(
                     ) {
                         Text("No Tasks on the board.", style = MaterialTheme.typography.headlineSmall)
                         Text(
-                            "Add a Task to put work on this Host.",
+                            state.projectLabel()?.let { "No Tasks in $it." }
+                                ?: "Add a Task to put work on this Host.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }

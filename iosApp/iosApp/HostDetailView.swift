@@ -5,12 +5,6 @@ struct HostDetailView: View {
     let host: HostViewState
     @Binding var section: HostSection
     @Bindable var model: AppModel
-    var terminalText: String
-    var terminalStatus: String?
-    var holdsTerminalControl: Bool
-    var onSendTerminal: (String) -> Void
-    var onSendTerminalKey: (TerminalKey) -> Void
-    var onRequestControl: () -> Void
 
     @State private var agentQuery = ""
     @State private var path = NavigationPath()
@@ -36,19 +30,12 @@ struct HostDetailView: View {
                     }
                     .tag(HostSection.tasks)
 
-                TerminalPane(
-                    host: host,
-                    text: terminalText,
-                    status: terminalStatus,
-                    holdsControl: holdsTerminalControl,
-                    onSend: onSendTerminal,
-                    onSendKey: onSendTerminalKey,
-                    onRequestControl: onRequestControl
-                )
-                .tabItem {
-                    Label(HostSection.terminal.rawValue, systemImage: HostSection.terminal.symbol)
-                }
-                .tag(HostSection.terminal)
+                AutomationsSurfaceView(model: model)
+                    .tabItem {
+                        Label(HostSection.automations.rawValue, systemImage: HostSection.automations.symbol)
+                    }
+                    .tag(HostSection.automations)
+                    .task { await model.loadAutomations() }
             }
             .tint(DesignTokens.accent)
             .hostSessionChrome(host: host, model: model)
@@ -123,9 +110,6 @@ struct HostSessionChrome: ViewModifier {
                         }
                         Button("Worktrees", systemImage: MoreSurface.worktrees.symbol) {
                             model.uhp.moreSurface = .worktrees
-                        }
-                        Button("Automations", systemImage: MoreSurface.automations.symbol) {
-                            model.uhp.moreSurface = .automations
                         }
                         Button("Layout", systemImage: MoreSurface.layout.symbol) {
                             model.uhp.moreSurface = .layout
@@ -252,7 +236,7 @@ private struct TerminalKeySpec: Identifiable {
     let key: TerminalKey
 }
 
-private struct TerminalPane: View {
+struct TerminalPane: View {
     let host: HostViewState
     let text: String
     let status: String?

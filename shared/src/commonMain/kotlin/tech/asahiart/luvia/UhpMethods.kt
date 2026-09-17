@@ -20,6 +20,7 @@ public object UhpMethods {
     public const val MISSION_SNAPSHOT: String = Methods.MISSION_SNAPSHOT
     public const val DIFF_LIST: String = Methods.DIFF_LIST
     public const val DIFF_GET: String = Methods.DIFF_GET
+    public const val DIFF_REFRESH: String = Methods.DIFF_REFRESH
     public const val DIFF_NOTE_LIST: String = Methods.DIFF_NOTE_LIST
     public const val DIFF_NOTE_ADD: String = Methods.DIFF_NOTE_ADD
     public const val DIFF_NOTE_SEND: String = Methods.DIFF_NOTE_SEND

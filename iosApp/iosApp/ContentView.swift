@@ -23,13 +23,7 @@ struct ContentView: View {
                 HostDetailView(
                     host: host,
                     section: $model.selectedSection,
-                    model: model,
-                    terminalText: model.terminalText,
-                    terminalStatus: model.terminalStatus,
-                    holdsTerminalControl: model.holdsTerminalControl,
-                    onSendTerminal: { text in _Concurrency.Task { await model.sendTerminal(text) } },
-                    onSendTerminalKey: { key in _Concurrency.Task { await model.sendTerminalKey(key) } },
-                    onRequestControl: { model.requestTerminalControl() }
+                    model: model
                 )
             } else {
                 ContentUnavailableView(

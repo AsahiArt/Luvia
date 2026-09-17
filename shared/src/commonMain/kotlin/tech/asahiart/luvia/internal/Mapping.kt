@@ -754,7 +754,7 @@ internal fun parseTaskStatus(raw: String?): TaskStatus =
     }
 
 internal fun Task.toSummary(): TaskSummary =
-    TaskSummary(id = id, title = title, status = status.wireName())
+    TaskSummary(id = id, title = title, status = status.wireName(), workspaceId = workspaceId)
 
 internal fun TaskStatus.wireName(): String =
     when (this) {
@@ -1094,6 +1094,10 @@ private fun mapTask(obj: JsonObject): Task? {
     val id = obj.optionalString("id") ?: return null
     val title = obj.optionalString("title") ?: return null
     val worker = obj.optionalObject("workspace_worker")
+    val project = obj.optionalObject("project")
+    val workspaceId =
+        project?.optionalString("workspace_id")
+            ?: worker?.optionalString("workspace_id")
     return Task(
         id = id,
         title = title,
@@ -1118,6 +1122,7 @@ private fun mapTask(obj: JsonObject): Task? {
                     root = it.optionalString("root") ?: return@let null,
                 )
             },
+        workspaceId = workspaceId,
     )
 }
 

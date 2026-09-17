@@ -26,8 +26,8 @@ doing.
 
 ## Decision
 
-1. The phone's primary screens are Agents, Review, and Tasks, built only on
-   unary UHP methods and `events.subscribe`.
+1. The phone's primary screens are Agents, Review, Tasks, and Automations.
+   Placement and locators live in `docs/surface-model.md`.
 2. Terminal observe is demoted to a fallback tab inside Agent detail. Terminal
    control (exclusive takeover) is deferred to after v1.
 3. Feature availability is gated by `uhp.capabilities.methods`, not by version
@@ -35,7 +35,9 @@ doing.
 4. The phone never calls: `task.next` (declared read-only, actually claims),
    `agent.send` (non-atomic; use `agent.prompt`), any `admin`/`extensions`
    method, destructive layout methods (`*.close`, `worktree.remove`), or
-   TUI-chrome methods (`*.open`, `*.focus`, `diff.navigate`).
+   TUI-chrome methods (`*.open`, `pane.focus`, `diff.navigate`).
+   `workspace.focus` is allowed only as a locator so Review/DIFF matches the
+   selected Agent's project (`docs/surface-model.md`).
 
 ## Consequences
 

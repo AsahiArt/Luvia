@@ -207,11 +207,6 @@ final class AppModel {
         if uhp.hostID != selectedHostID {
             uhp.reset(hostID: selectedHostID)
         }
-        if selectedSection == .terminal {
-            startTerminal()
-        } else {
-            stopTerminal()
-        }
         _Concurrency.Task { await self.loadSelectedSection() }
     }
 
@@ -241,7 +236,8 @@ final class AppModel {
 
     func requestTerminalControl() {
         guard let host = selectedHost, host.isController else { return }
-        guard let locator = host.terminalLocator else { return }
+        let locator = (uhp.selectedAgentID.flatMap { host.locator(for: $0) }) ?? host.terminalLocator
+        guard let locator else { return }
         let hostId = host.id
         let identity = locator.identity()
         let managerRef = manager
@@ -307,8 +303,8 @@ final class AppModel {
                 }
             }
         }
-        if selectedSection == .terminal {
-            startTerminal()
+        if let pane = uhp.selectedAgentID {
+            startTerminal(paneId: pane)
         }
         syncLiveActivity()
         if !wasLive && hasLiveSession {
@@ -316,15 +312,16 @@ final class AppModel {
         }
     }
 
-    private func startTerminal() {
-        guard selectedSection == .terminal, let host = selectedHost else {
+    private func startTerminal(paneId: String? = nil) {
+        guard let host = selectedHost else {
             stopTerminal()
             return
         }
-        guard let locator = host.terminalLocator else {
+        let locator = paneId.flatMap { host.locator(for: $0) } ?? host.terminalLocator
+        guard let locator else {
             stopTerminal()
             terminalText = ""
-            terminalStatus = "Connect to load a live pane."
+            terminalStatus = "This pane has no live terminal."
             return
         }
         stopTerminal()
@@ -596,7 +593,7 @@ final class UhpSurfaceState {
     }
 
     var tasks: [TaskViewState] {
-        let tasks: [TaskSummary] = KotlinLists.array(snapshot?.tasks.tasks as Any)
+        let tasks: [TaskSummary] = KotlinLists.array(snapshot?.projectTasks() as Any)
         return tasks.map(TaskViewState.init)
     }
 
@@ -769,8 +766,8 @@ extension AppModel {
             workspace.show(section: LuviaShared.HostSection.review)
         case .tasks:
             workspace.show(section: LuviaShared.HostSection.tasks)
-        case .terminal:
-            break
+        case .automations:
+            workspace.show(section: LuviaShared.HostSection.automations)
         }
     }
 
@@ -785,6 +782,7 @@ extension AppModel {
     func openAgent(_ id: String) async {
         uhp.selectedAgentID = id
         hostUhp()?.openAgent(paneId: id)
+        startTerminal(paneId: id)
     }
 
     @discardableResult

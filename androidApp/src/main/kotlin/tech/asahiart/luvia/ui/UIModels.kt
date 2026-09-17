@@ -33,7 +33,7 @@ internal val HostSection.isPrimaryTab: Boolean
         this == HostSection.Agents ||
             this == HostSection.Review ||
             this == HostSection.Tasks ||
-            this == HostSection.Terminal
+            this == HostSection.Automations
 
 @Immutable
 data class TerminalPaneChoice(

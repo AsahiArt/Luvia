@@ -378,6 +378,7 @@ struct TerminalLocator: Hashable, Sendable {
     }
 }
 
+
 struct HostViewState: Identifiable, Hashable, Sendable {
     let id: String
     var name: String
@@ -578,6 +579,12 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         }
     }
 
+    func locator(for paneId: String) -> TerminalLocator? {
+        guard let terminalId = paneTerminalIds[paneId] else { return nil }
+        guard let generation = terminalLocator?.serverGeneration else { return nil }
+        return TerminalLocator(serverGeneration: generation, terminalId: terminalId, paneId: paneId)
+    }
+
     private static func locator(from snapshot: SessionSnapshot?) -> TerminalLocator? {
         guard let snapshot else { return nil }
         let panes: [PaneSummary] = KotlinLists.array(snapshot.panes)
@@ -596,7 +603,7 @@ enum HostSection: String, CaseIterable, Identifiable, Sendable {
     case agents = "Agents"
     case review = "Review"
     case tasks = "Tasks"
-    case terminal = "Terminal"
+    case automations = "Automations"
 
     var id: Self { self }
 
@@ -605,7 +612,7 @@ enum HostSection: String, CaseIterable, Identifiable, Sendable {
         case .agents: "person.2"
         case .review: "plus.forwardslash.minus"
         case .tasks: "checklist"
-        case .terminal: "terminal"
+        case .automations: "clock.arrow.2.circlepath"
         }
     }
 }

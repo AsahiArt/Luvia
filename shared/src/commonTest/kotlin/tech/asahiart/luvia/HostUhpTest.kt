@@ -83,16 +83,87 @@ class HostUhpTest {
     @Test
     fun visibleSectionsHideUnsupportedSurfacesWhenConnected() {
         val disconnected = HostUhpState()
-        assertEquals(HostSection.entries, disconnected.visibleSections())
+        assertEquals(
+            HostSection.entries.filter { it != HostSection.Terminal },
+            disconnected.visibleSections(),
+        )
         val connected =
             HostUhpState(
                 connected = true,
                 capabilities = HostCapabilities(diffList = true, taskList = true),
             )
         assertEquals(
-            listOf(HostSection.Agents, HostSection.Review, HostSection.Tasks, HostSection.Terminal),
+            listOf(HostSection.Agents, HostSection.Review, HostSection.Tasks),
             connected.visibleSections(),
         )
+    }
+
+    @Test
+    fun projectWorkspaceIdPrefersSelectedAgentOverFocused() {
+        val focused =
+            AgentSummary(
+                paneId = "1",
+                name = "Focused",
+                status = AgentStatus.Working,
+                focused = true,
+                workspace = "0",
+                workspaceId = "ws-focused",
+                workspaceName = "focused",
+            )
+        val selected =
+            AgentSummary(
+                paneId = "2",
+                name = "Selected",
+                status = AgentStatus.Working,
+                focused = false,
+                workspace = "1",
+                workspaceId = "ws-selected",
+                workspaceName = "selected",
+            )
+        val state =
+            HostUhpState(
+                agents = listOf(focused, selected),
+                agentDetail = AgentDetailState(paneId = "2", open = true),
+            )
+        assertEquals("ws-selected", state.projectWorkspaceId())
+        assertEquals("selected", state.projectLabel())
+        assertEquals(1, state.projectWorkspaceIndex())
+    }
+
+    @Test
+    fun projectTasksKeepOnlySelectedWorkspace() {
+        val focused =
+            AgentSummary(
+                paneId = "1",
+                name = "Focused",
+                status = AgentStatus.Working,
+                focused = true,
+                workspace = "0",
+                workspaceId = "ws-focused",
+            )
+        val selected =
+            AgentSummary(
+                paneId = "2",
+                name = "Selected",
+                status = AgentStatus.Working,
+                workspace = "1",
+                workspaceId = "ws-selected",
+            )
+        val state =
+            HostUhpState(
+                agents = listOf(focused, selected),
+                agentDetail = AgentDetailState(paneId = "2", open = true),
+                tasks =
+                    TasksState(
+                        tasks =
+                            listOf(
+                                TaskSummary("a", "one", "queued", workspaceId = "ws-selected"),
+                                TaskSummary("b", "two", "queued", workspaceId = "ws-focused"),
+                                TaskSummary("c", "legacy", "queued"),
+                            ),
+                    ),
+            )
+        assertEquals(listOf("a"), state.projectTasks().map { it.id })
     }
 
     @Test

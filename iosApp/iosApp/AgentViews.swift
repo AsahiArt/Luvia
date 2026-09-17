@@ -224,11 +224,17 @@ struct AgentDetailView: View {
     @Bindable var model: AppModel
     let agentID: String
 
+    private enum Surface: String, CaseIterable {
+        case transcript = "Transcript"
+        case terminal = "Terminal"
+    }
+
     @State private var pendingKey: QuickAgentKey?
     @State private var confirmPrompt = false
     @State private var seenTranscript = ""
     @State private var highlightSuffix = ""
     @State private var highlightVisible = false
+    @State private var surface: Surface = .transcript
 
     private var uhp: UhpSurfaceState { model.uhp }
     private var header: AgentHeaderState? { uhp.header }
@@ -254,7 +260,27 @@ struct AgentDetailView: View {
                     .padding(.horizontal)
                     .padding(.bottom, 8)
             }
-            transcriptBlock
+            Picker("Surface", selection: $surface) {
+                ForEach(Surface.allCases, id: \.self) { item in
+                    Text(item.rawValue).tag(item)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+            if surface == .transcript {
+                transcriptBlock
+            } else if let host = model.selectedHost {
+                TerminalPane(
+                    host: host,
+                    text: model.terminalText,
+                    status: model.terminalStatus,
+                    holdsControl: model.holdsTerminalControl,
+                    onSend: { text in _Concurrency.Task { await model.sendTerminal(text) } },
+                    onSendKey: { key in _Concurrency.Task { await model.sendTerminalKey(key) } },
+                    onRequestControl: { model.requestTerminalControl() }
+                )
+            }
         }
         .navigationTitle(header?.name ?? "Agent")
         .navigationBarTitleDisplayMode(.inline)
@@ -271,7 +297,7 @@ struct AgentDetailView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if canMutate {
+            if canMutate && surface == .transcript {
                 composer
             }
         }

@@ -47,6 +47,7 @@ public data class Task(
     public val updated: Long,
     public val mode: String? = null,
     public val workspaceWorker: WorkspaceWorker? = null,
+    public val workspaceId: String? = null,
 )
 
 public data class WorkspaceListEntry(

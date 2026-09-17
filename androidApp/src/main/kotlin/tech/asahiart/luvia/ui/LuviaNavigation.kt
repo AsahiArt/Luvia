@@ -236,7 +236,6 @@ private fun DetailNav(
                     LaunchedEffect(route.id) { surface.shown() }
                     LaunchedEffect(route.id, section) {
                         surface.show(section)
-                        if (section == HostSection.Terminal) onTerminalShown(route.id)
                     }
                     LaunchedEffect(visible, section) {
                         if (section !in visible) surface.setSection(HostSection.Agents)
@@ -283,7 +282,10 @@ private fun DetailNav(
                                 host = host,
                                 state = uhp,
                                 onRefresh = { onRefreshSection(route.id, HostSection.Agents) },
-                                onOpenAgent = { pane -> surface.openAgent(pane) },
+                                onOpenAgent = { pane ->
+                                    surface.openAgent(pane)
+                                    onSelectTerminalPane(route.id, pane)
+                                },
                                 onCloseAgent = { surface.closeAgent() },
                                 onPrompt = { text -> surface.promptAgent(text) },
                                 onDraftChange = { text -> surface.setAgentDraft(text) },
@@ -306,6 +308,11 @@ private fun DetailNav(
                                 onAnswerAcpPermission = { optionId -> surface.answerAcpPermission(optionId) },
                                 onCancelAcp = { surface.cancelAcp() },
                                 onCloseAcp = { surface.closeAcp() },
+                                terminal = terminalForHost(route.id),
+                                onRequestControl = { onRequestControl(route.id) },
+                                onSendTerminalText = { text -> onSendTerminalText(route.id, text) },
+                                onSendTerminalKey = { key -> onSendTerminalKey(route.id, key) },
+                                onObserveTerminal = { pane -> onSelectTerminalPane(route.id, pane) },
                                 modifier = modifier,
                             )
                         },

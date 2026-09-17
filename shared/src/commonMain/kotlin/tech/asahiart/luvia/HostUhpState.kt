@@ -252,7 +252,8 @@ public data class HostUhpState(
     public val canMutate: Boolean get() = connected && !isObserver
 
     public fun visibleSections(): List<HostSection> {
-        if (!connected) return HostSection.entries
+        val hostChrome = HostSection.entries.filter { it != HostSection.Terminal }
+        if (!connected) return hostChrome
         return buildList {
             add(HostSection.Agents)
             if (capabilities.filesTree) add(HostSection.Files)
@@ -262,7 +263,52 @@ public data class HostUhpState(
             if (capabilities.automationList) add(HostSection.Automations)
             if (capabilities.taskList) add(HostSection.Tasks)
             if (capabilities.workspaceList || capabilities.paneList) add(HostSection.Layout)
-            add(HostSection.Terminal)
+        }
+    }
+
+    /** Selected Agent's project, else focused, else the Host's only workspace. */
+    public fun projectWorkspaceId(): String? {
+        val selected = agentDetail.paneId
+        if (selected != null) {
+            agents.firstOrNull { it.paneId == selected }?.workspaceId?.let { return it }
+        }
+        agents.firstOrNull { it.focused && it.workspaceId != null }?.workspaceId?.let { return it }
+        val agentIds = agents.mapNotNull { it.workspaceId }.distinct()
+        if (agentIds.size == 1) return agentIds.first()
+        val missionIds = mission?.rows?.mapNotNull { it.workspaceId }?.distinct().orEmpty()
+        return missionIds.singleOrNull()
+    }
+
+    public fun projectLabel(): String? {
+        val selected = agentDetail.paneId
+        val agent =
+            agents.firstOrNull { it.paneId == selected } ?:
+                agents.firstOrNull { it.focused } ?:
+                agents.singleOrNull()
+        return agent?.workspaceName
+            ?: agent?.project
+            ?: agent?.workspace
+            ?: projectWorkspaceId()
+    }
+
+    public fun projectWorkspaceIndex(): Int? {
+        fun indexOf(agent: AgentSummary?): Int? = agent?.workspace?.toIntOrNull()
+        val selected = agentDetail.paneId
+        indexOf(agents.firstOrNull { it.paneId == selected })?.let { return it }
+        indexOf(agents.firstOrNull { it.focused })?.let { return it }
+        val id = projectWorkspaceId()
+        if (id != null) {
+            indexOf(agents.firstOrNull { it.workspaceId == id })?.let { return it }
+        }
+        return agents.mapNotNull { it.workspace?.toIntOrNull() }.distinct().singleOrNull()
+    }
+
+    public fun projectTasks(): List<TaskSummary> {
+        val id = projectWorkspaceId() ?: return tasks.tasks
+        return if (tasks.tasks.any { !it.workspaceId.isNullOrBlank() }) {
+            tasks.tasks.filter { it.workspaceId == id }
+        } else {
+            tasks.tasks
         }
     }
 }

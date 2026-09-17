@@ -19,6 +19,14 @@ internal class ReviewBoard(private val ctx: UhpContext) {
                 return@launch
             }
             ctx.update { it.copy(connected = true, review = it.review.copy(loading = true, errorText = null)) }
+            val state = ctx.value()
+            val index = state.projectWorkspaceIndex()
+            if (state.canMutate && index != null && session.supports(UhpMethods.WORKSPACE_FOCUS)) {
+                session.focusWorkspace(index)
+            }
+            if (state.canMutate && session.supports(UhpMethods.DIFF_REFRESH)) {
+                session.refreshDiff()
+            }
             val list =
                 when (val result = session.listDiff()) {
                     is Outcome.Ok -> result.value

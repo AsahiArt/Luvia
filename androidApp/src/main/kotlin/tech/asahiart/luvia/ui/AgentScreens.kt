@@ -34,6 +34,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -67,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import tech.asahiart.luvia.AgentKey
 import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.AgentSummary
+import tech.asahiart.luvia.TerminalKey
 import tech.asahiart.luvia.MissionRowKind
 import tech.asahiart.luvia.MissionSnapshot
 import tech.asahiart.luvia.TranscriptSegment
@@ -103,6 +105,11 @@ fun AgentsSection(
     onAnswerAcpPermission: (String) -> Unit = {},
     onCancelAcp: () -> Unit = {},
     onCloseAcp: () -> Unit = {},
+    terminal: TerminalUiModel? = null,
+    onRequestControl: () -> Unit = {},
+    onSendTerminalText: (String) -> Unit = {},
+    onSendTerminalKey: (TerminalKey) -> Unit = {},
+    onObserveTerminal: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     when {
@@ -142,6 +149,11 @@ fun AgentsSection(
                 onShowForkChange = onShowForkChange,
                 onForkDraftChange = onForkDraftChange,
                 onForkAgent = onForkAgent,
+                terminal = terminal,
+                onRequestControl = onRequestControl,
+                onSendTerminalText = onSendTerminalText,
+                onSendTerminalKey = onSendTerminalKey,
+                onObserveTerminal = onObserveTerminal,
                 modifier = modifier,
             )
         }
@@ -479,6 +491,11 @@ fun AgentDetailPane(
     onShowForkChange: (Boolean) -> Unit = {},
     onForkDraftChange: (String) -> Unit = {},
     onForkAgent: () -> Unit = {},
+    terminal: TerminalUiModel? = null,
+    onRequestControl: () -> Unit = {},
+    onSendTerminalText: (String) -> Unit = {},
+    onSendTerminalKey: (TerminalKey) -> Unit = {},
+    onObserveTerminal: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val detail = state.agentDetail
@@ -505,7 +522,11 @@ fun AgentDetailPane(
     var addedSuffix by remember { mutableStateOf("") }
     var lastSeen by remember { mutableStateOf("") }
     val yesNoPrompt = remember(transcriptText) { transcriptLooksLikeYesNo(transcriptText) }
+    var showTerminal by remember(detail.paneId) { mutableStateOf(false) }
     val highlightColor = MaterialTheme.colorScheme.tertiaryContainer
+    LaunchedEffect(detail.paneId) {
+        detail.paneId?.let(onObserveTerminal)
+    }
     LaunchedEffect(transcriptScroll.isScrollInProgress, transcriptScroll.value, transcriptScroll.maxValue) {
         if (!transcriptScroll.isScrollInProgress) {
             pinToBottom = transcriptScroll.maxValue == 0 ||
@@ -646,7 +667,41 @@ fun AgentDetailPane(
                 }
             }
         }
-        Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            FilterChip(
+                selected = !showTerminal,
+                onClick = { showTerminal = false },
+                label = { Text("Transcript") },
+            )
+            FilterChip(
+                selected = showTerminal,
+                onClick = { showTerminal = true },
+                label = { Text("Terminal") },
+            )
+        }
+        if (showTerminal) {
+            val term = terminal
+            if (term == null) {
+                Text(
+                    "No live terminal for this pane.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f).padding(16.dp),
+                )
+            } else {
+                TerminalPane(
+                    terminal = term,
+                    onRequestControl = onRequestControl,
+                    onSendText = onSendTerminalText,
+                    onSendKey = onSendTerminalKey,
+                    boundToPane = true,
+                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 8.dp),
+                )
+            }
+        } else {
+            Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
             if (!state.capabilities.agentRead) {
                 Text("Transcript is not available on this host.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
@@ -706,9 +761,10 @@ fun AgentDetailPane(
                     modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
                 )
             }
+            }
         }
         }
-        if (canKeys || canPrompt) {
+        if (!showTerminal && (canKeys || canPrompt)) {
             val consumeVertical = remember {
                 object : NestedScrollConnection {
                     override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {

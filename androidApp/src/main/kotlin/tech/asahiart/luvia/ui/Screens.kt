@@ -41,6 +41,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
@@ -381,7 +382,7 @@ fun HostDetailPane(
     var overflowOpen by remember { mutableStateOf(false) }
     var editingConnection by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
-    val visible = sections.ifEmpty { HostSection.entries }
+    val visible = sections.ifEmpty { HostSection.entries.filter { it != HostSection.Terminal } }
     val tabs = visible.filter { it.isPrimaryTab }
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -552,7 +553,7 @@ private fun HostSection.barIcon(): ImageVector = when (this) {
     HostSection.Agents -> Icons.Filled.Person
     HostSection.Review -> Icons.Filled.Edit
     HostSection.Tasks -> Icons.Filled.CheckCircle
-    HostSection.Terminal -> Icons.Filled.PlayArrow
+    HostSection.Automations -> Icons.Filled.DateRange
     else -> Icons.Filled.MoreVert
 }
 
@@ -727,6 +728,7 @@ fun TerminalPane(
     onSelectPane: (String) -> Unit = {},
     onSendKey: (TerminalKey) -> Unit = {},
     modifier: Modifier = Modifier,
+    boundToPane: Boolean = false,
 ) {
     var input by remember { mutableStateOf("") }
     val defaultFg = LuviaTheme.extended.terminalFg
@@ -809,7 +811,7 @@ fun TerminalPane(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     val others = terminal.panes.filter { it.paneId != terminal.paneId }
-                    if (others.isNotEmpty()) {
+                    if (!boundToPane && others.isNotEmpty()) {
                         Text(
                             "Live panes",
                             color = Color(0xFF9AA4B2),

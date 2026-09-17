@@ -181,6 +181,7 @@ public data class TaskSummary(
     public val id: String,
     public val title: String,
     public val status: String,
+    public val workspaceId: String? = null,
 )
 
 public data class SessionSnapshot(
