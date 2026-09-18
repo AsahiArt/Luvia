@@ -227,6 +227,11 @@ public data class AcpState(
     public val exitMessage: String? = null,
 )
 
+public data class ProjectChoice(
+    public val id: String,
+    public val label: String,
+)
+
 public data class HostUhpState(
     public val connected: Boolean = false,
     public val isObserver: Boolean = false,
@@ -244,6 +249,7 @@ public data class HostUhpState(
     public val layout: LayoutState = LayoutState(),
     public val acp: AcpState = AcpState(),
     public val section: HostSection = HostSection.Agents,
+    public val selectedWorkspaceId: String? = null,
     public val errorText: String? = null,
     public val loading: Boolean = false,
     public val backend: String = "luvus",
@@ -266,45 +272,61 @@ public data class HostUhpState(
         }
     }
 
-    /** Selected Agent's project, else focused, else the Host's only workspace. */
+    /** Picker, last opened Agent, or the Host's only workspace. Never TUI focus. */
     public fun projectWorkspaceId(): String? {
+        selectedWorkspaceId?.takeIf { it.isNotBlank() }?.let { return it }
         val selected = agentDetail.paneId
         if (selected != null) {
             agents.firstOrNull { it.paneId == selected }?.workspaceId?.let { return it }
         }
-        agents.firstOrNull { it.focused && it.workspaceId != null }?.workspaceId?.let { return it }
         val agentIds = agents.mapNotNull { it.workspaceId }.distinct()
         if (agentIds.size == 1) return agentIds.first()
-        val missionIds = mission?.rows?.mapNotNull { it.workspaceId }?.distinct().orEmpty()
-        return missionIds.singleOrNull()
+        return null
     }
 
+    public fun projectChoices(): List<ProjectChoice> {
+        val seen = linkedSetOf<String>()
+        val choices = ArrayList<ProjectChoice>()
+        fun add(id: String?, label: String?) {
+            val key = id?.trim()?.ifEmpty { null } ?: return
+            if (!seen.add(key)) return
+            choices += ProjectChoice(id = key, label = label?.trim()?.ifEmpty { null } ?: key)
+        }
+        for (workspace in layout.workspaces) {
+            add(workspace.workspaceId, workspace.name)
+        }
+        for (agent in agents) {
+            add(agent.workspaceId, agent.workspaceName ?: agent.project ?: agent.workspace)
+        }
+        return choices
+    }
+
+    public fun needsProjectPick(): Boolean =
+        projectWorkspaceId() == null && projectChoices().size > 1
+
     public fun projectLabel(): String? {
-        val selected = agentDetail.paneId
-        val agent =
-            agents.firstOrNull { it.paneId == selected } ?:
-                agents.firstOrNull { it.focused } ?:
-                agents.singleOrNull()
-        return agent?.workspaceName
-            ?: agent?.project
-            ?: agent?.workspace
-            ?: projectWorkspaceId()
+        val id = projectWorkspaceId() ?: return null
+        return projectChoices().firstOrNull { it.id == id }?.label
+            ?: agents.firstOrNull { it.workspaceId == id }?.workspaceName
+            ?: id
     }
 
     public fun projectWorkspaceIndex(): Int? {
         fun indexOf(agent: AgentSummary?): Int? = agent?.workspace?.toIntOrNull()
-        val selected = agentDetail.paneId
-        indexOf(agents.firstOrNull { it.paneId == selected })?.let { return it }
-        indexOf(agents.firstOrNull { it.focused })?.let { return it }
         val id = projectWorkspaceId()
         if (id != null) {
             indexOf(agents.firstOrNull { it.workspaceId == id })?.let { return it }
         }
+        val selected = agentDetail.paneId
+        indexOf(agents.firstOrNull { it.paneId == selected })?.let { return it }
         return agents.mapNotNull { it.workspace?.toIntOrNull() }.distinct().singleOrNull()
     }
 
     public fun projectTasks(): List<TaskSummary> {
-        val id = projectWorkspaceId() ?: return tasks.tasks
+        val id = projectWorkspaceId()
+        if (id == null) {
+            return if (projectChoices().size > 1) emptyList() else tasks.tasks
+        }
         return if (tasks.tasks.any { !it.workspaceId.isNullOrBlank() }) {
             tasks.tasks.filter { it.workspaceId == id }
         } else {

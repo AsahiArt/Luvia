@@ -52,6 +52,7 @@ fun TasksSection(
     onCompleteIdChange: (String?) -> Unit,
     onDeleteIdChange: (String?) -> Unit = {},
     onAddDraftChange: (String, String) -> Unit,
+    onSelectWorkspace: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     when {
@@ -60,6 +61,16 @@ fun TasksSection(
         }
         !state.capabilities.taskList -> {
             UhpEmptyPane(title = "Tasks", message = "Tasks are not available on this host.", modifier = modifier)
+        }
+        state.needsProjectPick() -> {
+            Column(modifier.fillMaxSize().padding(16.dp)) {
+                ProjectChips(state = state, onSelect = onSelectWorkspace)
+                UhpEmptyPane(
+                    title = "Tasks",
+                    message = "Select a project.",
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
         else -> {
             TaskListPane(
@@ -75,6 +86,7 @@ fun TasksSection(
                 onCompleteIdChange = onCompleteIdChange,
                 onDeleteIdChange = onDeleteIdChange,
                 onAddDraftChange = onAddDraftChange,
+                onSelectWorkspace = onSelectWorkspace,
                 modifier = modifier,
             )
         }
@@ -95,6 +107,7 @@ private fun TaskListPane(
     onCompleteIdChange: (String?) -> Unit,
     onDeleteIdChange: (String?) -> Unit,
     onAddDraftChange: (String, String) -> Unit,
+    onSelectWorkspace: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val showAdd = state.tasks.showAdd
@@ -102,11 +115,13 @@ private fun TaskListPane(
     val deleteId = state.tasks.deleteId
     val projectTasks = state.projectTasks()
     val grouped = projectTasks.groupBy { it.status.ifBlank { "unknown" } }
-    PullToRefreshBox(
-        isRefreshing = state.tasks.loading,
-        onRefresh = onRefresh,
-        modifier = modifier.fillMaxSize(),
-    ) {
+    Column(modifier.fillMaxSize()) {
+        ProjectChips(state = state, onSelect = onSelectWorkspace)
+        PullToRefreshBox(
+            isRefreshing = state.tasks.loading,
+            onRefresh = onRefresh,
+            modifier = Modifier.weight(1f).fillMaxSize(),
+        ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
@@ -198,6 +213,7 @@ private fun TaskListPane(
                     )
                 }
             }
+        }
         }
     }
     if (showAdd) {

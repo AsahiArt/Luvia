@@ -110,6 +110,7 @@ fun AgentsSection(
     onSendTerminalText: (String) -> Unit = {},
     onSendTerminalKey: (TerminalKey) -> Unit = {},
     onObserveTerminal: (String) -> Unit = {},
+    onOpenProjectReview: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     when {
@@ -154,6 +155,7 @@ fun AgentsSection(
                 onSendTerminalText = onSendTerminalText,
                 onSendTerminalKey = onSendTerminalKey,
                 onObserveTerminal = onObserveTerminal,
+                onOpenProjectReview = onOpenProjectReview,
                 modifier = modifier,
             )
         }
@@ -496,6 +498,7 @@ fun AgentDetailPane(
     onSendTerminalText: (String) -> Unit = {},
     onSendTerminalKey: (TerminalKey) -> Unit = {},
     onObserveTerminal: (String) -> Unit = {},
+    onOpenProjectReview: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val detail = state.agentDetail
@@ -614,9 +617,10 @@ fun AgentDetailPane(
                     Text(
                         place,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.primary,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable(onClick = onOpenProjectReview),
                     )
                 }
             }

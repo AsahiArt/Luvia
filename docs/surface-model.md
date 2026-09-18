@@ -80,16 +80,17 @@ More:    Files, Search, Worktrees, Layout
 Agent:   Transcript | Terminal
 ```
 
-Review and Tasks remain primary so a blocked fleet can be triaged without
-entering an Agent. They still follow the selected (else focused, else sole)
-Agent's `workspace_id`.
-
 ## Binding
 
-1. Open Agent → `agent.read` that pane; start `terminal.backend.observe` on the same `paneId`.
-2. No Agent selected → workspace id from the focused Agent, else the only `workspace_id` on the Host.
-3. Closing Agent detail does not reset Host tabs; Terminal observe may keep the last pane.
-4. Top-level Terminal tab is gone. `HostSection.Terminal` is not a visible section.
+1. Open Agent → stamp that project's `workspace_id`, `agent.read` that pane,
+   observe its terminal.
+2. Review / Tasks use: picker, else last opened Agent, else the only
+   `workspace_id` on the Host. Multiple projects and no choice → empty
+   ("Select a project"). Never TUI `focused`.
+3. Agent detail project name jumps to Review with that workspace already set.
+4. Closing Agent detail does not reset Host tabs; Terminal observe may keep
+   the last pane. `HostSection.Terminal` is not a visible section.
+
 
 ## Out of scope
 

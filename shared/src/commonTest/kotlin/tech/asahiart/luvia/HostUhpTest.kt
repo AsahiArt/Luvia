@@ -167,6 +167,64 @@ class HostUhpTest {
     }
 
     @Test
+    fun projectWorkspaceIdIgnoresTuiFocusWhenMultipleProjects() {
+        val focused =
+            AgentSummary(
+                paneId = "1",
+                name = "Focused",
+                status = AgentStatus.Working,
+                focused = true,
+                workspace = "0",
+                workspaceId = "ws-focused",
+                workspaceName = "focused",
+            )
+        val other =
+            AgentSummary(
+                paneId = "2",
+                name = "Other",
+                status = AgentStatus.Working,
+                workspace = "1",
+                workspaceId = "ws-other",
+                workspaceName = "other",
+            )
+        val state = HostUhpState(agents = listOf(focused, other))
+        assertNull(state.projectWorkspaceId())
+        assertTrue(state.needsProjectPick())
+        assertEquals(emptyList(), state.projectTasks())
+    }
+
+    @Test
+    fun selectedWorkspaceIdWinsOverLastAgent() {
+        val selected =
+            AgentSummary(
+                paneId = "2",
+                name = "Selected",
+                status = AgentStatus.Working,
+                workspace = "1",
+                workspaceId = "ws-selected",
+                workspaceName = "selected",
+            )
+        val other =
+            AgentSummary(
+                paneId = "3",
+                name = "Other",
+                status = AgentStatus.Working,
+                workspace = "0",
+                workspaceId = "ws-other",
+                workspaceName = "other",
+            )
+        val state =
+            HostUhpState(
+                agents = listOf(selected, other),
+                agentDetail = AgentDetailState(paneId = "2", open = true),
+                selectedWorkspaceId = "ws-other",
+            )
+        assertEquals("ws-other", state.projectWorkspaceId())
+        assertEquals("other", state.projectLabel())
+        assertEquals(0, state.projectWorkspaceIndex())
+    }
+
+    @Test
     fun userMessageDoesNotInviteRetryOnLostMutation() {
         val text = Failure.IndeterminateMutation("agent.prompt").userMessage()
         assertTrue(text.contains("Do not retry automatically"))

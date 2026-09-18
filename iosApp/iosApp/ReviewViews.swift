@@ -18,6 +18,15 @@ struct ReviewSectionView: View {
                     systemImage: "plus.forwardslash.minus",
                     description: Text("This Host does not expose Diffs.")
                 )
+            } else if model.uhp.needsProjectPick {
+                VStack {
+                    ProjectPickerBar(model: model)
+                    ContentUnavailableView(
+                        "Review",
+                        systemImage: "plus.forwardslash.minus",
+                        description: Text("Select a project.")
+                    )
+                }
             } else {
                 ReviewListView(model: model)
             }
@@ -25,10 +34,46 @@ struct ReviewSectionView: View {
     }
 }
 
+struct ProjectPickerBar: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        let choices = model.uhp.projectChoices
+        let label = model.uhp.projectLabel ?? "Select a project"
+        HStack {
+            Text("Project")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            if choices.count >= 2 {
+                Picker("Project", selection: Binding(
+                    get: { model.uhp.snapshot?.projectWorkspaceId() ?? "" },
+                    set: { model.selectWorkspace($0) }
+                )) {
+                    ForEach(choices, id: \.id) { choice in
+                        Text(choice.label).tag(choice.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+            } else {
+                Text(label)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+    }
+}
+
 struct ReviewListView: View {
     @Bindable var model: AppModel
     @State private var layer = "Worktree"
     @State private var notesOnly = false
+
 
     private let layers = ["Staged", "Worktree", "Untracked", "Conflict"]
 
@@ -122,6 +167,9 @@ struct ReviewListView: View {
                     }
                 }
             }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            ProjectPickerBar(model: model)
         }
         .toolbar {
             if model.uhp.caps.diffNoteList {
@@ -245,6 +293,9 @@ struct DiffFileDetailView: View {
                         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                         .padding(.horizontal)
                     }
+                } else if model.uhp.snapshot?.review.loading == true {
+                    ProgressView()
+                        .padding()
                 } else {
                     Text("No hunks for this file.")
                         .foregroundStyle(.secondary)

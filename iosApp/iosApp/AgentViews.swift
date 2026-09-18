@@ -359,7 +359,17 @@ struct AgentDetailView: View {
                 Spacer()
             }
             if let workspace = header?.workspace, !workspace.isEmpty {
-                labeled("Workspace", workspace)
+                Button(action: { model.showProjectReview() }) {
+                    HStack(alignment: .firstTextBaseline) {
+                        labeled("Workspace", workspace)
+                        Spacer()
+                        Text("Review")
+                            .font(.subheadline)
+                            .foregroundStyle(DesignTokens.accent)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Review \(workspace)")
             }
             if let branch = header?.branch, !branch.isEmpty {
                 labeled("Branch", branch)

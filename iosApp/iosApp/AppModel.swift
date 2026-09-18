@@ -29,6 +29,7 @@ final class AppModel {
     var isPushEnabled = false
     var cachedPushToken: String?
     var pendingOpenAgentID: String?
+    var pendingHostSection: HostSection?
     var pendingPresentAcp = false
     var pendingBlockedWake = false
     var pushSyncedHostIDs: Set<String> = []
@@ -565,6 +566,7 @@ final class UhpSurfaceState {
 
     var selectedDiff: DiffFileDetail? {
         guard let selected = snapshot?.review.selectedFile else { return nil }
+        let hunks: [DiffHunk] = KotlinLists.array(selected.hunks as Any)
         return DiffFileDetail(
             item: DiffFileItem(
                 path: selected.path,
@@ -572,9 +574,26 @@ final class UhpSurfaceState {
                 additions: Int(kotlinInt64(selected.additions) ?? 0),
                 deletions: Int(kotlinInt64(selected.deletions) ?? 0)
             ),
-            hunks: []
+            hunks: hunks.enumerated().map { hunkIndex, hunk in
+                let hunkId = hunk.id.isEmpty ? "hunk-\(hunkIndex)" : hunk.id
+                let lines: [DiffLine] = KotlinLists.array(hunk.lines as Any)
+                return DiffHunkItem(
+                    id: hunkId,
+                    header: hunk.header,
+                    lines: lines.enumerated().map { lineIndex, line in
+                        DiffLineItem(
+                            id: "\(hunkId)-\(lineIndex)",
+                            kind: line.kind,
+                            oldLine: kotlinInt64(line.oldLine).map { Int($0) },
+                            newLine: kotlinInt64(line.newLine).map { Int($0) },
+                            text: line.text
+                        )
+                    }
+                )
+            }
         )
     }
+
 
     var notes: [ReviewNoteItem] {
         let notes: [ReviewNote] = KotlinLists.array(snapshot?.review.notes as Any)
@@ -596,6 +615,15 @@ final class UhpSurfaceState {
         let tasks: [TaskSummary] = KotlinLists.array(snapshot?.projectTasks() as Any)
         return tasks.map(TaskViewState.init)
     }
+
+    var projectChoices: [ProjectChoice] {
+        KotlinLists.array(snapshot?.projectChoices() as Any)
+    }
+
+    var needsProjectPick: Bool { snapshot?.needsProjectPick() == true }
+
+    var projectLabel: String? { snapshot?.projectLabel() }
+
 
     var boardChangedMessage: String? {
         snapshot?.tasks.boardChanged == true ? "Updated by someone else. Showing latest." : nil
@@ -783,6 +811,14 @@ extension AppModel {
         uhp.selectedAgentID = id
         hostUhp()?.openAgent(paneId: id)
         startTerminal(paneId: id)
+    }
+
+    func showProjectReview() {
+        pendingHostSection = .review
+    }
+
+    func selectWorkspace(_ id: String) {
+        hostUhp()?.setSelectedWorkspace(id: id)
     }
 
     @discardableResult

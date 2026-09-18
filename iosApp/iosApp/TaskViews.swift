@@ -28,6 +28,20 @@ struct TasksSectionView: View {
                 } description: {
                     Text("This Host does not expose the Task board.")
                 }
+            } else if model.uhp.needsProjectPick {
+                VStack {
+                    ProjectPickerBar(model: model)
+                    ContentUnavailableView {
+                        Label {
+                            Text("Tasks")
+                                .font(.system(.title2, design: .serif))
+                        } icon: {
+                            Image(systemName: "checklist")
+                        }
+                    } description: {
+                        Text("Select a project.")
+                    }
+                }
             } else {
                 TasksListView(model: model)
             }
@@ -151,6 +165,9 @@ struct TasksListView: View {
                     .padding(.horizontal)
                     .padding(.bottom, 8)
             }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            ProjectPickerBar(model: model)
         }
         .toolbar {
             if model.uhp.isController && model.uhp.caps.taskAdd && model.uhp.unconfirmed == nil {

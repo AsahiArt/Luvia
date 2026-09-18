@@ -58,10 +58,16 @@ public class HostUhp(
             }
             HostSection.Files -> files.load()
             HostSection.Search -> search.shown()
-            HostSection.Review -> review.load()
+            HostSection.Review -> {
+                layout.load()
+                review.load()
+            }
             HostSection.Worktrees -> worktrees.load()
             HostSection.Automations -> automations.load()
-            HostSection.Tasks -> tasks.load()
+            HostSection.Tasks -> {
+                layout.load()
+                tasks.load()
+            }
             HostSection.Layout -> layout.load()
             HostSection.Terminal -> Unit
         }
@@ -69,6 +75,12 @@ public class HostUhp(
 
     public fun setSection(section: HostSection) {
         ctx.update { it.copy(section = section) }
+    }
+
+    public fun setSelectedWorkspace(id: String?) {
+        val trimmed = id?.trim()?.ifEmpty { null }
+        ctx.update { it.copy(selectedWorkspaceId = trimmed) }
+        show(ctx.value().section)
     }
 
     public fun openAgent(paneId: String) = agents.open(paneId)

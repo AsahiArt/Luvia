@@ -313,6 +313,10 @@ private fun DetailNav(
                                 onSendTerminalText = { text -> onSendTerminalText(route.id, text) },
                                 onSendTerminalKey = { key -> onSendTerminalKey(route.id, key) },
                                 onObserveTerminal = { pane -> onSelectTerminalPane(route.id, pane) },
+                                onOpenProjectReview = {
+                                    surface.setSection(HostSection.Review)
+                                    surface.show(HostSection.Review)
+                                },
                                 modifier = modifier,
                             )
                         },
@@ -354,6 +358,7 @@ private fun DetailNav(
                                 onSendTargetChange = { pane -> surface.setSendTarget(pane) },
                                 onSendNotes = { to -> surface.sendReviewNotes(to) },
                                 onCheckUnconfirmed = { surface.checkNotes() },
+                                onSelectWorkspace = { id -> surface.setSelectedWorkspace(id) },
                                 modifier = modifier,
                             )
                         },
@@ -404,6 +409,7 @@ private fun DetailNav(
                                 onDeleteTask = { id -> surface.deleteTask(id) },
                                 onRetryTask = { id -> surface.retryTask(id) },
                                 onCheckUnconfirmed = { surface.checkTasks() },
+                                onSelectWorkspace = { id -> surface.setSelectedWorkspace(id) },
                                 modifier = modifier,
                             )
                         },

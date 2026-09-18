@@ -61,6 +61,12 @@ struct HostDetailView: View {
                 path.append(id)
                 model.pendingOpenAgentID = nil
             }
+            .onChange(of: model.pendingHostSection) { _, next in
+                guard let next else { return }
+                path = NavigationPath()
+                section = next
+                model.pendingHostSection = nil
+            }
             .onChange(of: model.pendingPresentAcp) { _, present in
                 guard present else { return }
                 if model.uhp.snapshot?.acp.open == true {

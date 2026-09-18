@@ -79,6 +79,7 @@ fun ReviewSection(
     onNoteDraftChange: (String) -> Unit,
     onSendTargetChange: (String?) -> Unit,
     onCheckUnconfirmed: () -> Unit,
+    onSelectWorkspace: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     when {
@@ -87,6 +88,16 @@ fun ReviewSection(
         }
         !state.capabilities.diffList -> {
             UhpEmptyPane(title = "Review", message = "Diff is not available on this host.", modifier = modifier)
+        }
+        state.needsProjectPick() -> {
+            Column(modifier.fillMaxSize().padding(16.dp)) {
+                ProjectChips(state = state, onSelect = onSelectWorkspace)
+                UhpEmptyPane(
+                    title = "Review",
+                    message = "Select a project.",
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
         state.review.selectedFile != null || state.review.selectedPath != null -> {
             ReviewFilePane(
@@ -114,6 +125,7 @@ fun ReviewSection(
                 onSendNotes = onSendNotes,
                 onSendTargetChange = onSendTargetChange,
                 onCheckUnconfirmed = onCheckUnconfirmed,
+                onSelectWorkspace = onSelectWorkspace,
                 modifier = modifier,
             )
         }
@@ -131,6 +143,7 @@ private fun ReviewFileListPane(
     onSendNotes: (String) -> Unit,
     onSendTargetChange: (String?) -> Unit,
     onCheckUnconfirmed: () -> Unit,
+    onSelectWorkspace: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val files = state.review.list?.files.orEmpty()
@@ -157,11 +170,13 @@ private fun ReviewFileListPane(
         val notesMatch = !notesOnly || noteCount(file) > 0
         layerMatch && notesMatch
     }
-    PullToRefreshBox(
-        isRefreshing = state.review.loading,
-        onRefresh = onRefresh,
-        modifier = modifier.fillMaxSize(),
-    ) {
+    Column(modifier.fillMaxSize()) {
+        ProjectChips(state = state, onSelect = onSelectWorkspace)
+        PullToRefreshBox(
+            isRefreshing = state.review.loading,
+            onRefresh = onRefresh,
+            modifier = Modifier.weight(1f).fillMaxSize(),
+        ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
@@ -250,8 +265,10 @@ private fun ReviewFileListPane(
                 )
             }
         }
+        }
     }
 }
+
 
 @Composable
 private fun DiffFileRow(file: DiffFile, openNotes: Int, onClick: (() -> Unit)?) {
@@ -796,3 +813,44 @@ private fun diffAddColor(): Color =
 @Composable
 private fun diffDelColor(): Color =
     if (isSystemInDarkTheme()) Color(0xFFEF9A9A) else Color(0xFFB71C1C)
+
+@Composable
+internal fun ProjectChips(
+    state: HostUhpState,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val choices = state.projectChoices()
+    val selected = state.projectWorkspaceId()
+    val label = state.projectLabel() ?: "Select a project"
+    Column(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            "Project",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (choices.isEmpty()) {
+            Text(label, style = MaterialTheme.typography.titleSmall)
+        } else {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                choices.forEach { choice ->
+                    FilterChip(
+                        selected = choice.id == selected,
+                        onClick = { onSelect(choice.id) },
+                        label = { Text(choice.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    )
+                }
+            }
+        }
+    }
+}
+

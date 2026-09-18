@@ -20,6 +20,10 @@ internal class ReviewBoard(private val ctx: UhpContext) {
             }
             ctx.update { it.copy(connected = true, review = it.review.copy(loading = true, errorText = null)) }
             val state = ctx.value()
+            if (state.needsProjectPick()) {
+                ctx.update { it.copy(review = it.review.copy(loading = false, list = null)) }
+                return@launch
+            }
             val index = state.projectWorkspaceIndex()
             if (state.canMutate && index != null && session.supports(UhpMethods.WORKSPACE_FOCUS)) {
                 session.focusWorkspace(index)

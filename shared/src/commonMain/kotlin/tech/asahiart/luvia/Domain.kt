@@ -139,6 +139,7 @@ public data class WorkspaceSummary(
     public val tabCount: Int,
     public val branch: String? = null,
     public val cwd: String? = null,
+    public val workspaceId: String? = null,
 )
 
 public data class PaneSummary(

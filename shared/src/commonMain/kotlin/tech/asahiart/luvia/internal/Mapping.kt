@@ -287,6 +287,7 @@ internal fun mapSnapshot(result: JsonObject): SessionSnapshot {
                 tabCount = tabs?.size ?: 0,
                 branch = ws.optionalString("branch"),
                 cwd = ws.optionalString("cwd"),
+                workspaceId = ws.optionalString("workspace_id") ?: ws.optionalString("id"),
             )
         tabs?.forEach { tabEl ->
             val tab = tabEl as? JsonObject ?: return@forEach
@@ -359,6 +360,7 @@ internal fun mapWorkspaceListAsSummaries(result: JsonObject): List<WorkspaceSumm
             active = entry.active,
             tabCount = entry.tabs,
             cwd = entry.cwd,
+            workspaceId = entry.workspaceId,
         )
     }
 

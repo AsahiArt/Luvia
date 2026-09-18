@@ -146,6 +146,7 @@ internal class AgentBoard(private val ctx: UhpContext) {
         val samePane = existing.paneId == paneId
         ctx.update {
             it.copy(
+                selectedWorkspaceId = summary?.workspaceId ?: it.selectedWorkspaceId,
                 agentDetail =
                     if (samePane) {
                         it.agentDetail.copy(
