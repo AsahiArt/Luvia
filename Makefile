@@ -199,7 +199,7 @@ ios-build: ios-sync-shared ## Build Luvia for the iOS Simulator (unsigned; CI us
 		build
 
 
-ios: ios-sync-shared ## Build, install, and launch on every paired iPhone (else Simulator)
+ios: ios-sync-shared ## Build, install, and launch on every connected iPhone (else Simulator)
 	@set -euo pipefail; \
 	export IOS_UDID="$(IOS_UDID)"; \
 	pick="$$(python3 "$(IOS_PICK)")"; \
@@ -219,9 +219,23 @@ ios: ios-sync-shared ## Build, install, and launch on every paired iPhone (else 
 	  while read -r _k udid ident how; do \
 	    ( \
 	      echo "Installing on $$udid ($$how)"; \
-	      xcrun devicectl device install app --device "$$ident" "$(IOS_APP_DEVICE)" && \
-	      xcrun devicectl device process launch --device "$$ident" "$(IOS_BUNDLE_ID)" && \
-	      echo "Launched $(IOS_BUNDLE_ID) on $$udid ($$how)"; \
+	      if [ "$$how" = unavailable ]; then \
+	        echo "Skipping $$udid: CoreDevice cannot see it. Unlock, same Wi-Fi with Connect via Network, or USB." >&2; \
+	        exit 1; \
+	      fi; \
+	      xcrun devicectl --timeout 15 device info details --device "$$ident" >/dev/null 2>&1 || true; \
+	      launched=0; \
+	      for attempt in 1 2 3; do \
+	        if xcrun devicectl --timeout 60 device install app --device "$$ident" "$(IOS_APP_DEVICE)" \
+	          && xcrun devicectl --timeout 30 device process launch --device "$$ident" "$(IOS_BUNDLE_ID)"; then \
+	          echo "Launched $(IOS_BUNDLE_ID) on $$udid ($$how)"; \
+	          launched=1; \
+	          break; \
+	        fi; \
+	        echo "Install/launch retry $$attempt/3 on $$udid ($$how)"; \
+	        sleep 2; \
+	      done; \
+	      [ "$$launched" = 1 ]; \
 	    ) & \
 	    pids+=("$$!"); \
 	  done <<<"$$devices"; \
@@ -230,7 +244,15 @@ ios: ios-sync-shared ## Build, install, and launch on every paired iPhone (else 
 	      if wait "$$pid"; then ok=1; else fail=1; fi; \
 	    done; \
 	  fi; \
-	  if [ "$$ok" = 0 ]; then echo "iOS install/launch failed on every device." >&2; exit 1; fi; \
+	  if [ "$$ok" = 0 ]; then \
+	    if [ "$${IOS_FORCE_DEVICE:-}" = 1 ]; then \
+	      echo "iOS install/launch failed on every device." >&2; \
+	      exit 1; \
+	    fi; \
+	    echo "iOS install/launch failed on every device; falling back to Simulator."; \
+	    IOS_FORCE_SIM=1 IOS_UDID="$(IOS_UDID)" $(MAKE) ios; \
+	    exit $$?; \
+	  fi; \
 	  if [ "$$fail" != 0 ]; then echo "iOS install/launch skipped at least one unreachable device."; fi; \
 	else \
 	  udid="$$(printf '%s\n' "$$pick" | awk '/^simulator/{print $$2}')"; \

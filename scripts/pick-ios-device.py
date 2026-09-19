@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""List paired physical iPhones/iPads (USB first, then wireless).
+"""List reachable physical iPhones/iPads (USB first, then wireless).
 
 One line per device:
 
     device <udid> <coredevice-id> <usb|network>
 
-Paired wireless devices are eligible even when the CoreDevice tunnel is
-down; `devicectl install` often brings the link up. A device that is only
-paired and currently unreachable is still listed — `make ios` continues
-if at least one install succeeds. IOS_UDID selects a specific device or
-simulator. IOS_FORCE_SIM=1 / IOS_FORCE_DEVICE=1 override the default.
+Default `make ios` only emits devices CoreDevice can actually talk to:
+USB, a live tunnel, or a paired phone whose tunnel is merely down
+(`devicectl` can often bring that link up). Paired-but-unavailable
+phones (no transport, tunnel unavailable) are skipped with a stderr
+note — they are not on this Mac's CoreDevice network.
+
+IOS_UDID selects a specific device or simulator, including unavailable
+ones. IOS_FORCE_SIM=1 / IOS_FORCE_DEVICE=1 override the default;
+`make ios-device` still tries every paired phone.
 """
 
 from __future__ import annotations
@@ -62,10 +66,13 @@ def classify(dev: dict) -> tuple[int, str, str, str, str]:
         score, how = 3, "usb"
     elif tunnel == "connected":
         score, how = 2, "network"
-    elif pairing == "paired":
+    elif pairing == "paired" and tunnel != "unavailable" and transport:
+        # Tunnel down, but CoreDevice still sees a local-network transport.
         score, how = 1, "network"
+    elif pairing == "paired":
+        score, how = 0, "unavailable"
     else:
-        score, how = 0, "network"
+        score, how = 0, "unavailable"
     return (score, udid, ident, name, how)
 
 
@@ -96,7 +103,18 @@ def main() -> int:
     if forced:
         print(f"simulator {forced}")
         return 0
-    eligible = [row for row in physical if row[0] >= 1]
+    min_score = 0 if force_device else 1
+    eligible = [row for row in physical if row[0] >= min_score]
+    skipped = [row for row in physical if 0 <= row[0] < min_score]
+    for row in skipped:
+        _score, udid, _ident, name, _how = row
+        label = name or udid
+        print(
+            f"{label} ({udid}) is paired but CoreDevice cannot see it. "
+            "Unlock the phone, use the same Wi-Fi with Connect via Network, "
+            "or plug in USB.",
+            file=sys.stderr,
+        )
     eligible.sort(key=lambda row: -row[0])
     if eligible:
         for row in eligible:
