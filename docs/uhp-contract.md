@@ -253,6 +253,9 @@ Any other key → `invalid_params` `"runtime event subscription accepts only aft
 `after_sequence` if present must be `as_u64()` (non-negative integer).
 **No event-name filter, no `where`.** `EventFilter::All` (`src/ipc/api.rs:1961-1966`).
 Omitted `after_sequence` → live-only after the ack fence (no replay).
+A client that already holds a fresh `session.snapshot` should subscribe with
+that snapshot's `event_sequence` rather than snapshotting again; replay covers
+the gap.
 
 Replay: events with `sequence > after_sequence` still in the 256-frame / 1 MiB window
 (`src/ipc/api.rs:1086-1100`, `71-72`).
@@ -312,8 +315,9 @@ Read with ADR 0001. Luvia does not vendor the UHP schema tree; live
 ### Authorization
 
 - `session.snapshot` and `events.subscribe` are now `required_scope = "read"`
-  (`src/api/capabilities.rs:276-289`). F1 is fixed at HEAD; the bridge's
-  `read,admin` session token stays for older Hosts (ADR 0002).
+  (`src/api/capabilities.rs:276-289`). F1 is fixed at HEAD; the bridge skips
+  the `read,admin` session token when those contracts are `scope=read`, and
+  still mints it for older Hosts (ADR 0002).
 - Effective rule (`src/ipc/api.rs:309-314`): a token authorizes a method if it
   holds `all`, the exact scope, or `read` while the method is read-only and not
   `admin`. `read` therefore covers `task.next` — which claims. Never call it.

@@ -9,7 +9,6 @@ public enum class HostSection {
     Automations,
     Tasks,
     Layout,
-    Terminal,
 }
 
 public enum class UnconfirmedKind {
@@ -258,7 +257,7 @@ public data class HostUhpState(
     public val canMutate: Boolean get() = connected && !isObserver
 
     public fun visibleSections(): List<HostSection> {
-        val hostChrome = HostSection.entries.filter { it != HostSection.Terminal }
+        val hostChrome = HostSection.entries
         if (!connected) return hostChrome
         return buildList {
             add(HostSection.Agents)

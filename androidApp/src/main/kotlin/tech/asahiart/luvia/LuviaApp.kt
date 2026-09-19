@@ -103,7 +103,7 @@ fun LuviaApp(launchIntent: Intent? = null) {
         onRequestControl = viewModel::requestControl,
         onSendTerminalText = viewModel::sendTerminalText,
         onSendTerminalKey = viewModel::sendTerminalKey,
-        onTerminalShown = { id -> viewModel.ensureTerminal(id) },
+        onStopTerminal = viewModel::stopTerminal,
         onSelectTerminalPane = { id, pane -> viewModel.ensureTerminal(id, pane) },
         pushEnabled = pushRegistration != null,
         hasPushDistributor = PushRegistrar.hasDistributor(context),

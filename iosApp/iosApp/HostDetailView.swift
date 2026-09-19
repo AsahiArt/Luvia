@@ -252,6 +252,7 @@ struct TerminalPane: View {
     var onRequestControl: () -> Void
 
     @State private var input = ""
+    @State private var wrap = true
 
     private var keys: [TerminalKeySpec] {
         [
@@ -282,6 +283,10 @@ struct TerminalPane: View {
                     .accessibilityLabel(holdsControl ? "Controlling terminal" : "Observing terminal")
                     .accessibilityAddTraits(.isStaticText)
                 Spacer()
+                Toggle("Wrap", isOn: $wrap)
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                    .accessibilityLabel("Wrap terminal text")
                 if host.isController, !holdsControl {
                     Button("Request control") { onRequestControl() }
                         .buttonStyle(.borderedProminent)
@@ -290,8 +295,6 @@ struct TerminalPane: View {
                         .accessibilityLabel("Request terminal control")
                 }
             }
-            .padding(.horizontal)
-            .padding(.bottom, 8)
 
             if !holdsControl {
                 Text("Watching this pane. Request control to type.")
@@ -320,7 +323,7 @@ struct TerminalPane: View {
                 .foregroundStyle(TerminalChrome.foreground)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                JumpToLatestScroll(token: text) {
+                JumpToLatestScroll(token: text, wrap: wrap) {
                     Text(
                         ansiAttributedString(
                             text,
@@ -329,7 +332,7 @@ struct TerminalPane: View {
                         )
                     )
                     .font(DesignTokens.Typography.mono)
-                    .fixedSize(horizontal: true, vertical: false)
+                    .fixedSize(horizontal: !wrap, vertical: false)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
                     .padding()
@@ -400,6 +403,7 @@ struct TerminalPane: View {
 
 struct JumpToLatestScroll<Content: View>: View {
     let token: String
+    var wrap = false
     @ViewBuilder var content: () -> Content
 
     @State private var stickToBottom = true
@@ -407,7 +411,7 @@ struct JumpToLatestScroll<Content: View>: View {
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView([.horizontal, .vertical]) {
+            ScrollView(wrap ? Axis.Set.vertical : [.horizontal, .vertical]) {
                 VStack(alignment: .leading, spacing: 0) {
                     content()
                     Color.clear.frame(width: 1, height: 1).id(endID)

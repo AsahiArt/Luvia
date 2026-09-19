@@ -139,7 +139,7 @@ class LuviaViewModel(
     }
 
     fun disconnect(hostId: String) {
-        closeTerminal(hostId)
+        stopTerminal(hostId)
         manager.disconnect(hostId)
     }
 
@@ -160,7 +160,7 @@ class LuviaViewModel(
 
     fun unpair(hostId: String) {
         viewModelScope.launch {
-            closeTerminal(hostId)
+            stopTerminal(hostId)
             manager.unpair(hostId)
         }
     }
@@ -331,7 +331,7 @@ class LuviaViewModel(
         super.onCleared()
     }
 
-    private fun closeTerminal(hostId: String) {
+    fun stopTerminal(hostId: String) {
         observeJobs.remove(hostId)?.cancel()
         controls.remove(hostId)?.close()
         identities.remove(hostId)

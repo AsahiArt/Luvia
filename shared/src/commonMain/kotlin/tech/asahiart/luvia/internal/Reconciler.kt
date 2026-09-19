@@ -29,6 +29,13 @@ internal class SubscribeSnapshotReconciler {
         lastApplied = null
     }
 
+    fun seedFence(eventSequence: Long, serverGeneration: String?) {
+        snapshotSequence = eventSequence
+        lastApplied = eventSequence
+        generation = serverGeneration?.takeIf { it.isNotEmpty() }
+    }
+
+
     fun onEvent(event: UhpEvent): List<ReconcileAction> {
         if (isOverflow(event)) {
             return listOf(ReconcileAction.Resync(ResyncReason.Overflow))

@@ -214,6 +214,19 @@ internal fun locatorParams(identity: TerminalIdentity): JsonObject =
         put("pane_id", identity.paneId)
     }
 
+internal fun observeParams(
+    identity: TerminalIdentity,
+    mode: TerminalCaptureMode = TerminalCaptureMode.RecentUnwrapped,
+    lines: Int = 200,
+): JsonObject =
+    buildJsonObject {
+        put("server_generation", identity.serverGeneration)
+        put("terminal_id", identity.terminalId)
+        put("pane_id", identity.paneId)
+        put("mode", if (mode == TerminalCaptureMode.Visible) "visible" else "recent_unwrapped")
+        put("lines", lines)
+    }
+
 internal fun lineCount(text: String): Int {
     if (text.isEmpty()) return 0
     var lines = 1

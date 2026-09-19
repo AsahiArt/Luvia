@@ -111,6 +111,9 @@ pub fn inject_auth(payload: &[u8], token: &str) -> Result<Vec<u8>> {
     Ok(serde_json::to_vec(&value)?)
 }
 
+/// Mint a delegated UHP token. The bridge always mints an action token; a
+/// `read,admin` session token is minted only when
+/// [`crate::capabilities::Capabilities::needs_session_token`] is true.
 pub fn mint_token(path: &Path, evidence: Evidence, scopes: &[&str]) -> Result<MintedToken> {
     if scopes.is_empty() {
         return Err(Error::new(

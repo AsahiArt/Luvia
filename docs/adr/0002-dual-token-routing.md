@@ -12,16 +12,18 @@ in the field and `uhp.token.create` itself stays `admin`.
 
 ## Decision
 
-`luvia-host bridge` (`host/src/role.rs`, `host/src/uhp.rs`) mints two ephemeral
+`luvia-host bridge` (`host/src/role.rs`, `host/src/uhp.rs`) mints ephemeral
 tokens via `uhp.token.create` as the local owner:
 
 - Session token: `read,admin`. Spent only on `session.snapshot` and
-  `events.subscribe`. Exists so the bridge works on 0.13.2 Hosts.
+  `events.subscribe`. Minted only when capabilities still advertise those
+  methods as `scope=admin` (Luvus older than 0.13.4).
 - Action token: exactly the Role's scopes (Observer `read`; Controller
-  `read,workspace,agent,terminal,orchestration`). Spent on every other method.
+  `read,workspace,agent,terminal,orchestration`). Spent on every other method,
+  and on snapshot/subscribe when no session token was minted.
 
 The bridge routes by method name; the Device's frames carry no `auth` field
-and cannot choose a token. Both tokens are memory-only on the Host, TTL-bound,
+and cannot choose a token. Tokens are memory-only on the Host, TTL-bound,
 and revoked on bridge exit.
 
 ## Alternatives rejected
@@ -40,12 +42,13 @@ and revoked on bridge exit.
   phone a bearer token, which the provider is told not to persist. Revisit
   only as a Windows-host shim where `luvia-host` fronts the loopback port
   instead of implementing named-pipe ownership checks.
-- Drop the session token now that F1 is fixed: breaks 0.13.2 Hosts for no
-  Device-visible gain. Revisit when 0.13.4 is the installed floor.
+- Drop the session token unconditionally now that F1 is fixed: breaks 0.13.2
+  Hosts. Instead, skip minting it when live `uhp.capabilities` contracts show
+  `session.snapshot` / `events.subscribe` as `scope=read` (0.13.4+).
 
 ## Consequences
 
-- `luvia-host` needs no change for 0.13.4; the `read,admin` session token is
-  simply redundant there.
+- On 0.13.4+ Hosts the bridge mints only the action token and spends it on
+  snapshot/subscribe. Older Hosts still get the `read,admin` session token.
 - `uhp.token.*`, `config.get`, and other `admin` reads stay unreachable from
   the Device by construction.

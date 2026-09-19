@@ -49,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -110,11 +111,12 @@ fun AgentsSection(
     onSendTerminalText: (String) -> Unit = {},
     onSendTerminalKey: (TerminalKey) -> Unit = {},
     onObserveTerminal: (String) -> Unit = {},
+    onStopObserve: () -> Unit = {},
     onOpenProjectReview: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     when {
-        !host.connected && !state.connected -> {
+        !host.connected && !state.connected && state.agents.isEmpty() && !host.hasSnapshot -> {
             UhpEmptyPane(
                 title = "Agents",
                 message = "Connect to this host",
@@ -155,6 +157,7 @@ fun AgentsSection(
                 onSendTerminalText = onSendTerminalText,
                 onSendTerminalKey = onSendTerminalKey,
                 onObserveTerminal = onObserveTerminal,
+                onStopObserve = onStopObserve,
                 onOpenProjectReview = onOpenProjectReview,
                 modifier = modifier,
             )
@@ -498,6 +501,7 @@ fun AgentDetailPane(
     onSendTerminalText: (String) -> Unit = {},
     onSendTerminalKey: (TerminalKey) -> Unit = {},
     onObserveTerminal: (String) -> Unit = {},
+    onStopObserve: () -> Unit = {},
     onOpenProjectReview: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -519,7 +523,6 @@ fun AgentDetailPane(
     val surface = MaterialTheme.colorScheme.surface
     val transcriptParts = remember(transcriptText) { transcriptSegments(transcriptText) }
     val transcriptScroll = rememberScrollState()
-    val transcriptHorizontal = rememberScrollState()
     var pinToBottom by remember { mutableStateOf(true) }
     val highlight = remember { Animatable(0f) }
     var addedSuffix by remember { mutableStateOf("") }
@@ -527,8 +530,11 @@ fun AgentDetailPane(
     val yesNoPrompt = remember(transcriptText) { transcriptLooksLikeYesNo(transcriptText) }
     var showTerminal by remember(detail.paneId) { mutableStateOf(false) }
     val highlightColor = MaterialTheme.colorScheme.tertiaryContainer
-    LaunchedEffect(detail.paneId) {
-        detail.paneId?.let(onObserveTerminal)
+    DisposableEffect(showTerminal, detail.paneId) {
+        if (showTerminal) {
+            detail.paneId?.let(onObserveTerminal)
+        }
+        onDispose { onStopObserve() }
     }
     LaunchedEffect(transcriptScroll.isScrollInProgress, transcriptScroll.value, transcriptScroll.maxValue) {
         if (!transcriptScroll.isScrollInProgress) {
@@ -713,8 +719,7 @@ fun AgentDetailPane(
                     Column(
                         Modifier
                             .fillMaxSize()
-                            .verticalScroll(transcriptScroll)
-                            .horizontalScroll(transcriptHorizontal),
+                            .verticalScroll(transcriptScroll),
                     ) {
                         if (transcriptText.isEmpty()) {
                             Text(
@@ -734,7 +739,7 @@ fun AgentDetailPane(
                                                 ansiAnnotatedString(stable, onSurface, surface),
                                                 style = MaterialTheme.typography.bodySmall,
                                                 fontFamily = LuviaTheme.mono,
-                                                softWrap = false,
+                                                softWrap = true,
                                             )
                                         }
                                         if (highlightThis) {
@@ -742,7 +747,7 @@ fun AgentDetailPane(
                                                 ansiAnnotatedString(addedSuffix, onSurface, surface),
                                                 style = MaterialTheme.typography.bodySmall,
                                                 fontFamily = LuviaTheme.mono,
-                                                softWrap = false,
+                                                softWrap = true,
                                                 modifier = Modifier.background(highlightColor.copy(alpha = highlight.value)),
                                             )
                                         }

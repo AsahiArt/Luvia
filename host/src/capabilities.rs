@@ -115,6 +115,22 @@ impl Capabilities {
         self.contracts.get(method)
     }
 
+    /// Luvus 0.13.4+ advertises `session.snapshot` / `events.subscribe` as
+    /// `scope=read`. Older Hosts keep `admin`, which is the only reason the
+    /// bridge still mints a session token.
+    pub fn needs_session_token(&self) -> bool {
+        let snapshot_admin = self
+            .lookup("session.snapshot")
+            .map(|contract| contract.scope == "admin");
+        let subscribe_admin = self
+            .lookup("events.subscribe")
+            .map(|contract| contract.scope == "admin");
+        match (snapshot_admin, subscribe_admin) {
+            (Some(false), Some(false)) | (Some(false), None) | (None, Some(false)) => false,
+            _ => true,
+        }
+    }
+
     pub fn authorize(&self, role: Role, method: &str) -> Result<TokenKind> {
         let Some(contract) = self.lookup(method) else {
             return Err(Error::new(
@@ -123,7 +139,7 @@ impl Capabilities {
             ));
         };
         let kind = role::token_kind_for(method);
-        if kind == TokenKind::Session {
+        if kind == TokenKind::Session && self.needs_session_token() {
             return Ok(TokenKind::Session);
         }
         let allowed = match contract.access {
@@ -182,6 +198,23 @@ pub fn fixture() -> Capabilities {
     });
     Capabilities::parse(&json).unwrap()
 }
+
+#[cfg(test)]
+pub fn fixture_read_scoped_session() -> Capabilities {
+    let json = serde_json::json!({
+        "method_contracts": [
+            {"method":"uhp.capabilities","access":"read","scope":"read","idempotent":true},
+            {"method":"ping","access":"read","scope":"read","idempotent":true},
+            {"method":"session.snapshot","access":"read","scope":"read","idempotent":true},
+            {"method":"events.subscribe","access":"read","scope":"read","idempotent":false},
+            {"method":"workspace.list","access":"read","scope":"workspace","idempotent":true},
+            {"method":"agent.list","access":"read","scope":"agent","idempotent":true}
+        ],
+        "limits": {"connection_capacity": 80, "frame_bytes": 1048576}
+    });
+    Capabilities::parse(&json).unwrap()
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -277,4 +310,31 @@ mod tests {
         assert!(caps.authorize(Role::Observer, "server.stop").is_err());
         assert!(caps.authorize(Role::Observer, "config.patch").is_err());
     }
+
+    #[test]
+    fn skips_session_token_when_snapshot_and_subscribe_are_read() {
+        let legacy = fixture();
+        assert!(legacy.needs_session_token());
+        let current = fixture_read_scoped_session();
+        assert!(!current.needs_session_token());
+        assert_eq!(
+            current
+                .authorize(Role::Observer, "session.snapshot")
+                .unwrap(),
+            TokenKind::Action
+        );
+        assert_eq!(
+            current
+                .authorize(Role::Observer, "events.subscribe")
+                .unwrap(),
+            TokenKind::Action
+        );
+        assert_eq!(
+            current
+                .authorize(Role::Controller, "session.snapshot")
+                .unwrap(),
+            TokenKind::Action
+        );
+    }
+
 }

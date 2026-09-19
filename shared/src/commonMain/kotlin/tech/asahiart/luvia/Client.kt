@@ -78,9 +78,17 @@ public class LuviaSession internal constructor(
 
     public fun events(): Flow<SessionUpdate> = engine.events()
 
-    internal fun liveUpdates(): Flow<tech.asahiart.luvia.internal.LiveUpdate> = engine.liveUpdates()
+    internal fun liveUpdates(
+        afterSequence: Long? = null,
+        serverGeneration: String? = null,
+    ): Flow<tech.asahiart.luvia.internal.LiveUpdate> =
+        engine.liveUpdates(afterSequence, serverGeneration)
 
-    public fun observe(identity: TerminalIdentity): Flow<TerminalUpdate> = engine.observe(identity)
+    public fun observe(
+        identity: TerminalIdentity,
+        mode: TerminalCaptureMode = TerminalCaptureMode.RecentUnwrapped,
+        lines: Int = 200,
+    ): Flow<TerminalUpdate> = engine.observe(identity, mode, lines)
 
     public suspend fun openControl(identity: TerminalIdentity): Outcome<TerminalControl> = engine.openControl(identity)
 

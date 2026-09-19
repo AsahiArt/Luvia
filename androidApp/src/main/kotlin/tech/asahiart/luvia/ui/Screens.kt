@@ -30,9 +30,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,6 +56,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -353,16 +351,11 @@ fun HostDetailPane(
     host: HostUiModel,
     section: HostSection,
     onSection: (HostSection) -> Unit,
-    terminal: TerminalUiModel?,
-    onRequestControl: () -> Unit,
-    onSendText: (String) -> Unit,
-    onSendKey: (TerminalKey) -> Unit = {},
     onConnect: () -> Unit = {},
     onDisconnect: () -> Unit = {},
     onRefresh: () -> Unit = {},
     onUnpair: () -> Unit = {},
     onUpdateConnection: (alias: String, hosts: String, port: String, username: String) -> Unit = { _, _, _, _ -> },
-    onSelectTerminalPane: (String) -> Unit = {},
     sections: List<HostSection> = HostSection.entries,
     pushCapable: Boolean = false,
     pushEnabled: Boolean = false,
@@ -382,7 +375,7 @@ fun HostDetailPane(
     var overflowOpen by remember { mutableStateOf(false) }
     var editingConnection by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
-    val visible = sections.ifEmpty { HostSection.entries.filter { it != HostSection.Terminal } }
+    val visible = sections.ifEmpty { HostSection.entries }
     val tabs = visible.filter { it.isPrimaryTab }
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -501,11 +494,6 @@ fun HostDetailPane(
                 HostSection.Automations -> automationsContent(Modifier.weight(1f))
                 HostSection.Tasks -> tasksContent(Modifier.weight(1f))
                 HostSection.Layout -> layoutContent(Modifier.weight(1f))
-                HostSection.Terminal -> if (terminal == null) {
-                    EmptyPane("Terminal unavailable", "Select a live pane to observe or request control.", modifier = Modifier.weight(1f))
-                } else {
-                    TerminalPane(terminal, onRequestControl, onSendText, onSelectTerminalPane, onSendKey, Modifier.weight(1f))
-                }
             }
         }
     }
@@ -681,44 +669,6 @@ private fun HostSettingsSheet(
 }
 
 
-@Composable
-private fun OverviewPane(host: HostUiModel, modifier: Modifier = Modifier) {
-    val metrics = listOf(
-        Triple("Working", host.workingAgents, MaterialTheme.colorScheme.primary),
-        Triple("Blocked", host.blockedAgents, MaterialTheme.colorScheme.primary),
-        Triple("Done", host.completedAgents, LuviaTheme.extended.live),
-    )
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(160.dp),
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        items(metrics) { (label, value, color) -> MetricCard(label, value, color) }
-        host.activeTask?.let { task ->
-            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                Card {
-                    Column(Modifier.padding(18.dp)) {
-                        Text("Current task", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(8.dp))
-                        Text(task)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MetricCard(label: String, value: Int, color: Color) {
-    Card(colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.12f))) {
-        Column(Modifier.fillMaxWidth().padding(18.dp)) {
-            Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value.toString(), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
-        }
-    }
-}
 
 @Composable
 fun TerminalPane(
@@ -731,6 +681,7 @@ fun TerminalPane(
     boundToPane: Boolean = false,
 ) {
     var input by remember { mutableStateOf("") }
+    var wrap by remember { mutableStateOf(true) }
     val defaultFg = LuviaTheme.extended.terminalFg
     val defaultBg = LuviaTheme.extended.terminalBg
     val displayed = remember(terminal.text) {
@@ -777,6 +728,12 @@ fun TerminalPane(
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(terminal.title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            FilterChip(
+                selected = wrap,
+                onClick = { wrap = !wrap },
+                label = { Text("Wrap") },
+            )
+            Spacer(Modifier.width(8.dp))
             if (!live) {
                 Text("Unavailable", color = Color(0xFFFFC66D), style = MaterialTheme.typography.labelLarge)
             } else if (!terminal.canControl) {
@@ -839,11 +796,11 @@ fun TerminalPane(
                         color = defaultFg,
                         fontFamily = LuviaTheme.mono,
                         style = MaterialTheme.typography.bodySmall,
-                        softWrap = false,
+                        softWrap = wrap,
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(terminalVertical)
-                            .horizontalScroll(terminalHorizontal)
+                            .then(if (wrap) Modifier else Modifier.horizontalScroll(terminalHorizontal))
                             .padding(16.dp),
                     )
                 }

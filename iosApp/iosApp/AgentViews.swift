@@ -8,7 +8,7 @@ struct AgentsSectionView: View {
 
     var body: some View {
         Group {
-            if model.hasLiveSession {
+            if model.hasLiveSession || !model.uhp.agents.isEmpty || host.connection == .connecting || host.connection == .stale {
                 AgentsListView(
                     agents: model.uhp.agents,
                     query: $query,
@@ -335,8 +335,15 @@ struct AgentDetailView: View {
         .onChange(of: uhp.transcript) { _, newValue in
             noteNewTranscript(newValue)
         }
+        .onChange(of: surface) { _, newValue in
+            model.setTerminalVisible(newValue == .terminal)
+        }
         .onAppear {
             seenTranscript = uhp.transcript
+            model.setTerminalVisible(surface == .terminal)
+        }
+        .onDisappear {
+            model.setTerminalVisible(false)
         }
     }
 
@@ -398,7 +405,7 @@ struct AgentDetailView: View {
     }
 
     private var transcriptBlock: some View {
-        JumpToLatestScroll(token: uhp.transcript) {
+        JumpToLatestScroll(token: uhp.transcript, wrap: true) {
             VStack(alignment: .leading, spacing: 0) {
                 if uhp.transcript.isEmpty {
                     Text("No Transcript yet.")
@@ -418,7 +425,6 @@ struct AgentDetailView: View {
                     }
                 }
             }
-            .fixedSize(horizontal: true, vertical: false)
             .padding()
         }
         .refreshable {
@@ -452,7 +458,6 @@ struct AgentDetailView: View {
             )
         )
         .font(DesignTokens.Typography.mono)
-        .fixedSize(horizontal: true, vertical: false)
         .frame(maxWidth: .infinity, alignment: .leading)
         .textSelection(.enabled)
     }

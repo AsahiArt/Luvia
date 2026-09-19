@@ -13,6 +13,7 @@ final class AppModel {
     @ObservationIgnored nonisolated(unsafe) var uhpTask: _Concurrency.Task<Void, Never>?
     @ObservationIgnored var boundUhpHostID: String?
     private var terminalControl: TerminalControl?
+    private var wantsTerminalObserve = false
     private let liveActivity = LiveActivityController()
     private var liveActivityHostID: String?
     private var liveActivityBlockedAgents = 0
@@ -69,6 +70,7 @@ final class AppModel {
     func select(_ host: HostViewState) {
         selectedHostID = host.id
         selectedSection = .agents
+        wantsTerminalObserve = false
         stopTerminal()
         uhp.reset(hostID: host.id)
         bindUhp(hostID: host.id)
@@ -166,6 +168,7 @@ final class AppModel {
     }
 
     func disconnect(_ hostId: String) {
+        wantsTerminalObserve = false
         stopTerminal()
         manager.disconnect(hostId: hostId)
     }
@@ -196,6 +199,7 @@ final class AppModel {
             liveActivityHostID = nil
             liveActivityBlockedAgents = 0
         }
+        wantsTerminalObserve = false
         stopTerminal()
         do {
             try await manager.unpair(hostId: hostId)
@@ -304,8 +308,8 @@ final class AppModel {
                 }
             }
         }
-        if let pane = uhp.selectedAgentID {
-            startTerminal(paneId: pane)
+        if wantsTerminalObserve {
+            startTerminal(paneId: uhp.selectedAgentID)
         }
         syncLiveActivity()
         if !wasLive && hasLiveSession {
@@ -336,6 +340,15 @@ final class AppModel {
                     self?.applyTerminal(update)
                 }
             }
+        }
+    }
+
+    func setTerminalVisible(_ visible: Bool) {
+        wantsTerminalObserve = visible
+        if visible {
+            startTerminal(paneId: uhp.selectedAgentID)
+        } else {
+            stopTerminal()
         }
     }
 
@@ -810,7 +823,6 @@ extension AppModel {
     func openAgent(_ id: String) async {
         uhp.selectedAgentID = id
         hostUhp()?.openAgent(paneId: id)
-        startTerminal(paneId: id)
     }
 
     func showProjectReview() {

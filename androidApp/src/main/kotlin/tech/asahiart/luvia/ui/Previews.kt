@@ -80,9 +80,6 @@ private fun HostDetailPreview() {
             host = previewHost(),
             section = HostSection.Agents,
             onSection = {},
-            terminal = null,
-            onRequestControl = {},
-            onSendText = {},
             agentsContent = { modifier ->
                 AgentsSection(
                     host = previewHost(),

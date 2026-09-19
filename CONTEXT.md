@@ -29,13 +29,13 @@ _Avoid_: Permission level, mode
 ### Authority
 
 **Session token**:
-Credential minted by the Host bridge with `read,admin`, spent only on `session.snapshot` and `events.subscribe`. Never leaves the Host. Kept for Hosts older than 0.13.4; on newer Hosts those two methods accept `read` alone.
+Credential minted by the Host bridge with `read,admin`, spent only on `session.snapshot` and `events.subscribe`. Never leaves the Host. Minted only for Hosts older than 0.13.4, detected from `uhp.capabilities` method contracts (`scope=admin` on those two methods). On 0.13.4+ the action token is enough.
 
 **Action token**:
-Credential minted by the Host bridge carrying exactly the Device's Role scopes. Spent on every other UHP call. Never leaves the Host.
+Credential minted by the Host bridge carrying exactly the Device's Role scopes. Spent on every other UHP call, and on `session.snapshot` / `events.subscribe` when no session token was minted. Never leaves the Host.
 
 **Bridge**:
-The `luvia-host bridge` process sshd forces for a Device. It mints both tokens, authorizes each frame against the Role, and proxies NDJSON to Luvus.
+The `luvia-host bridge` process sshd forces for a Device. The phone keeps one long-lived unary SSH channel per session (open prelude once, then serialized request/response NDJSON) and opens a dedicated channel for each stream (`events.subscribe`, terminal observe/control, ACP session). The bridge mints the action token, plus a session token only on pre-0.13.4 Hosts, authorizes each frame against the Role, and proxies NDJSON to Luvus. Idle stdin closes the process after 300s; the client reopens the unary channel on the next request.
 _Avoid_: Proxy, relay, tunnel
 
 ### Terminal (secondary surface)

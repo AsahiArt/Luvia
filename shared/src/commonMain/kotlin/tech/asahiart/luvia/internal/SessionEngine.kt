@@ -23,6 +23,7 @@ import tech.asahiart.luvia.ResyncReason
 import tech.asahiart.luvia.SessionEvent
 import tech.asahiart.luvia.SessionSnapshot
 import tech.asahiart.luvia.SessionUpdate
+import tech.asahiart.luvia.TerminalCaptureMode
 import tech.asahiart.luvia.TerminalControl
 import tech.asahiart.luvia.TerminalIdentity
 import tech.asahiart.luvia.TerminalUpdate
@@ -38,6 +39,25 @@ internal class OpenStream(
         channel.close()
     }
 }
+
+internal class UnaryMux(
+    val channel: ByteChannel,
+    val framer: NdjsonFramer,
+)
+
+private class BridgeOpenException(message: String) : Exception(message)
+
+// Bridge stdin idle-timeout is 300s (host/src/bridge.rs IDLE_TIMEOUT).
+// Pooled channels are reopened on the next borrow rather than kept alive
+// with pings; a dead channel is dropped and replaced transparently for
+// unread requests, never for a mutation that may already have been written.
+private const val UNARY_POOL_SIZE = 3
+
+private class UnarySlot {
+    val mutex = Mutex()
+    var mux: UnaryMux? = null
+}
+
 
 internal sealed class LiveUpdate {
     class Snapshot(val snapshot: SessionSnapshot) : LiveUpdate()
@@ -57,6 +77,7 @@ internal class SessionEngine(
     private val authToken: String?,
 ) {
     private val mutex = Mutex()
+    private val unarySlots = Array(UNARY_POOL_SIZE) { UnarySlot() }
     private val active = LinkedHashSet<ByteChannel>()
     private var sessionName: String? = null
     private var caps: Capabilities? = null
@@ -84,9 +105,14 @@ internal class SessionEngine(
     fun close() {
         closed = true
         connectionFreshness = ConnectionFreshness.Offline
+        for (slot in unarySlots) {
+            slot.mux?.framer?.close()
+            slot.mux = null
+        }
         active.toList().forEach { it.close() }
         active.clear()
     }
+
     suspend fun discover(): Outcome<List<DiscoveredSession>> {
         if (closed) return fail(Failure.Closed())
         return try {
@@ -143,28 +169,43 @@ internal class SessionEngine(
             }
         }
 
-    fun liveUpdates(): Flow<LiveUpdate> = flow {
-        var afterSequence: Long? = null
+    fun liveUpdates(
+        afterSequence: Long? = null,
+        serverGeneration: String? = null,
+    ): Flow<LiveUpdate> = flow {
+        var cursor = afterSequence
+        var generation = serverGeneration
+        var useSeed = afterSequence != null
         while (currentCoroutineContext().isActive && !closed) {
             val recon = SubscribeSnapshotReconciler()
-            val snapshot = when (val outcome = snapshot()) {
-                is Outcome.Ok -> outcome.value
-                is Outcome.Err -> {
-                    emit(LiveUpdate.Failed(outcome.failure))
-                    return@flow
+            val snapshot: SessionSnapshot?
+            if (useSeed && cursor != null) {
+                recon.seedFence(cursor, generation)
+                snapshot = null
+                useSeed = false
+            } else {
+                snapshot = when (val outcome = snapshot()) {
+                    is Outcome.Ok -> outcome.value
+                    is Outcome.Err -> {
+                        emit(LiveUpdate.Failed(outcome.failure))
+                        return@flow
+                    }
                 }
+                cursor = snapshot.eventSequence
+                generation = snapshot.serverGeneration
             }
-            afterSequence = snapshot.eventSequence
-            val stream = when (val opened = openStream(Methods.EVENTS_SUBSCRIBE, subscribeParams(afterSequence))) {
+            val stream = when (val opened = openStream(Methods.EVENTS_SUBSCRIBE, subscribeParams(cursor))) {
                 is Outcome.Ok -> opened.value
                 is Outcome.Err -> {
                     var resyncOnOpen: ResyncReason? = null
-                    for (action in recon.onSnapshot(snapshot)) {
-                        when (action) {
-                            is ReconcileAction.ApplySnapshot -> emit(LiveUpdate.Snapshot(action.snapshot))
-                            is ReconcileAction.ApplyEvent ->
-                                emit(LiveUpdate.Event(action.event, action.bus))
-                            is ReconcileAction.Resync -> resyncOnOpen = action.reason
+                    if (snapshot != null) {
+                        for (action in recon.onSnapshot(snapshot)) {
+                            when (action) {
+                                is ReconcileAction.ApplySnapshot -> emit(LiveUpdate.Snapshot(action.snapshot))
+                                is ReconcileAction.ApplyEvent ->
+                                    emit(LiveUpdate.Event(action.event, action.bus))
+                                is ReconcileAction.Resync -> resyncOnOpen = action.reason
+                            }
                         }
                     }
                     when (val failure = opened.failure) {
@@ -173,7 +214,8 @@ internal class SessionEngine(
                         -> {
                             connectionFreshness = ConnectionFreshness.Stale
                             emit(LiveUpdate.Resyncing(resyncOnOpen ?: ResyncReason.Overflow))
-                            afterSequence = null
+                            cursor = null
+                            generation = null
                             continue
                         }
                         else -> {
@@ -185,23 +227,26 @@ internal class SessionEngine(
             }
             try {
                 var resync: ResyncReason? = null
-                for (action in recon.onSnapshot(snapshot)) {
-                    when (action) {
-                        is ReconcileAction.ApplySnapshot -> emit(LiveUpdate.Snapshot(action.snapshot))
-                        is ReconcileAction.ApplyEvent ->
-                            emit(LiveUpdate.Event(action.event, action.bus))
-                        is ReconcileAction.Resync -> resync = action.reason
+                if (snapshot != null) {
+                    for (action in recon.onSnapshot(snapshot)) {
+                        when (action) {
+                            is ReconcileAction.ApplySnapshot -> emit(LiveUpdate.Snapshot(action.snapshot))
+                            is ReconcileAction.ApplyEvent ->
+                                emit(LiveUpdate.Event(action.event, action.bus))
+                            is ReconcileAction.Resync -> resync = action.reason
+                        }
                     }
                 }
                 if (resync != null) {
                     connectionFreshness = ConnectionFreshness.Stale
                     emit(LiveUpdate.Resyncing(resync))
-                    afterSequence = null
+                    cursor = null
+                    generation = null
                     continue
                 }
                 while (resync == null && currentCoroutineContext().isActive && !closed) {
                     val event = decodeUhpEvent(stream.framer.readFrame())
-                    afterSequence = event.sequence
+                    cursor = event.sequence
                     for (action in recon.onEvent(event)) {
                         when (action) {
                             is ReconcileAction.ApplySnapshot -> emit(LiveUpdate.Snapshot(action.snapshot))
@@ -215,7 +260,8 @@ internal class SessionEngine(
                     connectionFreshness = ConnectionFreshness.Stale
                     emit(LiveUpdate.Resyncing(resync))
                     if (resync == ResyncReason.Overflow) {
-                        afterSequence = null
+                        cursor = null
+                        generation = null
                     }
                 } else {
                     return@flow
@@ -224,7 +270,8 @@ internal class SessionEngine(
                 if (e.kind == FrameException.Kind.Eof) {
                     connectionFreshness = ConnectionFreshness.Stale
                     emit(LiveUpdate.Resyncing(ResyncReason.Eof))
-                    afterSequence = null
+                    cursor = null
+                    generation = null
                 } else {
                     emit(LiveUpdate.Failed(e.toFailure(Methods.EVENTS_SUBSCRIBE, false, true)))
                     return@flow
@@ -238,8 +285,13 @@ internal class SessionEngine(
         }
     }
 
-    fun observe(identity: TerminalIdentity): Flow<TerminalUpdate> {
-        val params = locatorParams(identity)
+
+    fun observe(
+        identity: TerminalIdentity,
+        mode: TerminalCaptureMode = TerminalCaptureMode.RecentUnwrapped,
+        lines: Int = 200,
+    ): Flow<TerminalUpdate> {
+        val params = observeParams(identity, mode, lines)
         return flow {
             while (currentCoroutineContext().isActive && !closed) {
                 val stream = when (val opened = openStream(Methods.TERMINAL_OBSERVE, params)) {
@@ -381,26 +433,97 @@ internal class SessionEngine(
         if (gate && method !in (caps?.methods ?: emptyList())) {
             return fail(Failure.CapabilityMissing(method))
         }
-        var written = false
-        return try {
-            exchange { framer ->
-                framer.writeFrame(encodeOpenRequest(session))
-                backendName = decodeOpenResponse(framer.readFrame(), session)
-
-                val id = allocateId()
-                framer.writeFrame(encodeUhpRequest(UhpRequest(id, method, params, authToken)))
-                written = true
-                when (val response = decodeUhpResponse(framer.readFrame(), id)) {
-                    is UhpResponse.Success -> ok(map(response.result))
-                    is UhpResponse.Failure -> fail(response.error.toFailure())
+        return withUnarySlot { slot ->
+            var written = false
+            try {
+                val first = ensureSlotMux(slot, session)
+                try {
+                    transactUnary(first, method, params, map) { written = true }
+                } catch (e: CancellationException) {
+                    dropSlotMux(slot)
+                    throw e
+                } catch (e: Exception) {
+                    dropSlotMux(slot)
+                    if (written) {
+                        fail(e.toFailure(method, mutation, true))
+                    } else if (closed) {
+                        fail(Failure.Closed())
+                    } else {
+                        val retry = ensureSlotMux(slot, session)
+                        transactUnary(retry, method, params, map) { written = true }
+                    }
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: BridgeOpenException) {
+                dropSlotMux(slot)
+                fail(Failure.Bridge(e.message ?: "channel open failed"))
+            } catch (e: Exception) {
+                dropSlotMux(slot)
+                fail(e.toFailure(method, mutation, written))
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            fail(e.toFailure(method, mutation, written))
         }
     }
+
+    private suspend fun <T> transactUnary(
+        mux: UnaryMux,
+        method: String,
+        params: JsonObject,
+        map: (JsonElement) -> T,
+        onWritten: () -> Unit,
+    ): Outcome<T> {
+        val id = allocateId()
+        mux.framer.writeFrame(encodeUhpRequest(UhpRequest(id, method, params, authToken)))
+        onWritten()
+        return when (val response = decodeUhpResponse(mux.framer.readFrame(), id)) {
+            is UhpResponse.Success -> ok(map(response.result))
+            is UhpResponse.Failure -> fail(response.error.toFailure())
+        }
+    }
+
+    private suspend fun <T> withUnarySlot(block: suspend (UnarySlot) -> T): T {
+        for (slot in unarySlots) {
+            if (slot.mutex.tryLock()) {
+                try {
+                    return block(slot)
+                } finally {
+                    slot.mutex.unlock()
+                }
+            }
+        }
+        val fallback = unarySlots[0]
+        return fallback.mutex.withLock { block(fallback) }
+    }
+
+    private suspend fun ensureSlotMux(slot: UnarySlot, session: String): UnaryMux {
+        slot.mux?.let { return it }
+        val channel = try {
+            register(channels.open())
+        } catch (e: Exception) {
+            throw BridgeOpenException(e.message ?: "channel open failed")
+        }
+        val framer = NdjsonFramer(channel)
+        try {
+            framer.writeFrame(encodeOpenRequest(session))
+            backendName = decodeOpenResponse(framer.readFrame(), session)
+        } catch (e: Exception) {
+            framer.close()
+            mutex.withLock { active -= channel }
+            throw e
+        }
+        val mux = UnaryMux(channel, framer)
+        slot.mux = mux
+        return mux
+    }
+
+    private suspend fun dropSlotMux(slot: UnarySlot) {
+        val current = slot.mux ?: return
+        slot.mux = null
+        current.framer.close()
+        mutex.withLock { active -= current.channel }
+    }
+
+
 
     private suspend fun <T> exchange(block: suspend (NdjsonFramer) -> Outcome<T>): Outcome<T> {
         val channel = try {

@@ -84,7 +84,7 @@ class HostUhpTest {
     fun visibleSectionsHideUnsupportedSurfacesWhenConnected() {
         val disconnected = HostUhpState()
         assertEquals(
-            HostSection.entries.filter { it != HostSection.Terminal },
+            HostSection.entries,
             disconnected.visibleSections(),
         )
         val connected =

@@ -64,7 +64,7 @@ impl<R: Read> Read for IdleTimeout<R> {
 }
 
 struct BridgeTokens {
-    session: MintedToken,
+    session: Option<MintedToken>,
     action: MintedToken,
 }
 
@@ -183,16 +183,20 @@ fn open_session(
         }
     };
 
-    let session_token = match uhp::mint_token(
-        &selected.address,
-        selected.evidence,
-        crate::role::Role::session_scopes(),
-    ) {
-        Ok(token) => token,
-        Err(error) => {
-            write_prelude_error(output, &error)?;
-            return Err(error);
+    let session_token = if caps.needs_session_token() {
+        match uhp::mint_token(
+            &selected.address,
+            selected.evidence,
+            crate::role::Role::session_scopes(),
+        ) {
+            Ok(token) => Some(token),
+            Err(error) => {
+                write_prelude_error(output, &error)?;
+                return Err(error);
+            }
         }
+    } else {
+        None
     };
     let action_token = match uhp::mint_token(
         &selected.address,
@@ -201,7 +205,9 @@ fn open_session(
     ) {
         Ok(token) => token,
         Err(error) => {
-            let _ = uhp::revoke_token(&selected.address, selected.evidence, &session_token.id);
+            if let Some(session_token) = &session_token {
+                let _ = uhp::revoke_token(&selected.address, selected.evidence, &session_token.id);
+            }
             write_prelude_error(output, &error)?;
             return Err(error);
         }
@@ -211,7 +217,9 @@ fn open_session(
         action: action_token,
     };
     let outcome = proxy_channel(grant, paths, &selected, &caps, &tokens, input, output);
-    let _ = uhp::revoke_token(&selected.address, selected.evidence, &tokens.session.id);
+    if let Some(session_token) = &tokens.session {
+        let _ = uhp::revoke_token(&selected.address, selected.evidence, &session_token.id);
+    }
     let _ = uhp::revoke_token(&selected.address, selected.evidence, &tokens.action.id);
     outcome
 }
@@ -330,8 +338,12 @@ fn prepare_request(
     let method = uhp::request_method(payload)?;
     let token_kind = caps.authorize(grant.role, &method)?;
     let secret = match token_kind {
-        TokenKind::Session => &tokens.session.secret,
-        TokenKind::Action => &tokens.action.secret,
+        TokenKind::Session => tokens
+            .session
+            .as_ref()
+            .map(|token| token.secret.as_str())
+            .unwrap_or(tokens.action.secret.as_str()),
+        TokenKind::Action => tokens.action.secret.as_str(),
     };
     let injected = uhp::inject_auth(payload, secret)?;
     Ok(PreparedRequest {
@@ -585,10 +597,20 @@ mod tests {
 
     fn tokens() -> BridgeTokens {
         BridgeTokens {
-            session: MintedToken {
+            session: Some(MintedToken {
                 id: "session-id".into(),
                 secret: "luv_tok_session".into(),
+            }),
+            action: MintedToken {
+                id: "action-id".into(),
+                secret: "luv_tok_action".into(),
             },
+        }
+    }
+
+    fn action_only_tokens() -> BridgeTokens {
+        BridgeTokens {
+            session: None,
             action: MintedToken {
                 id: "action-id".into(),
                 secret: "luv_tok_action".into(),
@@ -893,4 +915,47 @@ mod tests {
         let value: Value = serde_json::from_slice(&output[..output.len() - 1]).unwrap();
         assert_eq!(value["error"]["code"], "auth_rejected");
     }
+
+    #[test]
+    fn snapshot_uses_action_token_when_session_token_is_unneeded() {
+        let caps = capabilities::fixture_read_scoped_session();
+        assert!(!caps.needs_session_token());
+        let prepared = prepare_request(
+            &grant(),
+            &caps,
+            &action_only_tokens(),
+            &frame("1", "session.snapshot"),
+        )
+        .unwrap();
+        assert_eq!(prepared.token_kind, TokenKind::Action);
+        let injected: Value = serde_json::from_slice(&prepared.injected).unwrap();
+        assert_eq!(injected["auth"], "luv_tok_action");
+        let subscribe = prepare_request(
+            &grant(),
+            &caps,
+            &action_only_tokens(),
+            &frame("2", "events.subscribe"),
+        )
+        .unwrap();
+        assert_eq!(subscribe.token_kind, TokenKind::Action);
+        let injected: Value = serde_json::from_slice(&subscribe.injected).unwrap();
+        assert_eq!(injected["auth"], "luv_tok_action");
+    }
+
+    #[test]
+    fn snapshot_keeps_session_token_on_legacy_admin_scope() {
+        let caps = capabilities::fixture();
+        assert!(caps.needs_session_token());
+        let prepared = prepare_request(
+            &grant(),
+            &caps,
+            &tokens(),
+            &frame("1", "session.snapshot"),
+        )
+        .unwrap();
+        assert_eq!(prepared.token_kind, TokenKind::Session);
+        let injected: Value = serde_json::from_slice(&prepared.injected).unwrap();
+        assert_eq!(injected["auth"], "luv_tok_session");
+    }
+
 }

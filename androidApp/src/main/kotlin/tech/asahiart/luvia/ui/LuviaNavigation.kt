@@ -63,7 +63,7 @@ fun LuviaNavigation(
     onRequestControl: (String) -> Unit,
     onSendTerminalText: (String, String) -> Unit,
     onSendTerminalKey: (String, TerminalKey) -> Unit = { _, _ -> },
-    onTerminalShown: (String) -> Unit,
+    onStopTerminal: (String) -> Unit = {},
     onSelectTerminalPane: (String, String) -> Unit = { _, _ -> },
     pushEnabled: Boolean = false,
     hasPushDistributor: Boolean = true,
@@ -119,7 +119,7 @@ fun LuviaNavigation(
                         onRequestControl = onRequestControl,
                         onSendTerminalText = onSendTerminalText,
                         onSendTerminalKey = onSendTerminalKey,
-                        onTerminalShown = onTerminalShown,
+                        onStopTerminal = onStopTerminal,
                         onSelectTerminalPane = onSelectTerminalPane,
                         pushEnabled = pushEnabled,
                         hasPushDistributor = hasPushDistributor,
@@ -149,7 +149,7 @@ fun LuviaNavigation(
                 onRequestControl = onRequestControl,
                 onSendTerminalText = onSendTerminalText,
                 onSendTerminalKey = onSendTerminalKey,
-                onTerminalShown = onTerminalShown,
+                onStopTerminal = onStopTerminal,
                 onSelectTerminalPane = onSelectTerminalPane,
                 pushEnabled = pushEnabled,
                 hasPushDistributor = hasPushDistributor,
@@ -181,7 +181,7 @@ private fun DetailNav(
     onRequestControl: (String) -> Unit,
     onSendTerminalText: (String, String) -> Unit,
     onSendTerminalKey: (String, TerminalKey) -> Unit,
-    onTerminalShown: (String) -> Unit,
+    onStopTerminal: (String) -> Unit,
     onSelectTerminalPane: (String, String) -> Unit,
     pushEnabled: Boolean,
     hasPushDistributor: Boolean,
@@ -254,11 +254,6 @@ private fun DetailNav(
                         onSection = { next ->
                             surface.setSection(next)
                         },
-                        terminal = terminalForHost(route.id),
-                        onRequestControl = { onRequestControl(route.id) },
-                        onSendText = { text -> onSendTerminalText(route.id, text) },
-                        onSendKey = { key -> onSendTerminalKey(route.id, key) },
-                        onSelectTerminalPane = { pane -> onSelectTerminalPane(route.id, pane) },
                         onConnect = { onConnect(route.id) },
                         onDisconnect = { onDisconnect(route.id) },
                         onRefresh = {
@@ -284,7 +279,6 @@ private fun DetailNav(
                                 onRefresh = { onRefreshSection(route.id, HostSection.Agents) },
                                 onOpenAgent = { pane ->
                                     surface.openAgent(pane)
-                                    onSelectTerminalPane(route.id, pane)
                                 },
                                 onCloseAgent = { surface.closeAgent() },
                                 onPrompt = { text -> surface.promptAgent(text) },
@@ -313,6 +307,7 @@ private fun DetailNav(
                                 onSendTerminalText = { text -> onSendTerminalText(route.id, text) },
                                 onSendTerminalKey = { key -> onSendTerminalKey(route.id, key) },
                                 onObserveTerminal = { pane -> onSelectTerminalPane(route.id, pane) },
+                                onStopObserve = { onStopTerminal(route.id) },
                                 onOpenProjectReview = {
                                     surface.setSection(HostSection.Review)
                                     surface.show(HostSection.Review)

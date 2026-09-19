@@ -5,6 +5,8 @@ import kotlin.time.ExperimentalTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -317,11 +319,16 @@ public class HostManager(
                 is Outcome.Ok -> {
                     attempt = 0
                     val session = outcome.value
+                    val seed = mutex.withLock { live[hostId]?.snapshot }
                     val collectJob =
                         mgrScope.launch {
-                            session.liveUpdates().collect { update ->
-                                handleLiveUpdate(hostId, session, update)
-                            }
+                            session
+                                .liveUpdates(
+                                    afterSequence = seed?.eventSequence,
+                                    serverGeneration = seed?.serverGeneration,
+                                ).collect { update ->
+                                    handleLiveUpdate(hostId, session, update)
+                                }
                         }
                     try {
                         collectJob.join()
@@ -372,91 +379,114 @@ public class HostManager(
                 is Outcome.Ok -> result.value
             }
         store.setLastConnectedAddress(hostId, connected.address)
-        val discovered =
-            when (val result = connected.host.client.discover()) {
+        val cachedSessionName = profile.topology?.sessionName?.takeIf { it.isNotEmpty() }
+        var chosen: DiscoveredSession? = null
+        var session: LuviaSession? = null
+        var sessionName = cachedSessionName
+        if (cachedSessionName != null) {
+            when (val result = connected.host.client.open(cachedSessionName)) {
+                is Outcome.Ok -> session = result.value
                 is Outcome.Err -> {
-                    connected.host.close()
-                    return fail(result.failure)
+                    if (!isUnknownSession(result.failure)) {
+                        connected.host.close()
+                        return fail(result.failure)
+                    }
                 }
-                is Outcome.Ok -> result.value
             }
-        val chosen =
-            discovered.firstOrNull { it.isDefault && it.running }
-                ?: discovered.firstOrNull { it.running }
-                ?: discovered.firstOrNull { it.isDefault }
-                ?: discovered.firstOrNull()
-        val sessionName = chosen?.name ?: "default"
-        val session =
-            when (val result = connected.host.client.open(sessionName)) {
-                is Outcome.Err -> {
-                    connected.host.close()
-                    return fail(result.failure)
+        }
+        if (session == null) {
+            val discovered =
+                when (val result = connected.host.client.discover()) {
+                    is Outcome.Err -> {
+                        connected.host.close()
+                        return fail(result.failure)
+                    }
+                    is Outcome.Ok -> result.value
                 }
-                is Outcome.Ok -> result.value
-            }
+            chosen =
+                discovered.firstOrNull { it.isDefault && it.running }
+                    ?: discovered.firstOrNull { it.running }
+                    ?: discovered.firstOrNull { it.isDefault }
+                    ?: discovered.firstOrNull()
+            sessionName = chosen?.name ?: "default"
+            session =
+                when (val result = connected.host.client.open(sessionName)) {
+                    is Outcome.Err -> {
+                        connected.host.close()
+                        return fail(result.failure)
+                    }
+                    is Outcome.Ok -> result.value
+                }
+        }
+        val opened = session!!
+        val openedName = sessionName ?: "default"
         val backend =
-            session.backend.takeIf { it == "herdr" } ?: chosen?.backend ?: "luvus"
+            opened.backend.takeIf { it == "herdr" } ?: chosen?.backend ?: "luvus"
         mutex.withLock {
             live.remove(hostId)?.close()
             live[hostId] =
                 LiveHost(
                     connection = connected,
-                    session = session,
+                    session = opened,
                     address = connected.address,
-                    sessionName = sessionName,
+                    sessionName = openedName,
                     backend = backend,
                 )
         }
-        val pulled = pullSessionState(hostId, session)
+        val pulled = pullSessionState(hostId, opened)
         if (pulled is Outcome.Err) {
             connected.host.close()
             mutex.withLock { live.remove(hostId) }
             return fail(pulled.failure)
         }
 
-        syncPushAfterConnect(session)
+        syncPushAfterConnect(opened)
 
         store.updateStatus(hostId, HostStatus.Reachable, nowEpochMs())
-        setLink(hostId, HostLink.Online(connected.address, sessionName))
-        return ok(session)
+        setLink(hostId, HostLink.Online(connected.address, openedName))
+        return ok(opened)
     }
 
-    private suspend fun pullSessionState(hostId: String, session: LuviaSession): Outcome<Unit> {
-        val snapshot =
-            when (val result = session.snapshot()) {
-                is Outcome.Err -> return fail(result.failure)
-                is Outcome.Ok -> result.value
+    private suspend fun pullSessionState(hostId: String, session: LuviaSession): Outcome<Unit> =
+        coroutineScope {
+            val snapshotDeferred = async { session.snapshot() }
+            val tasksDeferred = async { session.listTasks() }
+            val agentsDeferred = async { session.listAgents() }
+            val snapshot =
+                when (val result = snapshotDeferred.await()) {
+                    is Outcome.Err -> return@coroutineScope fail(result.failure)
+                    is Outcome.Ok -> result.value
+                }
+            val tasks =
+                when (val result = tasksDeferred.await()) {
+                    is Outcome.Err -> emptyList()
+                    is Outcome.Ok -> result.value
+                }
+            val agents =
+                when (val result = agentsDeferred.await()) {
+                    is Outcome.Err -> snapshot.agents
+                    is Outcome.Ok -> result.value
+                }
+            mutex.withLock {
+                live[hostId]?.snapshot = snapshot
+                live[hostId]?.tasks = tasks
+                live[hostId]?.agents = agents
             }
-        val tasks =
-            when (val result = session.listTasks()) {
-                is Outcome.Err -> emptyList()
-                is Outcome.Ok -> result.value
-            }
-        val agents =
-            when (val result = session.listAgents()) {
-                is Outcome.Err -> snapshot.agents
-                is Outcome.Ok -> result.value
-            }
-        mutex.withLock {
-            live[hostId]?.snapshot = snapshot
-            live[hostId]?.tasks = tasks
-            live[hostId]?.agents = agents
+            store.rememberTopology(
+                hostId,
+                CachedTopology(
+                    sessionName = snapshot.sessionName,
+                    serverGeneration = snapshot.serverGeneration,
+                    eventSequence = snapshot.eventSequence,
+                    workspaces = snapshot.workspaces,
+                    agents = agents,
+                    tasks = tasks,
+                    capturedAtEpochMs = nowEpochMs(),
+                ),
+            )
+            mutex.withLock { publishLocked(catalogHosts) }
+            ok(Unit)
         }
-        store.rememberTopology(
-            hostId,
-            CachedTopology(
-                sessionName = snapshot.sessionName,
-                serverGeneration = snapshot.serverGeneration,
-                eventSequence = snapshot.eventSequence,
-                workspaces = snapshot.workspaces,
-                agents = agents,
-                tasks = tasks,
-                capturedAtEpochMs = nowEpochMs(),
-            ),
-        )
-        mutex.withLock { publishLocked(catalogHosts) }
-        return ok(Unit)
-    }
 
     private suspend fun handleLiveUpdate(
         hostId: String,
@@ -720,6 +750,15 @@ private fun isRetryable(failure: Failure): Boolean {
         else -> true
     }
 }
+
+private fun isUnknownSession(failure: Failure): Boolean =
+    when (failure) {
+        is Failure.ProtocolError -> failure.reason.contains("unknown_session")
+        is Failure.Remote -> failure.code == "unknown_session"
+        is Failure.Bridge -> failure.reason.contains("unknown_session")
+        else -> false
+    }
+
 
 private fun backoffMs(attempt: Int): Long {
     val shift = attempt.coerceAtMost(6)

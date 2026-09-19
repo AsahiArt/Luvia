@@ -69,7 +69,6 @@ public class HostUhp(
                 tasks.load()
             }
             HostSection.Layout -> layout.load()
-            HostSection.Terminal -> Unit
         }
     }
 

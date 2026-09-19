@@ -2,8 +2,8 @@ use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
 /// Durable pairing roles. The action token uses these fixed scopes.
-/// A separate session token (never sent to the device) carries `read`+`admin`
-/// for `session.snapshot` and `events.subscribe` only.
+/// A session token (`read`+`admin`) is minted only for Hosts older than
+/// 0.13.4, where `session.snapshot` / `events.subscribe` still require admin.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
