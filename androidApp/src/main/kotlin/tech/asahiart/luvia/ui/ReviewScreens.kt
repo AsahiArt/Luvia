@@ -63,6 +63,7 @@ import tech.asahiart.luvia.ReviewNoteState
 import tech.asahiart.luvia.HostUhpState
 import tech.asahiart.luvia.HostCapabilities
 import tech.asahiart.luvia.UnconfirmedKind
+import tech.asahiart.luvia.ui.theme.LuviaTheme
 
 @Composable
 fun ReviewSection(
@@ -83,8 +84,8 @@ fun ReviewSection(
     modifier: Modifier = Modifier,
 ) {
     when {
-        !state.connected -> {
-            UhpEmptyPane(title = "Review", message = "Connect to this host", modifier = modifier)
+        host.shouldShowOfflineEmpty(state.connected) -> {
+            UhpEmptyPane(title = "Review", message = host.offlineEmptyMessage(), modifier = modifier)
         }
         !state.capabilities.diffList -> {
             UhpEmptyPane(title = "Review", message = "Diff is not available on this host.", modifier = modifier)
@@ -171,7 +172,6 @@ private fun ReviewFileListPane(
         layerMatch && notesMatch
     }
     Column(modifier.fillMaxSize()) {
-        ProjectChips(state = state, onSelect = onSelectWorkspace)
         PullToRefreshBox(
             isRefreshing = state.review.loading,
             onRefresh = onRefresh,
@@ -807,12 +807,10 @@ private data class PendingReviewNote(
 )
 
 @Composable
-private fun diffAddColor(): Color =
-    if (isSystemInDarkTheme()) Color(0xFF81C784) else Color(0xFF0B6E3F)
+private fun diffAddColor(): Color = LuviaTheme.extended.diffAdd
 
 @Composable
-private fun diffDelColor(): Color =
-    if (isSystemInDarkTheme()) Color(0xFFEF9A9A) else Color(0xFFB71C1C)
+private fun diffDelColor(): Color = LuviaTheme.extended.diffDel
 
 @Composable
 internal fun ProjectChips(

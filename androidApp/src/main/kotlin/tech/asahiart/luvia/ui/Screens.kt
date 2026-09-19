@@ -43,6 +43,8 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.BadgedBox
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -116,6 +118,7 @@ import tech.asahiart.luvia.isTailnetAddress
 import tech.asahiart.luvia.TerminalKey
 import tech.asahiart.luvia.ui.theme.LuviaTheme
 import tech.asahiart.luvia.HostSection
+import tech.asahiart.luvia.HostUhpState
 import tech.asahiart.luvia.PushRegistrar
 
 @Composable
@@ -189,8 +192,6 @@ fun HostListPane(
                             selected = selectedHostId == host.id,
                             nowEpochMs = nowEpochMs,
                             onSelect = onSelect,
-                            onConnect = onConnect,
-                            onDisconnect = onDisconnect,
                         )
                     }
                 }
@@ -205,21 +206,7 @@ private fun HostRow(
     selected: Boolean,
     nowEpochMs: Long,
     onSelect: (String) -> Unit,
-    onConnect: (String) -> Unit,
-    onDisconnect: (String) -> Unit,
 ) {
-    val action = when {
-        host.connection == ConnectionBadge.Connecting -> "Cancel"
-        host.connected -> "Disconnect"
-        else -> "Connect"
-    }
-    val onAction = {
-        if (host.connected || host.connection == ConnectionBadge.Connecting) {
-            onDisconnect(host.id)
-        } else {
-            onConnect(host.id)
-        }
-    }
     val freshness = freshnessLabel(host.lastUpdatedEpochMs, nowEpochMs)
     val statusLine = buildString {
         append(host.connection.label())
@@ -261,12 +248,13 @@ private fun HostRow(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
                         if (isTailnetAddress(host.address)) {
-                            HostBadge("Tailnet", LuviaTheme.extended.connecting)
+                            TypeBadge("Tailnet", LuviaTheme.extended.connecting)
                         }
                         if (host.backend.equals("herdr", ignoreCase = true)) {
-                            HostBadge("Herdr", LuviaTheme.extended.live)
+                            TypeBadge("Herdr", LuviaTheme.extended.live)
                         }
                     }
                     host.errorMessage?.let { error ->
@@ -284,25 +272,13 @@ private fun HostRow(
                 HostAvatar(name = host.name, connection = host.connection)
             },
             trailingContent = {
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    if (host.blockedAgents > 0) {
-                        Badge(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                        ) {
-                            Text("${host.blockedAgents}")
-                        }
+                if (host.blockedAgents > 0) {
+                    Badge(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ) {
+                        Text("${host.blockedAgents}")
                     }
-                    TextButton(
-                        onClick = onAction,
-                        modifier = Modifier.semantics(mergeDescendants = true) {
-                            contentDescription = action
-                            role = Role.Button
-                        },
-                    ) { Text(action) }
                 }
             },
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
@@ -310,41 +286,7 @@ private fun HostRow(
     }
 }
 
-@Composable
-private fun HostAvatar(name: String, connection: ConnectionBadge) {
-    Box(contentAlignment = Alignment.BottomEnd) {
-        Surface(
-            color = MaterialTheme.colorScheme.primary,
-            shape = RoundedCornerShape(99.dp),
-            modifier = Modifier.size(40.dp),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    name.trim().take(1).ifEmpty { "H" }.uppercase(),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
-            }
-        }
-        Surface(
-            color = connection.color(),
-            shape = RoundedCornerShape(99.dp),
-            modifier = Modifier.size(12.dp).border(2.dp, MaterialTheme.colorScheme.surface, RoundedCornerShape(99.dp)),
-        ) {}
-    }
-}
 
-@Composable
-internal fun HostBadge(label: String, color: Color) {
-    Text(
-        label,
-        style = MaterialTheme.typography.labelSmall,
-        color = color,
-        modifier = Modifier
-            .background(color.copy(alpha = 0.12f), RoundedCornerShape(50))
-            .padding(horizontal = 6.dp, vertical = 1.dp),
-    )
-}
 
 @Composable
 fun HostDetailPane(
@@ -361,22 +303,34 @@ fun HostDetailPane(
     pushEnabled: Boolean = false,
     hasPushDistributor: Boolean = true,
     onSetPushEnabled: (Boolean) -> Unit = {},
-    agentsContent: @Composable (Modifier) -> Unit = { EmptyPane("Agents", "Connect to this host", modifier = it) },
-    filesContent: @Composable (Modifier) -> Unit = { EmptyPane("Files", "Connect to this host", modifier = it) },
-    searchContent: @Composable (Modifier) -> Unit = { EmptyPane("Search", "Connect to this host", modifier = it) },
-    reviewContent: @Composable (Modifier) -> Unit = { EmptyPane("Review", "Connect to this host", modifier = it) },
-    worktreesContent: @Composable (Modifier) -> Unit = { EmptyPane("Worktrees", "Connect to this host", modifier = it) },
-    automationsContent: @Composable (Modifier) -> Unit = { EmptyPane("Automations", "Connect to this host", modifier = it) },
-    tasksContent: @Composable (Modifier) -> Unit = { EmptyPane("Tasks", "Connect to this host", modifier = it) },
-    layoutContent: @Composable (Modifier) -> Unit = { EmptyPane("Layout", "Connect to this host", modifier = it) },
+    state: HostUhpState? = null,
+    attentionCount: Int = 0,
+    onSelectWorkspace: (String) -> Unit = {},
+    agentsContent: @Composable (Modifier) -> Unit = { EmptyPane("Agents", "This Host has not connected yet.", modifier = it) },
+    filesContent: @Composable (Modifier) -> Unit = { EmptyPane("Files", "This Host has not connected yet.", modifier = it) },
+    searchContent: @Composable (Modifier) -> Unit = { EmptyPane("Search", "This Host has not connected yet.", modifier = it) },
+    reviewContent: @Composable (Modifier) -> Unit = { EmptyPane("Review", "This Host has not connected yet.", modifier = it) },
+    worktreesContent: @Composable (Modifier) -> Unit = { EmptyPane("Worktrees", "This Host has not connected yet.", modifier = it) },
+    automationsContent: @Composable (Modifier) -> Unit = { EmptyPane("Automations", "This Host has not connected yet.", modifier = it) },
+    tasksContent: @Composable (Modifier) -> Unit = { EmptyPane("Tasks", "This Host has not connected yet.", modifier = it) },
+    layoutContent: @Composable (Modifier) -> Unit = { EmptyPane("Layout", "This Host has not connected yet.", modifier = it) },
     modifier: Modifier = Modifier,
 ) {
     var confirmUnpair by remember { mutableStateOf(false) }
-    var overflowOpen by remember { mutableStateOf(false) }
     var editingConnection by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var chrome by remember { mutableStateOf(section.toChromeTab()) }
+    var moreSurface by remember { mutableStateOf(section.takeIf { it.isMoreSurface }) }
+    var workspaceSegment by remember {
+        mutableStateOf(if (section == HostSection.Tasks) HostSection.Tasks else HostSection.Review)
+    }
     val visible = sections.ifEmpty { HostSection.entries }
-    val tabs = visible.filter { it.isPrimaryTab }
+    LaunchedEffect(section) {
+        if (section == HostSection.Review || section == HostSection.Tasks) {
+            chrome = HostChromeTab.Workspace
+            workspaceSegment = section
+        }
+    }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
@@ -389,11 +343,20 @@ fun HostDetailPane(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             Text(host.name, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                            ConnectionStatusPill(host.connection)
                             if (host.backend.equals("herdr", ignoreCase = true)) {
-                                HostBadge("Herdr", LuviaTheme.extended.live)
+                                TypeBadge("Herdr", LuviaTheme.extended.live)
+                            }
+                            if (host.isObserver) {
+                                TypeBadge("Observer", MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        Text(host.sessionName ?: host.address, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text(
+                            host.sessionName ?: host.address,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -402,75 +365,52 @@ fun HostDetailPane(
                     actionIconContentColor = MaterialTheme.colorScheme.onBackground,
                 ),
                 actions = {
-                    if (host.connected) {
-                        TextButton(onClick = onDisconnect) {
-                            Text(if (host.connection == ConnectionBadge.Connecting) "Cancel" else "Disconnect")
-                        }
-                    } else {
-                        Button(onClick = onConnect) { Text("Connect") }
-                    }
-                    Box {
-                        IconButton(
-                            onClick = { overflowOpen = true },
-                            modifier = Modifier.semantics { contentDescription = "More" },
-                        ) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = null)
-                        }
-                        DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
-                            visible.filter { !it.isPrimaryTab }.forEach { item ->
-                                DropdownMenuItem(
-                                    text = { Text(item.name) },
-                                    onClick = {
-                                        overflowOpen = false
-                                        onSection(item)
-                                    },
-                                    modifier = Modifier.semantics { contentDescription = item.name },
-                                )
-                            }
-                            if (visible.any { !it.isPrimaryTab }) {
-                                HorizontalDivider()
-                            }
-                            DropdownMenuItem(
-                                text = { Text("Refresh") },
-                                onClick = {
-                                    overflowOpen = false
-                                    onRefresh()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Edit connection") },
-                                onClick = {
-                                    overflowOpen = false
-                                    editingConnection = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Settings") },
-                                onClick = {
-                                    overflowOpen = false
-                                    showSettings = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Unpair") },
-                                onClick = {
-                                    overflowOpen = false
-                                    confirmUnpair = true
-                                },
-                            )
-                        }
+                    IconButton(
+                        onClick = { showSettings = true },
+                        modifier = Modifier.semantics { contentDescription = "Settings" },
+                    ) {
+                        Icon(Icons.Filled.Settings, contentDescription = null)
                     }
                 },
             )
         },
         bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                tabs.forEach { item ->
+                HostChromeTab.entries.forEach { tab ->
                     NavigationBarItem(
-                        selected = item == section,
-                        onClick = { onSection(item) },
-                        icon = { Icon(item.barIcon(), contentDescription = null) },
-                        label = { Text(item.name) },
+                        selected = chrome == tab,
+                        onClick = {
+                            chrome = tab
+                            when (tab) {
+                                HostChromeTab.Agents -> {
+                                    moreSurface = null
+                                    onSection(HostSection.Agents)
+                                }
+                                HostChromeTab.Workspace -> {
+                                    moreSurface = null
+                                    onSection(workspaceSegment)
+                                }
+                                HostChromeTab.More -> {
+                                    moreSurface = null
+                                }
+                            }
+                        },
+                        icon = {
+                            if (tab == HostChromeTab.Agents && attentionCount > 0) {
+                                BadgedBox(
+                                    badge = {
+                                        Badge {
+                                            Text("$attentionCount")
+                                        }
+                                    },
+                                ) {
+                                    Icon(tab.barIcon(), contentDescription = null)
+                                }
+                            } else {
+                                Icon(tab.barIcon(), contentDescription = null)
+                            }
+                        },
+                        label = { Text(tab.label) },
                     )
                 }
             }
@@ -485,15 +425,53 @@ fun HostDetailPane(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-            when (section) {
-                HostSection.Agents -> agentsContent(Modifier.weight(1f))
-                HostSection.Files -> filesContent(Modifier.weight(1f))
-                HostSection.Search -> searchContent(Modifier.weight(1f))
-                HostSection.Review -> reviewContent(Modifier.weight(1f))
-                HostSection.Worktrees -> worktreesContent(Modifier.weight(1f))
-                HostSection.Automations -> automationsContent(Modifier.weight(1f))
-                HostSection.Tasks -> tasksContent(Modifier.weight(1f))
-                HostSection.Layout -> layoutContent(Modifier.weight(1f))
+            when (chrome) {
+                HostChromeTab.Agents -> agentsContent(Modifier.weight(1f))
+                HostChromeTab.Workspace -> {
+                    WorkspaceChrome(
+                        state = state,
+                        segment = workspaceSegment,
+                        onSegment = { next ->
+                            workspaceSegment = next
+                            onSection(next)
+                        },
+                        onSelectWorkspace = onSelectWorkspace,
+                        reviewContent = reviewContent,
+                        tasksContent = tasksContent,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                HostChromeTab.More -> {
+                    val surface = moreSurface
+                    if (surface == null) {
+                        MoreList(
+                            visible = visible.filter { it.isMoreSurface },
+                            onOpen = { item ->
+                                moreSurface = item
+                                onSection(item)
+                            },
+                            onSettings = { showSettings = true },
+                            modifier = Modifier.weight(1f),
+                        )
+                    } else {
+                        when (surface) {
+                            HostSection.Files -> filesContent(Modifier.weight(1f))
+                            HostSection.Search -> searchContent(Modifier.weight(1f))
+                            HostSection.Worktrees -> worktreesContent(Modifier.weight(1f))
+                            HostSection.Automations -> automationsContent(Modifier.weight(1f))
+                            HostSection.Layout -> layoutContent(Modifier.weight(1f))
+                            else -> MoreList(
+                                visible = visible.filter { it.isMoreSurface },
+                                onOpen = { item ->
+                                    moreSurface = item
+                                    onSection(item)
+                                },
+                                onSettings = { showSettings = true },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -532,18 +510,142 @@ fun HostDetailPane(
             pushEnabled = pushEnabled,
             hasPushDistributor = hasPushDistributor,
             onSetPushEnabled = onSetPushEnabled,
+            onDisconnect = onDisconnect,
+            onEditConnection = { editingConnection = true },
+            onUnpair = { confirmUnpair = true },
             onDismiss = { showSettings = false },
         )
     }
- }
+}
 
-private fun HostSection.barIcon(): ImageVector = when (this) {
-    HostSection.Agents -> Icons.Filled.Person
-    HostSection.Review -> Icons.Filled.Edit
-    HostSection.Tasks -> Icons.Filled.CheckCircle
+private val HostChromeTab.label: String
+    get() = when (this) {
+        HostChromeTab.Agents -> "Agents"
+        HostChromeTab.Workspace -> "Workspace"
+        HostChromeTab.More -> "More"
+    }
+
+private fun HostChromeTab.barIcon(): ImageVector = when (this) {
+    HostChromeTab.Agents -> Icons.Filled.Person
+    HostChromeTab.Workspace -> Icons.Filled.Edit
+    HostChromeTab.More -> Icons.Filled.MoreVert
+}
+
+@Composable
+private fun WorkspaceChrome(
+    state: HostUhpState?,
+    segment: HostSection,
+    onSegment: (HostSection) -> Unit,
+    onSelectWorkspace: (String) -> Unit,
+    reviewContent: @Composable (Modifier) -> Unit,
+    tasksContent: @Composable (Modifier) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.fillMaxSize()) {
+        if (state != null && state.projectChoices().size != 1) {
+            ProjectChips(state = state, onSelect = onSelectWorkspace)
+        }
+        val segments = listOf(HostSection.Review, HostSection.Tasks)
+        SingleChoiceSegmentedButtonRow(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            segments.forEachIndexed { index, item ->
+                SegmentedButton(
+                    selected = segment == item,
+                    onClick = { onSegment(item) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = segments.size),
+                ) {
+                    Text(item.name)
+                }
+            }
+        }
+        if (state != null && state.needsProjectPick()) {
+            EmptyState(
+                title = "Select a project",
+                message = "Review and Tasks use the project you pick, not the TUI focus.",
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            when (segment) {
+                HostSection.Tasks -> tasksContent(Modifier.weight(1f))
+                else -> reviewContent(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoreList(
+    visible: List<HostSection>,
+    onOpen: (HostSection) -> Unit,
+    onSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val project = visible.filter {
+        it == HostSection.Files || it == HostSection.Search || it == HostSection.Worktrees
+    }
+    val hostGroup = visible.filter {
+        it == HostSection.Automations || it == HostSection.Layout
+    }
+    LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
+        if (project.isNotEmpty()) {
+            item { SectionHeader("Project tools", Modifier.padding(horizontal = 16.dp)) }
+            items(project, key = { it.name }) { item ->
+                MoreRow(item, onOpen)
+            }
+        }
+        if (hostGroup.isNotEmpty()) {
+            item { SectionHeader("Host", Modifier.padding(horizontal = 16.dp)) }
+            items(hostGroup, key = { it.name }) { item ->
+                MoreRow(item, onOpen)
+            }
+        }
+        item { SectionHeader("This device", Modifier.padding(horizontal = 16.dp)) }
+        item {
+            ListItem(
+                headlineContent = { Text("Settings") },
+                supportingContent = { Text("Push, connection, unpair") },
+                leadingContent = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                modifier = Modifier.clickable(onClick = onSettings),
+            )
+        }
+    }
+}
+
+@Composable
+private fun MoreRow(section: HostSection, onOpen: (HostSection) -> Unit) {
+    ListItem(
+        headlineContent = { Text(section.moreTitle) },
+        supportingContent = { Text(section.moreSubtitle) },
+        leadingContent = { Icon(section.moreIcon(), contentDescription = null) },
+        modifier = Modifier
+            .clickable { onOpen(section) }
+            .semantics { contentDescription = section.moreTitle },
+    )
+}
+
+private val HostSection.moreTitle: String
+    get() = name
+
+private val HostSection.moreSubtitle: String
+    get() = when (this) {
+        HostSection.Files -> "Tree of the current workspace"
+        HostSection.Search -> "Search the current workspace"
+        HostSection.Worktrees -> "Git worktrees for this repo"
+        HostSection.Automations -> "Host ledger of scheduled jobs"
+        HostSection.Layout -> "Panes without an Agent"
+        else -> ""
+    }
+
+private fun HostSection.moreIcon(): ImageVector = when (this) {
+    HostSection.Files -> Icons.Filled.Person
+    HostSection.Search -> Icons.Filled.PlayArrow
+    HostSection.Worktrees -> Icons.Filled.Edit
     HostSection.Automations -> Icons.Filled.DateRange
+    HostSection.Layout -> Icons.Filled.MoreVert
     else -> Icons.Filled.MoreVert
 }
+
 
 @Composable
 private fun EditConnectionDialog(
@@ -614,6 +716,9 @@ private fun HostSettingsSheet(
     pushEnabled: Boolean,
     hasPushDistributor: Boolean,
     onSetPushEnabled: (Boolean) -> Unit,
+    onDisconnect: () -> Unit = {},
+    onEditConnection: () -> Unit = {},
+    onUnpair: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -629,8 +734,12 @@ private fun HostSettingsSheet(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Text(
+                if (host.isObserver) "Role: Observer" else "Role: Controller",
+                style = MaterialTheme.typography.bodyMedium,
+            )
             if (host.backend.equals("herdr", ignoreCase = true)) {
-                HostBadge("Herdr", LuviaTheme.extended.live)
+                TypeBadge("Herdr", LuviaTheme.extended.live)
             }
             if (pushCapable) {
                 Row(
@@ -663,10 +772,36 @@ private fun HostSettingsSheet(
                     }
                 }
             }
+            FilledTonalButton(
+                onClick = {
+                    onEditConnection()
+                    onDismiss()
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Edit connection") }
+            if (host.connected || host.connection == ConnectionBadge.Connecting) {
+                FilledTonalButton(
+                    onClick = {
+                        onDisconnect()
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (host.connection == ConnectionBadge.Connecting) "Cancel connecting" else "Disconnect")
+                }
+            }
+            TextButton(
+                onClick = {
+                    onUnpair()
+                    onDismiss()
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Unpair") }
             Spacer(Modifier.height(16.dp))
         }
     }
 }
+
 
 
 
@@ -702,22 +837,23 @@ fun TerminalPane(
             terminalVertical.scrollTo(terminalVertical.maxValue)
         }
     }
+    val ext = LuviaTheme.extended
     val chrome = when {
-        !live -> Color(0xFFFFC66D)
-        terminal.control == TerminalControl.Controlling -> Color(0xFF75D69C)
-        terminal.control == TerminalControl.Conflict -> Color(0xFFFFC66D)
-        else -> Color(0xFF9AA4B2)
+        !live -> ext.stale
+        terminal.control == TerminalControl.Controlling -> ext.live
+        terminal.control == TerminalControl.Conflict -> ext.stale
+        else -> ext.offline
     }
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = defaultFg,
         unfocusedTextColor = defaultFg,
         disabledTextColor = defaultFg.copy(alpha = 0.5f),
-        focusedLabelColor = Color(0xFF9AA4B2),
-        unfocusedLabelColor = Color(0xFF9AA4B2),
+        focusedLabelColor = ext.offline,
+        unfocusedLabelColor = ext.offline,
         cursorColor = defaultFg,
-        focusedBorderColor = Color(0xFF75D69C),
-        unfocusedBorderColor = Color.White.copy(alpha = 0.24f),
-        disabledBorderColor = Color.White.copy(alpha = 0.12f),
+        focusedBorderColor = ext.live,
+        unfocusedBorderColor = defaultFg.copy(alpha = 0.24f),
+        disabledBorderColor = defaultFg.copy(alpha = 0.12f),
     )
     Column(
         modifier
@@ -727,7 +863,7 @@ fun TerminalPane(
             .systemBottomPadding(),
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(terminal.title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(terminal.title, color = defaultFg, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             FilterChip(
                 selected = wrap,
                 onClick = { wrap = !wrap },
@@ -735,11 +871,11 @@ fun TerminalPane(
             )
             Spacer(Modifier.width(8.dp))
             if (!live) {
-                Text("Unavailable", color = Color(0xFFFFC66D), style = MaterialTheme.typography.labelLarge)
+                Text("Unavailable", color = ext.stale, style = MaterialTheme.typography.labelLarge)
             } else if (!terminal.canControl) {
-                Text("Observing", color = Color(0xFF9AA4B2), style = MaterialTheme.typography.labelLarge)
+                Text("Observing", color = ext.offline, style = MaterialTheme.typography.labelLarge)
             } else if (terminal.control == TerminalControl.Controlling) {
-                Text("Controlling", color = Color(0xFF75D69C), style = MaterialTheme.typography.labelLarge)
+                Text("Controlling", color = ext.live, style = MaterialTheme.typography.labelLarge)
             } else {
                 FilledTonalButton(onClick = onRequestControl, enabled = terminal.control != TerminalControl.Requesting) {
                     Text(if (terminal.control == TerminalControl.Conflict) "Request control" else "Control")
@@ -750,7 +886,7 @@ fun TerminalPane(
         if (live && terminal.conflictMessage != null) {
             Text(
                 terminal.conflictMessage,
-                color = Color(0xFFFFC66D),
+                color = ext.stale,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
@@ -771,7 +907,7 @@ fun TerminalPane(
                     if (!boundToPane && others.isNotEmpty()) {
                         Text(
                             "Live panes",
-                            color = Color(0xFF9AA4B2),
+                            color = ext.offline,
                             style = MaterialTheme.typography.labelLarge,
                         )
                         others.forEach { pane ->
@@ -814,7 +950,7 @@ fun TerminalPane(
             }
         }
         if (live && terminal.isTruncated) {
-            Text("Output truncated", color = Color(0xFFFFC66D), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 16.dp))
+            Text("Output truncated", color = ext.stale, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 16.dp))
         }
         if (live && terminal.canControl && terminal.control == TerminalControl.Controlling) {
             Row(
@@ -824,15 +960,15 @@ fun TerminalPane(
                     .padding(horizontal = 12.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TerminalKeyChip("Esc") { onSendKey(TerminalKey.Escape) }
-                TerminalKeyChip("Tab") { onSendKey(TerminalKey.Tab) }
-                TerminalKeyChip("Ctrl-C") { onSendKey(TerminalKey.CtrlC) }
-                TerminalKeyChip("Ctrl-D") { onSendKey(TerminalKey.CtrlD) }
-                TerminalKeyChip("↑") { onSendKey(TerminalKey.Up) }
-                TerminalKeyChip("↓") { onSendKey(TerminalKey.Down) }
-                TerminalKeyChip("←") { onSendKey(TerminalKey.Left) }
-                TerminalKeyChip("→") { onSendKey(TerminalKey.Right) }
-                TerminalKeyChip("Enter") { onSendKey(TerminalKey.Enter) }
+                KeyChip("Esc") { onSendKey(TerminalKey.Escape) }
+                KeyChip("Tab") { onSendKey(TerminalKey.Tab) }
+                KeyChip("Ctrl-C") { onSendKey(TerminalKey.CtrlC) }
+                KeyChip("Ctrl-D") { onSendKey(TerminalKey.CtrlD) }
+                KeyChip("↑") { onSendKey(TerminalKey.Up) }
+                KeyChip("↓") { onSendKey(TerminalKey.Down) }
+                KeyChip("←") { onSendKey(TerminalKey.Left) }
+                KeyChip("→") { onSendKey(TerminalKey.Right) }
+                KeyChip("Enter") { onSendKey(TerminalKey.Enter) }
             }
         }
         if (live && terminal.canControl) {
@@ -864,10 +1000,6 @@ fun TerminalPane(
     }
 }
 
-@Composable
-private fun TerminalKeyChip(label: String, onClick: () -> Unit) {
-    FilledTonalButton(onClick = onClick) { Text(label) }
-}
 
 @Composable
 internal fun JumpToLatestPill(
@@ -1370,12 +1502,6 @@ internal fun freshnessLabel(epochMs: Long, nowEpochMs: Long): String? {
     }
 }
 
-private fun ConnectionBadge.label() = when (this) {
-    ConnectionBadge.Live -> "Live"
-    ConnectionBadge.Connecting -> "Connecting"
-    ConnectionBadge.Stale -> "Reconnect"
-    ConnectionBadge.Offline -> "Offline"
-}
 
 private fun defaultDeviceLabel(context: Context): String {
     val deviceName = Settings.Global.getString(context.contentResolver, Settings.Global.DEVICE_NAME)
@@ -1389,10 +1515,3 @@ private fun defaultDeviceLabel(context: Context): String {
     return Build.MODEL.orEmpty()
 }
 
-@Composable
-private fun ConnectionBadge.color() = when (this) {
-    ConnectionBadge.Live -> LuviaTheme.extended.live
-    ConnectionBadge.Connecting -> LuviaTheme.extended.connecting
-    ConnectionBadge.Stale -> LuviaTheme.extended.stale
-    ConnectionBadge.Offline -> LuviaTheme.extended.offline
-}

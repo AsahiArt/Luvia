@@ -49,8 +49,8 @@ fun WorktreesSection(
     modifier: Modifier = Modifier,
 ) {
     when {
-        !host.connected && !state.connected -> {
-            UhpEmptyPane(title = "Worktrees", message = "Connect to this host", modifier = modifier)
+        host.shouldShowOfflineEmpty(state.connected) -> {
+            UhpEmptyPane(title = "Worktrees", message = host.offlineEmptyMessage(), modifier = modifier)
         }
         !state.capabilities.worktreeList -> {
             UhpEmptyPane(title = "Worktrees", message = "Worktrees are not available on this host.", modifier = modifier)

@@ -129,12 +129,12 @@ struct AcpLaunchSheet: View {
 
 struct AcpSessionView: View {
     @Bindable var model: AppModel
+    @Environment(\.dismiss) private var dismiss
 
     private var acp: AcpState? { model.acpState }
     private var info: AcpSessionInfo? { acp?.info }
     private var transcript: [AcpTranscriptItem] { KotlinLists.array(acp?.transcript as Any) }
     private var plan: [AcpPlanEntry] { KotlinLists.array(acp?.plan as Any) }
-
     private var cwdLeaf: String? {
         guard let cwd = info?.cwd, !cwd.isEmpty else { return nil }
         let leaf = URL(fileURLWithPath: cwd).lastPathComponent
@@ -170,47 +170,53 @@ struct AcpSessionView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                DesignTokens.canvas.ignoresSafeArea()
-                sessionBody
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 1) {
-                        Text(info?.agentName ?? "Agent")
-                            .font(.headline)
-                            .foregroundStyle(DesignTokens.ink)
-                        if let cwdLeaf {
-                            Text(cwdLeaf)
-                                .font(.caption)
-                                .foregroundStyle(DesignTokens.inkMuted)
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { model.closeAcp() }
-                }
-                if canStop {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("Stop") { model.cancelAcp() }
+        ZStack {
+            DesignTokens.canvas.ignoresSafeArea()
+            sessionBody
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 1) {
+                    Text(info?.agentName ?? "Agent")
+                        .font(.headline)
+                        .foregroundStyle(DesignTokens.ink)
+                    if let cwdLeaf {
+                        Text(cwdLeaf)
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.inkMuted)
                     }
                 }
+                .accessibilityElement(children: .combine)
             }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if !plan.isEmpty {
-                    AcpPlanCard(entries: plan)
-                        .padding(.horizontal, DesignTokens.Space.m)
-                        .padding(.bottom, DesignTokens.Space.s)
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    if canStop {
+                        Button("Cancel turn") { model.cancelAcp() }
+                    }
+                    Button("End session", role: .destructive) {
+                        model.closeAcp()
+                        dismiss()
+                    }
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
                 }
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                bottomBar
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if !plan.isEmpty {
+                AcpPlanCard(entries: plan)
+                    .padding(.horizontal, DesignTokens.Space.m)
+                    .padding(.bottom, DesignTokens.Space.s)
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottomBar
+        }
         .tint(DesignTokens.accent)
+        .onDisappear {
+            model.hideAcp()
+        }
     }
 
     @ViewBuilder
@@ -225,6 +231,7 @@ struct AcpSessionView: View {
                 if acp?.run == .exited {
                     AcpExitBanner(message: acp?.exitMessage) {
                         model.closeAcp()
+                        dismiss()
                     }
                     .padding(.horizontal, DesignTokens.Space.m)
                     .padding(.top, DesignTokens.Space.s)
@@ -260,10 +267,21 @@ struct AcpSessionView: View {
     private var bottomBar: some View {
         VStack(spacing: DesignTokens.Space.s) {
             if let permission = acp?.permission {
-                AcpPermissionCard(request: permission) { optionId in
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    model.answerAcpPermission(optionId)
-                }
+                let options: [AcpPermissionOption] = KotlinLists.array(permission.options as Any)
+                BlockedCard(
+                    title: permission.title,
+                    message: permission.description_?.isEmpty == false
+                        ? (permission.description_ ?? "")
+                        : (permission.toolTitle ?? "This Agent is waiting."),
+                    observer: model.uhp.isController == false,
+                    options: options.map { option in
+                        (id: option.optionId, title: option.name, kind: blockedKind(option.kind))
+                    },
+                    onOption: { optionId in
+                        model.answerAcpPermission(optionId)
+                    }
+                )
+                .padding(.horizontal, DesignTokens.Space.m)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             if let error = acp?.errorText, !error.isEmpty {
@@ -280,10 +298,18 @@ struct AcpSessionView: View {
         .background(DesignTokens.canvas)
     }
 
+    private func blockedKind(_ kind: AcpPermissionKind) -> BlockedOptionKind {
+        switch kind {
+        case .allowOnce, .allowAlways: .allow
+        case .rejectOnce, .rejectAlways: .reject
+        default: .other
+        }
+    }
+
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 10) {
             TextField(
-                "Message the agent",
+                "Agent prompt",
                 text: Binding(
                     get: { acp?.draft ?? "" },
                     set: { model.setAcpDraft($0) }
@@ -338,11 +364,11 @@ private struct AcpMessageBubble: View {
             HStack {
                 Spacer(minLength: 48)
                 Text(message.text)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(DesignTokens.ink)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(
-                        DesignTokens.accent,
+                        DesignTokens.accent.opacity(0.18),
                         in: RoundedRectangle(cornerRadius: DesignTokens.Radius.m, style: .continuous)
                     )
             }

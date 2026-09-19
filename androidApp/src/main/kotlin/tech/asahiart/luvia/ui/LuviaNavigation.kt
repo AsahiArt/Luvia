@@ -27,10 +27,12 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import kotlinx.serialization.Serializable
 import tech.asahiart.luvia.AgentStatus
+import tech.asahiart.luvia.AgentKey
 import tech.asahiart.luvia.HostRole
 import tech.asahiart.luvia.PairingUiState
 import tech.asahiart.luvia.TerminalKey
 import tech.asahiart.luvia.HostUhp
+import tech.asahiart.luvia.ui.ConnectionBadge
 import tech.asahiart.luvia.HostSection
 
 @Serializable
@@ -41,6 +43,13 @@ private data class HostRoute(val id: String) : NavKey
 
 @Serializable
 private data object PairHostRoute : NavKey
+
+@Serializable
+private data class AgentRoute(val hostId: String, val paneId: String) : NavKey
+
+@Serializable
+private data class AcpRoute(val hostId: String) : NavKey
+
 
 @Composable
 fun LuviaNavigation(
@@ -201,7 +210,19 @@ private fun DetailNav(
     NavDisplay(
         modifier = Modifier.fillMaxSize(),
         backStack = backStack,
-        onBack = { backStack.removeLastOrNull() },
+        onBack = {
+            when (val last = backStack.lastOrNull()) {
+                is AcpRoute -> {
+                    workspace(last.hostId).hideAcp()
+                    backStack.removeLastOrNull()
+                }
+                is AgentRoute -> {
+                    workspace(last.hostId).closeAgent()
+                    backStack.removeLastOrNull()
+                }
+                else -> backStack.removeLastOrNull()
+            }
+        },
         entryProvider = entryProvider {
             entry<HostsRoute> {
                 if (showList) {
@@ -233,12 +254,24 @@ private fun DetailNav(
                     val uhp by surface.state.collectAsStateWithLifecycle()
                     val section = uhp.section
                     val visible = uhp.visibleSections()
-                    LaunchedEffect(route.id) { surface.shown() }
+                    LaunchedEffect(route.id) {
+                        surface.shown()
+                        if (host.connection != ConnectionBadge.Live &&
+                            host.connection != ConnectionBadge.Connecting
+                        ) {
+                            onConnect(route.id)
+                        }
+                    }
                     LaunchedEffect(route.id, section) {
                         surface.show(section)
                     }
                     LaunchedEffect(visible, section) {
                         if (section !in visible) surface.setSection(HostSection.Agents)
+                    }
+                    LaunchedEffect(uhp.acp.viewing, uhp.acp.open) {
+                        if (uhp.acp.open && uhp.acp.viewing && backStack.none { it is AcpRoute }) {
+                            backStack.add(AcpRoute(route.id))
+                        }
                     }
                     LaunchedEffect(route.id, openFirstBlocked, host.firstBlockedPaneId, uhp.agents) {
                         if (!openFirstBlocked) return@LaunchedEffect
@@ -247,6 +280,9 @@ private fun DetailNav(
                             ?: return@LaunchedEffect
                         surface.setSection(HostSection.Agents)
                         surface.openAgent(pane)
+                        if (backStack.none { it is AgentRoute }) {
+                            backStack.add(AgentRoute(route.id, pane))
+                        }
                     }
                     HostDetailPane(
                         host = host,
@@ -272,6 +308,9 @@ private fun DetailNav(
                         hasPushDistributor = hasPushDistributor,
                         onSetPushEnabled = onSetPushEnabled,
                         sections = visible,
+                        state = uhp,
+                        attentionCount = uhp.attentionCount(),
+                        onSelectWorkspace = { id -> surface.setSelectedWorkspace(id) },
                         agentsContent = { modifier ->
                             AgentsSection(
                                 host = host,
@@ -279,39 +318,21 @@ private fun DetailNav(
                                 onRefresh = { onRefreshSection(route.id, HostSection.Agents) },
                                 onOpenAgent = { pane ->
                                     surface.openAgent(pane)
+                                    backStack.removeAll { it is AgentRoute || it is AcpRoute }
+                                    backStack.add(AgentRoute(route.id, pane))
                                 },
-                                onCloseAgent = { surface.closeAgent() },
-                                onPrompt = { text -> surface.promptAgent(text) },
-                                onDraftChange = { text -> surface.setAgentDraft(text) },
-                                onSendKeys = { keys -> surface.sendAgentKeys(keys) },
+                                onOpenAcp = {
+                                    surface.viewAcp()
+                                    backStack.removeAll { it is AgentRoute || it is AcpRoute }
+                                    backStack.add(AcpRoute(route.id))
+                                },
                                 onCheckUnconfirmed = { surface.checkAgent() },
                                 onResumeSession = { sessionId -> surface.resumeAgent(sessionId) },
-                                onShowNameChange = { show -> surface.setShowNameAgent(show) },
-                                onNameDraftChange = { text -> surface.setNameAgentDraft(text) },
-                                onNameAgent = { surface.nameAgent() },
-                                onShowForkChange = { show -> surface.setShowForkAgent(show) },
-                                onForkDraftChange = { text -> surface.setForkAgentDraft(text) },
-                                onForkAgent = { surface.forkAgent() },
                                 onLoadAcpAgents = { surface.loadAcpAgents() },
                                 onShowLaunchAcp = { show -> surface.setShowLaunchAcp(show) },
                                 onSelectAcpAgent = { id -> surface.setLaunchAcpAgent(id) },
                                 onAcpCwdChange = { cwd -> surface.setLaunchAcpCwd(cwd) },
                                 onLaunchAcp = { surface.launchAcp() },
-                                onAcpDraftChange = { text -> surface.setAcpDraft(text) },
-                                onPromptAcp = { surface.promptAcp() },
-                                onAnswerAcpPermission = { optionId -> surface.answerAcpPermission(optionId) },
-                                onCancelAcp = { surface.cancelAcp() },
-                                onCloseAcp = { surface.closeAcp() },
-                                terminal = terminalForHost(route.id),
-                                onRequestControl = { onRequestControl(route.id) },
-                                onSendTerminalText = { text -> onSendTerminalText(route.id, text) },
-                                onSendTerminalKey = { key -> onSendTerminalKey(route.id, key) },
-                                onObserveTerminal = { pane -> onSelectTerminalPane(route.id, pane) },
-                                onStopObserve = { onStopTerminal(route.id) },
-                                onOpenProjectReview = {
-                                    surface.setSection(HostSection.Review)
-                                    surface.show(HostSection.Review)
-                                },
                                 modifier = modifier,
                             )
                         },
@@ -423,6 +444,78 @@ private fun DetailNav(
                                 onRenamePane = { surface.renamePane() },
                                 modifier = modifier,
                             )
+                        },
+                    )
+                }
+            }
+            entry<AgentRoute> { route ->
+                val host = hosts.firstOrNull { it.id == route.hostId }
+                if (host == null) {
+                    EmptySelectionPane("Host unavailable", "The saved host was removed.")
+                } else {
+                    val surface = workspace(route.hostId)
+                    val uhp by surface.state.collectAsStateWithLifecycle()
+                    LaunchedEffect(route.hostId, route.paneId) {
+                        surface.openAgent(route.paneId)
+                    }
+                    AgentDetailPane(
+                        host = host,
+                        state = uhp,
+                        onBack = {
+                            surface.closeAgent()
+                            backStack.removeLastOrNull()
+                        },
+                        onRefresh = { onRefreshSection(route.hostId, HostSection.Agents) },
+                        onPrompt = { text -> surface.promptAgent(text) },
+                        onDraftChange = { text -> surface.setAgentDraft(text) },
+                        onSendKeys = { keys -> surface.sendAgentKeys(keys) },
+                        onCheckUnconfirmed = { surface.checkAgent() },
+                        onShowNameChange = { show -> surface.setShowNameAgent(show) },
+                        onNameDraftChange = { text -> surface.setNameAgentDraft(text) },
+                        onNameAgent = { surface.nameAgent() },
+                        onShowForkChange = { show -> surface.setShowForkAgent(show) },
+                        onForkDraftChange = { text -> surface.setForkAgentDraft(text) },
+                        onForkAgent = { surface.forkAgent() },
+                        terminal = terminalForHost(route.hostId),
+                        onRequestControl = { onRequestControl(route.hostId) },
+                        onSendTerminalText = { text -> onSendTerminalText(route.hostId, text) },
+                        onSendTerminalKey = { key -> onSendTerminalKey(route.hostId, key) },
+                        onObserveTerminal = { pane -> onSelectTerminalPane(route.hostId, pane) },
+                        onStopObserve = { onStopTerminal(route.hostId) },
+                        onOpenProjectReview = {
+                            uhp.projectWorkspaceId()?.let { surface.setSelectedWorkspace(it) }
+                            surface.closeAgent()
+                            backStack.removeLastOrNull()
+                            surface.setSection(HostSection.Review)
+                            surface.show(HostSection.Review)
+                        },
+                    )
+                }
+            }
+            entry<AcpRoute> { route ->
+                val host = hosts.firstOrNull { it.id == route.hostId }
+                if (host == null) {
+                    EmptySelectionPane("Host unavailable", "The saved host was removed.")
+                } else {
+                    val surface = workspace(route.hostId)
+                    val uhp by surface.state.collectAsStateWithLifecycle()
+                    LaunchedEffect(route.hostId) {
+                        if (uhp.acp.open) surface.viewAcp()
+                    }
+                    AcpSessionPane(
+                        host = host,
+                        state = uhp,
+                        onBack = {
+                            surface.hideAcp()
+                            backStack.removeLastOrNull()
+                        },
+                        onDraftChange = { text -> surface.setAcpDraft(text) },
+                        onPrompt = { surface.promptAcp() },
+                        onAnswerPermission = { optionId -> surface.answerAcpPermission(optionId) },
+                        onCancel = { surface.cancelAcp() },
+                        onClose = {
+                            surface.closeAcp()
+                            backStack.removeLastOrNull()
                         },
                     )
                 }

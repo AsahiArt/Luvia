@@ -28,12 +28,23 @@ data class HostUiModel(
 
 enum class ConnectionBadge { Live, Connecting, Stale, Offline }
 
-internal val HostSection.isPrimaryTab: Boolean
+enum class HostChromeTab { Agents, Workspace, More }
+
+
+internal fun HostSection.toChromeTab(): HostChromeTab =
+    when (this) {
+        HostSection.Agents -> HostChromeTab.Agents
+        HostSection.Review, HostSection.Tasks -> HostChromeTab.Workspace
+        else -> HostChromeTab.More
+    }
+
+internal val HostSection.isMoreSurface: Boolean
     get() =
-        this == HostSection.Agents ||
-            this == HostSection.Review ||
-            this == HostSection.Tasks ||
-            this == HostSection.Automations
+        this == HostSection.Files ||
+            this == HostSection.Search ||
+            this == HostSection.Worktrees ||
+            this == HostSection.Automations ||
+            this == HostSection.Layout
 
 @Immutable
 data class TerminalPaneChoice(

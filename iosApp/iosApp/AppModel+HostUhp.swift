@@ -29,8 +29,8 @@ extension AppModel {
         if state.agentDetail.open, let paneId = state.agentDetail.summary?.paneId {
             uhp.selectedAgentID = paneId
         }
-        uhp.isAcpPresented = state.acp.open
         if pendingPresentAcp, state.acp.open {
+            viewAcp()
             pendingPresentAcp = false
         }
         syncPushAfterConnect(wasConnected: wasConnected, connected: state.connected)

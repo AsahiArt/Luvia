@@ -75,10 +75,10 @@ A shell pane with no Agent is opened from Layout, still as pane detail.
 ## Tab bars
 
 ```
-Host:    Agents | Review | Tasks | Automations
-More:    Files, Search, Worktrees, Layout
+Host:    Agents | Workspace | More
 Agent:   Transcript | Terminal
 ```
+
 
 ## Binding
 

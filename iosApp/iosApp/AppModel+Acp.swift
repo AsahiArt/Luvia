@@ -48,9 +48,16 @@ extension AppModel {
     func cancelAcp() {
         hostUhp()?.cancelAcp()
     }
-
     func closeAcp() {
         hostUhp()?.closeAcp()
+    }
+
+    func hideAcp() {
+        hostUhp()?.hideAcp()
+    }
+
+    func viewAcp() {
+        hostUhp()?.viewAcp()
     }
 
     func beginLaunchAcp() {

@@ -39,8 +39,8 @@ fun FilesSection(
     modifier: Modifier = Modifier,
 ) {
     when {
-        !host.connected && !state.connected -> {
-            UhpEmptyPane(title = "Files", message = "Connect to this host", modifier = modifier)
+        host.shouldShowOfflineEmpty(state.connected) -> {
+            UhpEmptyPane(title = "Files", message = host.offlineEmptyMessage(), modifier = modifier)
         }
         !state.capabilities.filesTree -> {
             UhpEmptyPane(title = "Files", message = "Files are not available on this host.", modifier = modifier)

@@ -6,107 +6,104 @@ struct AgentsSectionView: View {
     let host: HostViewState
     @Binding var query: String
 
+    private var hasContent: Bool {
+        model.hasLiveSession || !model.uhp.agentEntries.isEmpty || host.hasCachedContent
+    }
+
     var body: some View {
         Group {
-            if model.hasLiveSession || !model.uhp.agents.isEmpty || host.connection == .connecting || host.connection == .stale {
-                AgentsListView(
-                    agents: model.uhp.agents,
-                    query: $query,
-                    errorMessage: model.uhp.errorMessage,
-                    onRefresh: { await model.loadAgents() },
-                    canLaunchAcp: model.uhp.snapshot?.capabilities.acpSession == true,
-                    onLaunchAcp: { model.beginLaunchAcp() }
-                )
-                .modifier(
-                    ConditionalSearchable(
-                        text: $query,
-                        enabled: model.selectedSection == .agents,
-                        prompt: "Search"
+            if hasContent || host.connection == .connecting || host.connection == .stale {
+                if !hasContent && host.connection == .connecting {
+                    EmptyState(title: "Connecting…", message: "Loading this Host.", systemImage: "bolt.horizontal.circle")
+                } else if !hasContent {
+                    EmptyState(
+                        title: "This Host has not connected yet.",
+                        message: "The last snapshot will appear here after the first live session.",
+                        systemImage: "bolt.horizontal.circle"
                     )
-                )
-                .toolbar {
-                    if model.uhp.snapshot?.capabilities.acpSession == true {
-                        ToolbarItem(placement: .primaryAction) {
-                            Button("Launch", systemImage: "plus.circle") {
-                                model.beginLaunchAcp()
+                } else {
+                    AgentsListView(model: model, host: host, query: $query)
+                        .modifier(
+                            ConditionalSearchable(
+                                text: $query,
+                                enabled: model.selectedSection == .agents,
+                                prompt: "Search"
+                            )
+                        )
+                        .toolbar {
+                            if model.uhp.snapshot?.capabilities.acpSession == true {
+                                ToolbarItem(placement: .primaryAction) {
+                                    Button("New agent", systemImage: "plus") {
+                                        model.beginLaunchAcp()
+                                    }
+                                }
                             }
                         }
-                    }
-                    if model.uhp.caps.agentSessions {
-                        ToolbarItem(placement: .primaryAction) {
-                            Button("Sessions") {
-                                model.uhp.isSessionsPresented = true
-                            }
+                        .sheet(isPresented: model.acpLaunchPresented) {
+                            AcpLaunchSheet(model: model)
                         }
-                    }
-                }
-                .sheet(isPresented: $model.uhp.isSessionsPresented) {
-                    AgentSessionsSheet(model: model)
-                }
-                .sheet(isPresented: model.acpLaunchPresented) {
-                    AcpLaunchSheet(model: model)
                 }
             } else {
-                ContentUnavailableView(
-                    "Connect to this host",
-                    systemImage: "bolt.horizontal.circle",
-                    description: Text("A live session is required to load Agents, Review, and Tasks.")
+                EmptyState(
+                    title: "This Host has not connected yet.",
+                    message: "The last snapshot will appear here after the first live session.",
+                    systemImage: "bolt.horizontal.circle"
                 )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task {
+            if model.uhp.caps.agentSessions {
+                await model.loadAgentSessions()
             }
         }
     }
-
-
 }
 
 struct AgentsListView: View {
-    let agents: [AgentViewState]
+    @Bindable var model: AppModel
+    let host: HostViewState
     @Binding var query: String
-    var errorMessage: String?
-    var onRefresh: (() async -> Void)?
-    var canLaunchAcp = false
-    var onLaunchAcp: (() -> Void)?
 
-    private var filtered: [AgentViewState] {
+    private var entries: [AgentListItem] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return agents }
-        return agents.filter {
+        let all = model.uhp.agentEntries
+        guard !trimmed.isEmpty else { return all }
+        return all.filter {
             $0.name.localizedCaseInsensitiveContains(trimmed)
-                || ($0.workspace?.localizedCaseInsensitiveContains(trimmed) ?? false)
-                || ($0.kind?.localizedCaseInsensitiveContains(trimmed) ?? false)
+                || ($0.projectLabel?.localizedCaseInsensitiveContains(trimmed) ?? false)
+                || ($0.branch?.localizedCaseInsensitiveContains(trimmed) ?? false)
         }
     }
 
-    private var blocked: [AgentViewState] {
-        filtered.filter(\.isBlocked)
-    }
-
-    private var grouped: [(title: String, agents: [AgentViewState])] {
+    private var grouped: [(title: String, items: [AgentListItem])] {
         let order: [(AgentStatusKind, String)] = [
-            (.blocked, "Blocked"),
+            (.blocked, "Waiting"),
             (.working, "Working"),
             (.idle, "Idle"),
-            (.done, "Done"),
             (.unknown, "Unknown"),
+            (.done, "Done"),
         ]
         return order.compactMap { kind, title in
-            let items = filtered.filter { $0.statusKind == kind }
+            let items = entries.filter { $0.statusKind == kind }
             guard !items.isEmpty else { return nil }
             return (title, items)
         }
     }
 
+    private var canLaunchAcp: Bool {
+        model.uhp.snapshot?.capabilities.acpSession == true
+    }
+
     var body: some View {
         Group {
-            if agents.isEmpty {
+            if model.uhp.agentEntries.isEmpty && model.uhp.agentSessions.isEmpty {
                 if canLaunchAcp {
-                    LaunchAgentCard { onLaunchAcp?() }
+                    LaunchAgentCard { model.beginLaunchAcp() }
                 } else {
-                    ContentUnavailableView(
-                        "Agents",
-                        systemImage: "person.2",
-                        description: Text("No agents in this session.")
+                    EmptyState(
+                        title: "No Agents",
+                        message: "Launch one, or start one in Luvus.",
+                        systemImage: "person.2"
                     )
                 }
             } else {
@@ -114,7 +111,7 @@ struct AgentsListView: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if let errorMessage, !errorMessage.isEmpty {
+            if let errorMessage = model.uhp.errorMessage, !errorMessage.isEmpty {
                 Text(errorMessage)
                     .font(.footnote)
                     .foregroundStyle(.red)
@@ -124,45 +121,89 @@ struct AgentsListView: View {
             }
         }
         .refreshable {
-            await onRefresh?()
+            await model.loadAgents()
+            if model.uhp.caps.agentSessions {
+                await model.loadAgentSessions()
+            }
         }
     }
 
     private var agentList: some View {
         List {
-            if let first = blocked.first {
+            if model.uhp.attentionCount > 0 {
                 Section {
-                    NavigationLink(value: first.id) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.circle.fill")
-                                .foregroundStyle(DesignTokens.accent)
-                            Text(
-                                blocked.count == 1
-                                    ? "1 agent waiting for you"
-                                    : "\(blocked.count) agents waiting for you"
-                            )
-                            .font(.headline)
-                            .foregroundStyle(DesignTokens.accent)
-                            Spacer()
-                        }
-                        .padding(.vertical, 4)
+                    AttentionBanner(count: model.uhp.attentionCount) {
+                        openWaiting()
                     }
-                    .accessibilityLabel(
-                        blocked.count == 1
-                            ? "1 agent waiting for you"
-                            : "\(blocked.count) agents waiting for you"
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                }
+            } else {
+                Section {
+                    MissionStrip(
+                        working: host.workingAgents,
+                        blocked: host.blockedAgents,
+                        done: host.completedAgents
                     )
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
                 }
             }
             ForEach(grouped, id: \.title) { group in
                 Section(group.title) {
-                    ForEach(group.agents) { agent in
-                        NavigationLink(value: agent.id) {
-                            AgentRowView(agent: agent)
+                    ForEach(group.items) { item in
+                        if item.isAcp {
+                            Button {
+                                model.viewAcp()
+                            } label: {
+                                AgentRow(item: item)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            NavigationLink(value: item.paneId ?? item.id) {
+                                AgentRow(item: item)
+                            }
                         }
                     }
                 }
             }
+            if !model.uhp.agentSessions.isEmpty {
+                Section("Resumable") {
+                    ForEach(model.uhp.agentSessions) { session in
+                        HStack(alignment: .firstTextBaseline) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(session.agent)
+                                    .font(.headline)
+                                Text(session.sessionId)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                if !session.cwd.isEmpty {
+                                    Text(session.cwd)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
+                            Spacer()
+                            if model.uhp.allowsMutation && model.uhp.caps.agentResume {
+                                Button("Resume") {
+                                    _Concurrency.Task { await model.resumeHostAgent(session.sessionId) }
+                                }
+                                .disabled(model.uhp.isSending)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func openWaiting() {
+        guard let first = model.uhp.agentEntries.first(where: \.isWaiting) else { return }
+        if first.isAcp {
+            model.viewAcp()
+        } else {
+            model.pendingOpenAgentID = first.paneId ?? first.id
         }
     }
 }
@@ -171,54 +212,17 @@ struct LaunchAgentCard: View {
     let onLaunch: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.Space.m) {
-            Text("Start something")
-                .font(DesignTokens.Typography.title)
-                .foregroundStyle(DesignTokens.ink)
-            Text("Launch a coding agent on this host and steer it from here.")
-                .font(.body)
-                .foregroundStyle(DesignTokens.inkMuted)
-            Button("Launch agent", action: onLaunch)
-                .buttonStyle(.borderedProminent)
-                .tint(DesignTokens.accent)
-        }
-        .padding(DesignTokens.Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .luviaGlass()
-        .padding(DesignTokens.Space.l)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        EmptyState(
+            title: "No Agents",
+            message: "Launch one, or start one in Luvus.",
+            systemImage: "person.2",
+            actionTitle: "New agent",
+            action: onLaunch
+        )
     }
 }
 
-struct AgentRowView: View {
-    let agent: AgentViewState
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(agent.name)
-                    .font(agent.isBlocked ? .headline.weight(.semibold) : .headline)
-                    .lineLimit(2)
-                Spacer(minLength: 8)
-                StatusChip(status: agent.isBlocked ? "Blocked" : agent.status, isBlocked: agent.isBlocked)
-            }
-            let subtitle = [agent.kind, agent.workspace].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-            if !subtitle.isEmpty {
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(agent.isBlocked ? DesignTokens.ink : DesignTokens.inkMuted)
-                    .lineLimit(2)
-            }
-            if let branch = agent.branch, !branch.isEmpty {
-                Text(branch)
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.inkMuted)
-                    .lineLimit(2)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-}
 
 struct AgentDetailView: View {
     @Bindable var model: AppModel
@@ -229,8 +233,6 @@ struct AgentDetailView: View {
         case terminal = "Terminal"
     }
 
-    @State private var pendingKey: QuickAgentKey?
-    @State private var confirmPrompt = false
     @State private var seenTranscript = ""
     @State private var highlightSuffix = ""
     @State private var highlightVisible = false
@@ -241,6 +243,7 @@ struct AgentDetailView: View {
     private var canMutate: Bool { uhp.isController && uhp.unconfirmed == nil }
     private var isBlocked: Bool { header?.isBlocked == true }
     private var prefersKeys: Bool { transcriptLooksLikeYesNo(uhp.transcript) }
+    private var observer: Bool { !uhp.isController }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -282,23 +285,56 @@ struct AgentDetailView: View {
                 )
             }
         }
-        .navigationTitle(header?.name ?? "Agent")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if canMutate && uhp.caps.agentName {
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Name") { model.beginNameAgent() }
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 1) {
+                    Text(header?.name ?? "Agent")
+                        .font(.headline)
+                        .foregroundStyle(DesignTokens.ink)
+                    if let workspace = header?.workspace, !workspace.isEmpty {
+                        Button(workspace) { model.showProjectReview() }
+                            .font(.caption)
+                            .foregroundStyle(DesignTokens.inkMuted)
+                    }
                 }
+                .accessibilityElement(children: .combine)
             }
-            if canMutate && uhp.caps.agentFork {
-                ToolbarItem(placement: .secondaryAction) {
-                    Button("Fork") { model.beginForkAgent() }
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    if canMutate && uhp.caps.agentName {
+                        Button("Name") { model.beginNameAgent() }
+                    }
+                    if canMutate && uhp.caps.agentFork {
+                        Button("Fork") { model.beginForkAgent() }
+                    }
+                } label: {
+                    Label("More", systemImage: "ellipsis.circle")
                 }
+                .disabled(!(canMutate && (uhp.caps.agentName || uhp.caps.agentFork)))
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if canMutate && surface == .transcript {
-                composer
+            if surface == .transcript {
+                VStack(spacing: DesignTokens.Space.s) {
+                    if isBlocked {
+                        BlockedCard(
+                            title: "Blocked — answer",
+                            message: prefersKeys ? lastQuestion : "This Agent is waiting.",
+                            observer: observer,
+                            yesNo: prefersKeys && uhp.caps.agentPrompt,
+                            onYes: { _Concurrency.Task { await model.promptAgent(target: agentID, text: "y") } },
+                            onNo: { _Concurrency.Task { await model.promptAgent(target: agentID, text: "n") } },
+                            onEnter: { _Concurrency.Task { await model.sendAgentKeys(QuickAgentKey.enter.agentKeys) } },
+                            onEsc: { _Concurrency.Task { await model.sendAgentKeys(QuickAgentKey.esc.agentKeys) } }
+                        )
+                        .padding(.horizontal, DesignTokens.Space.m)
+                    }
+                    if uhp.caps.agentPrompt {
+                        composer
+                    }
+                }
+                .padding(.bottom, DesignTokens.Space.s)
             }
         }
         .sheet(isPresented: $model.uhp.isNameAgentPresented) {
@@ -306,31 +342,6 @@ struct AgentDetailView: View {
         }
         .sheet(isPresented: $model.uhp.isForkAgentPresented) {
             ForkAgentSheet(model: model)
-        }
-        .confirmationDialog(
-            confirmTitle,
-            isPresented: Binding(
-                get: { confirmPrompt || pendingKey != nil },
-                set: { if !$0 { confirmPrompt = false; pendingKey = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Send") {
-                if confirmPrompt {
-                    confirmPrompt = false
-                    _Concurrency.Task { await model.sendAgentPrompt() }
-                } else if let pendingKey {
-                    let key = pendingKey
-                    self.pendingKey = nil
-                    _Concurrency.Task { await perform(key) }
-                }
-            }
-            Button("Cancel", role: .cancel) {
-                confirmPrompt = false
-                pendingKey = nil
-            }
-        } message: {
-            Text("The Agent is Blocked and will receive this answer.")
         }
         .onChange(of: uhp.transcript) { _, newValue in
             noteNewTranscript(newValue)
@@ -344,64 +355,47 @@ struct AgentDetailView: View {
         }
         .onDisappear {
             model.setTerminalVisible(false)
+            model.closeOpenAgent()
         }
     }
 
-    private var confirmTitle: String {
-        if confirmPrompt { return "Send Agent prompt?" }
-        if let pendingKey { return "Send \(pendingKey.title)?" }
-        return "Send?"
+    private var lastQuestion: String {
+        uhp.transcript
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .last { !$0.isEmpty } ?? "This Agent is waiting."
     }
 
     @ViewBuilder
     private var headerBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                StatusChip(status: header?.status ?? "Unknown", isBlocked: isBlocked)
-                if let kind = header?.kind, !kind.isEmpty {
-                    Text(kind)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                StatusPill.agent(header.map { AgentStatusKind(rawValue: $0.status.lowercased()) ?? .unknown } ?? .unknown)
+                if let branch = header?.branch, !branch.isEmpty {
+                    Text(branch)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DesignTokens.inkMuted)
+                        .lineLimit(1)
                 }
-                Spacer()
-            }
-            if let workspace = header?.workspace, !workspace.isEmpty {
-                Button(action: { model.showProjectReview() }) {
-                    HStack(alignment: .firstTextBaseline) {
-                        labeled("Workspace", workspace)
-                        Spacer()
-                        Text("Review")
-                            .font(.subheadline)
-                            .foregroundStyle(DesignTokens.accent)
-                    }
+                if let usage = header?.missionUsage, !usage.isEmpty {
+                    Text(usage)
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.inkMuted)
+                        .lineLimit(1)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Review \(workspace)")
-            }
-            if let branch = header?.branch, !branch.isEmpty {
-                labeled("Branch", branch)
+                Spacer(minLength: 0)
             }
             if let cwd = header?.cwd, !cwd.isEmpty {
-                labeled("cwd", cwd, mono: true)
-            }
-            if let usage = header?.missionUsage, !usage.isEmpty {
-                labeled("Mission", usage)
+                Text(cwd)
+                    .font(DesignTokens.Typography.mono)
+                    .foregroundStyle(DesignTokens.inkMuted)
+                    .textSelection(.enabled)
+                    .lineLimit(1)
             }
         }
         .padding(.horizontal)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func labeled(_ title: String, _ value: String, mono: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(mono ? .system(.footnote, design: .monospaced) : .subheadline)
-                .textSelection(.enabled)
-        }
     }
 
     private var transcriptBlock: some View {
@@ -409,7 +403,7 @@ struct AgentDetailView: View {
             VStack(alignment: .leading, spacing: 0) {
                 if uhp.transcript.isEmpty {
                     Text("No Transcript yet.")
-                        .font(.system(.footnote, design: .monospaced))
+                        .font(DesignTokens.Typography.mono)
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(Array(transcriptSegments(text: uhp.transcript).enumerated()), id: \.offset) { _, segment in
@@ -432,7 +426,6 @@ struct AgentDetailView: View {
         }
     }
 
-
     @ViewBuilder
     private func transcriptText(_ text: String) -> some View {
         if highlightVisible, !highlightSuffix.isEmpty, text.hasSuffix(highlightSuffix) {
@@ -442,7 +435,7 @@ struct AgentDetailView: View {
                     ansiLine(stable)
                 }
                 ansiLine(highlightSuffix)
-                    .background(Color.yellow.opacity(0.28))
+                    .background(DesignTokens.linkStale.opacity(0.28))
             }
         } else {
             ansiLine(text)
@@ -453,8 +446,8 @@ struct AgentDetailView: View {
         Text(
             ansiAttributedString(
                 text,
-                defaultForeground: .primary,
-                defaultBackground: Color(uiColor: .systemBackground)
+                defaultForeground: DesignTokens.ink,
+                defaultBackground: DesignTokens.canvas
             )
         )
         .font(DesignTokens.Typography.mono)
@@ -462,76 +455,35 @@ struct AgentDetailView: View {
         .textSelection(.enabled)
     }
 
-    @ViewBuilder
     private var composer: some View {
-        let canSend = !uhp.composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !uhp.isSending
-        VStack(spacing: 8) {
-            if uhp.caps.agentKeys {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(QuickAgentKey.allCases) { key in
-                            Button(key.title) { request(key) }
-                                .buttonStyle(.borderedProminent)
-                                .tint(prefersKeys ? DesignTokens.accent : Color.secondary)
-                                .controlSize(.small)
-                                .disabled(uhp.isSending)
-                        }
-                    }
-                }
-                .fixedSize(horizontal: false, vertical: true)
+        let canSend = !uhp.composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !uhp.isSending
+            && canMutate
+            && !observer
+        return HStack(alignment: .center, spacing: 10) {
+            TextField("Agent prompt", text: $model.uhp.composerText, axis: .vertical)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .lineLimit(1...5)
+                .disabled(!canMutate || observer || uhp.unconfirmed != nil)
+            Button {
+                _Concurrency.Task { await model.sendAgentPrompt() }
+            } label: {
+                Image(systemName: "arrow.up")
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(canSend ? DesignTokens.accent : Color.secondary.opacity(0.35), in: Circle())
             }
-            if uhp.caps.agentPrompt {
-                HStack(alignment: .center, spacing: 10) {
-                    TextField("Agent prompt", text: $model.uhp.composerText, axis: .vertical)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .lineLimit(1...5)
-                    Button {
-                        if isBlocked {
-                            confirmPrompt = true
-                        } else {
-                            _Concurrency.Task { await model.sendAgentPrompt() }
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up")
-                            .font(.body.weight(.bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 32, height: 32)
-                            .background(canSend ? DesignTokens.accent : Color.secondary.opacity(0.35), in: Circle())
-                    }
-                    .disabled(!canSend)
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Send")
-                }
-                .padding(.leading, 16)
-                .padding(.trailing, 6)
-                .padding(.vertical, 6)
-                .luviaGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            }
+            .disabled(!canSend)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Send")
         }
+        .padding(.leading, 16)
+        .padding(.trailing, 6)
+        .padding(.vertical, 6)
+        .luviaGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, DesignTokens.Space.m)
-        .padding(.top, DesignTokens.Space.s)
-        .padding(.bottom, DesignTokens.Space.s)
-        .contentShape(Rectangle())
-    }
-
-
-
-    private func request(_ key: QuickAgentKey) {
-        if isBlocked {
-            pendingKey = key
-        } else {
-            _Concurrency.Task { await perform(key) }
-        }
-    }
-
-    private func perform(_ key: QuickAgentKey) async {
-        switch key {
-        case .yes, .no:
-            await model.promptAgent(target: agentID, text: key == .yes ? "y" : "n")
-        default:
-            await model.sendAgentKeys(key.agentKeys)
-        }
     }
 
     private func noteNewTranscript(_ newValue: String) {
@@ -612,39 +564,6 @@ struct StatusChip: View {
     }
 }
 
-struct UnconfirmedBanner: View {
-    let action: UnconfirmedAction
-    let onCheck: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(action.title)
-                    .font(.headline)
-                Text(action.detail)
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.inkMuted)
-                Text("This change is not resent automatically.")
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.inkMuted)
-            }
-            Spacer(minLength: 8)
-            Button(buttonTitle, action: onCheck)
-                .buttonStyle(.borderedProminent)
-        }
-        .padding(16)
-        .background(DesignTokens.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private var buttonTitle: String {
-        switch action {
-        case .agentPrompt, .agentKeys, .resumeAgent, .forkAgent, .nameAgent:
-            "Re-read agent"
-        default:
-            "Check"
-        }
-    }
-}
 
 struct AgentSessionsSheet: View {
     @Bindable var model: AppModel
@@ -781,33 +700,30 @@ struct ForkAgentSheet: View {
 
 #Preview("Agents list") {
     NavigationStack {
-        AgentsListView(
-            agents: [
-                AgentViewState(
+        List {
+            AgentRow(
+                item: AgentListItem(
                     id: "7",
                     name: "Codex",
-                    status: "Blocked",
-                    detail: "/src",
                     statusKind: .blocked,
-                    kind: "codex",
-                    workspace: "luvia",
+                    isAcp: false,
+                    projectLabel: "luvia",
                     branch: "main",
-                    cwd: "/Users/dev/luvia"
-                ),
-                AgentViewState(
+                    lastLine: "Approve this change? (y/n)"
+                )
+            )
+            AgentRow(
+                item: AgentListItem(
                     id: "8",
                     name: "Grok",
-                    status: "Working",
-                    detail: "/src",
                     statusKind: .working,
-                    kind: "grok",
-                    workspace: "luvia",
-                    branch: "feature/uhp",
-                    cwd: "/Users/dev/luvia"
-                ),
-            ],
-            query: .constant("")
-        )
+                    isAcp: true,
+                    projectLabel: "luvia",
+                    branch: "feature/uhp"
+                )
+            )
+        }
+        .navigationTitle("Agents")
     }
 }
 
@@ -819,50 +735,26 @@ private struct AgentDetailPreview: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 8) {
-                    StatusChip(status: "Blocked", isBlocked: true)
-                    Text("Workspace")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("luvia")
-                    Text("Branch")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("main")
-                    Text("cwd")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("/Users/dev/luvia")
-                        .font(.system(.footnote, design: .monospaced))
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                StatusPill.agent(.blocked)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
                 ScrollView {
                     Text("Approve this change? (y/n)")
-                        .font(.system(.footnote, design: .monospaced))
+                        .font(DesignTokens.Typography.mono)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding()
                 }
             }
             .navigationTitle("Codex")
             .safeAreaInset(edge: .bottom) {
-                HStack(spacing: 10) {
-                    TextField("Agent prompt", text: .constant(""))
-                    Image(systemName: "arrow.up")
-                        .font(.body.weight(.bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 32, height: 32)
-                        .background(DesignTokens.accent, in: Circle())
-                }
-                .padding(.leading, 16)
-                .padding(.trailing, 6)
-                .padding(.vertical, 6)
-                .luviaGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                BlockedCard(
+                    title: "Blocked — answer",
+                    message: "Approve this change? (y/n)",
+                    yesNo: true
+                )
                 .padding(.horizontal, DesignTokens.Space.m)
                 .padding(.bottom, DesignTokens.Space.s)
             }
         }
     }
 }
-

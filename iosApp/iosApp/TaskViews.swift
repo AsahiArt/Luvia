@@ -6,42 +6,12 @@ struct TasksSectionView: View {
 
     var body: some View {
         Group {
-            if !model.hasLiveSession {
-                ContentUnavailableView {
-                    Label {
-                        Text("Connect to this host")
-                            .font(.system(.title2, design: .serif))
-                    } icon: {
-                        Image(systemName: "bolt.horizontal.circle")
-                    }
-                } description: {
-                    Text("A live session is required to load Agents, Review, and Tasks.")
-                }
-            } else if !model.uhp.caps.taskList && host.tasks.isEmpty {
-                ContentUnavailableView {
-                    Label {
-                        Text("Tasks")
-                            .font(.system(.title2, design: .serif))
-                    } icon: {
-                        Image(systemName: "checklist")
-                    }
-                } description: {
-                    Text("This Host does not expose the Task board.")
-                }
-            } else if model.uhp.needsProjectPick {
-                VStack {
-                    ProjectPickerBar(model: model)
-                    ContentUnavailableView {
-                        Label {
-                            Text("Tasks")
-                                .font(.system(.title2, design: .serif))
-                        } icon: {
-                            Image(systemName: "checklist")
-                        }
-                    } description: {
-                        Text("Select a project.")
-                    }
-                }
+            if !model.uhp.caps.taskList && host.tasks.isEmpty {
+                EmptyState(
+                    title: "Tasks",
+                    message: "This Host does not expose the Task board.",
+                    systemImage: "checklist"
+                )
             } else {
                 TasksListView(model: model)
             }
@@ -76,16 +46,15 @@ struct TasksListView: View {
     var body: some View {
         Group {
             if model.uhp.tasks.isEmpty {
-                ContentUnavailableView {
-                    Label {
-                        Text("Tasks")
-                            .font(.system(.title2, design: .serif))
-                    } icon: {
-                        Image(systemName: "checklist")
-                    }
-                } description: {
-                    Text("No Tasks on the board.")
-                }
+                EmptyState(
+                    title: "No Tasks for this project",
+                    message: "Add a Task to this project's board.",
+                    systemImage: "checklist",
+                    actionTitle: model.uhp.isController && model.uhp.caps.taskAdd ? "Add" : nil,
+                    action: model.uhp.isController && model.uhp.caps.taskAdd
+                        ? { model.uhp.isAddTaskPresented = true }
+                        : nil
+                )
             } else {
                 List {
                     if let message = model.uhp.boardChangedMessage {
@@ -165,9 +134,6 @@ struct TasksListView: View {
                     .padding(.horizontal)
                     .padding(.bottom, 8)
             }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            ProjectPickerBar(model: model)
         }
         .toolbar {
             if model.uhp.isController && model.uhp.caps.taskAdd && model.uhp.unconfirmed == nil {

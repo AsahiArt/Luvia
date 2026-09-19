@@ -40,7 +40,8 @@ fun LuviaApp(launchIntent: Intent? = null) {
         askedNotificationPermission = true
         if (granted) notificationPermissionEpoch++
     }
-    val hosts = runtimes.toSortedUi()
+    val surfaces by viewModel.surfaces.collectAsStateWithLifecycle()
+    val hosts = runtimes.toSortedUi(surfaces.mapValues { it.value.attentionCount() })
 
     LaunchedEffect(runtimes, notificationPermissionEpoch) {
         val online = runtimes.firstOrNull { it.link is HostLink.Online }

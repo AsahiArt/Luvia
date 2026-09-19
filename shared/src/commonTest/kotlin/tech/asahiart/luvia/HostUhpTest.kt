@@ -225,6 +225,65 @@ class HostUhpTest {
     }
 
     @Test
+    fun agentEntriesArePanesOnlyWhenAcpClosed() {
+        val working =
+            AgentSummary(paneId = "1", name = "Codex", status = AgentStatus.Working, workspaceName = "app")
+        val blocked =
+            AgentSummary(paneId = "2", name = "Claude", status = AgentStatus.Blocked, workspaceName = "app")
+        val state = HostUhpState(agents = listOf(working, blocked))
+        val entries = state.agentEntries()
+        assertEquals(listOf("1", "2"), entries.map { it.id })
+        assertTrue(entries.all { it.kind == AgentKind.Pane })
+        assertEquals(1, state.attentionCount())
+        assertEquals(listOf("2"), state.waitingEntries().map { it.id })
+    }
+
+    @Test
+    fun agentEntriesAppendsOpenAcpAndMapsPermissionToBlocked() {
+        val working =
+            AgentSummary(paneId = "1", name = "Codex", status = AgentStatus.Working, workspaceName = "app")
+        val acp =
+            AcpState(
+                open = true,
+                viewing = true,
+                info = AcpSessionInfo("sess_1", "codex", "Codex", 1, "/tmp/work"),
+                run = AcpRunState.AwaitingPermission,
+                transcript =
+                    listOf(
+                        AcpTranscriptItem.Message("m1", AcpTranscriptRole.Agent, "Need approval", streaming = false),
+                    ),
+            )
+        val state = HostUhpState(agents = listOf(working), acp = acp)
+        val entries = state.agentEntries()
+        assertEquals(listOf(AgentKind.Pane, AgentKind.Acp), entries.map { it.kind })
+        val session = entries.single { it.kind == AgentKind.Acp }
+        assertEquals("acp:sess_1", session.id)
+        assertEquals("Codex", session.name)
+        assertEquals(AgentStatus.Blocked, session.status)
+        assertEquals("/tmp/work", session.projectLabel)
+        assertEquals("Need approval", session.lastLine)
+        assertEquals("sess_1", session.acpSessionId)
+        assertEquals(1, state.attentionCount())
+        assertEquals(listOf("acp:sess_1"), state.waitingEntries().map { it.id })
+    }
+
+    @Test
+    fun attentionCountIgnoresWorkingAcp() {
+        val blocked =
+            AgentSummary(paneId = "2", name = "Claude", status = AgentStatus.Blocked, workspaceName = "app")
+        val workingAcp =
+            AcpState(
+                open = true,
+                info = AcpSessionInfo("sess_1", "codex", "Codex", 1, "/tmp/work"),
+                run = AcpRunState.Working,
+            )
+        val state = HostUhpState(agents = listOf(blocked), acp = workingAcp)
+        assertEquals(1, state.attentionCount())
+        assertEquals(AgentStatus.Working, state.agentEntries().single { it.kind == AgentKind.Acp }.status)
+    }
+
+
+    @Test
     fun userMessageDoesNotInviteRetryOnLostMutation() {
         val text = Failure.IndeterminateMutation("agent.prompt").userMessage()
         assertTrue(text.contains("Do not retry automatically"))

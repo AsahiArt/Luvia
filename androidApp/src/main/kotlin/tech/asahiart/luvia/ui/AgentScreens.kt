@@ -30,6 +30,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -67,6 +71,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import tech.asahiart.luvia.AgentKey
+import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.AgentSummary
 import tech.asahiart.luvia.TerminalKey
@@ -84,81 +89,25 @@ fun AgentsSection(
     state: HostUhpState,
     onRefresh: () -> Unit,
     onOpenAgent: (String) -> Unit,
-    onCloseAgent: () -> Unit,
-    onPrompt: (String) -> Unit,
-    onDraftChange: (String) -> Unit,
-    onSendKeys: (List<AgentKey>) -> Unit,
+    onOpenAcp: () -> Unit = {},
     onCheckUnconfirmed: () -> Unit,
     onResumeSession: (String) -> Unit = {},
-    onShowNameChange: (Boolean) -> Unit = {},
-    onNameDraftChange: (String) -> Unit = {},
-    onNameAgent: () -> Unit = {},
-    onShowForkChange: (Boolean) -> Unit = {},
-    onForkDraftChange: (String) -> Unit = {},
-    onForkAgent: () -> Unit = {},
     onLoadAcpAgents: () -> Unit = {},
     onShowLaunchAcp: (Boolean) -> Unit = {},
     onSelectAcpAgent: (String?) -> Unit = {},
     onAcpCwdChange: (String) -> Unit = {},
     onLaunchAcp: () -> Unit = {},
-    onAcpDraftChange: (String) -> Unit = {},
-    onPromptAcp: () -> Unit = {},
-    onAnswerAcpPermission: (String) -> Unit = {},
-    onCancelAcp: () -> Unit = {},
-    onCloseAcp: () -> Unit = {},
-    terminal: TerminalUiModel? = null,
-    onRequestControl: () -> Unit = {},
-    onSendTerminalText: (String) -> Unit = {},
-    onSendTerminalKey: (TerminalKey) -> Unit = {},
-    onObserveTerminal: (String) -> Unit = {},
-    onStopObserve: () -> Unit = {},
-    onOpenProjectReview: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val neverConnected = !host.connected && !state.connected && state.agents.isEmpty() && !host.hasSnapshot
     when {
-        !host.connected && !state.connected && state.agents.isEmpty() && !host.hasSnapshot -> {
-            UhpEmptyPane(
+        neverConnected && host.connection == ConnectionBadge.Connecting -> {
+            EmptyState(title = "Agents", message = "Connecting…", modifier = modifier)
+        }
+        neverConnected -> {
+            EmptyState(
                 title = "Agents",
-                message = "Connect to this host",
-                modifier = modifier,
-            )
-        }
-        state.acp.open -> {
-            AcpSessionPane(
-                host = host,
-                state = state,
-                onBack = onCloseAcp,
-                onDraftChange = onAcpDraftChange,
-                onPrompt = onPromptAcp,
-                onAnswerPermission = onAnswerAcpPermission,
-                onCancel = onCancelAcp,
-                onClose = onCloseAcp,
-                modifier = modifier,
-            )
-        }
-        state.agentDetail.open -> {
-            AgentDetailPane(
-                host = host,
-                state = state,
-                onBack = onCloseAgent,
-                onRefresh = onRefresh,
-                onPrompt = onPrompt,
-                onDraftChange = onDraftChange,
-                onSendKeys = onSendKeys,
-                onCheckUnconfirmed = onCheckUnconfirmed,
-                onShowNameChange = onShowNameChange,
-                onNameDraftChange = onNameDraftChange,
-                onNameAgent = onNameAgent,
-                onShowForkChange = onShowForkChange,
-                onForkDraftChange = onForkDraftChange,
-                onForkAgent = onForkAgent,
-                terminal = terminal,
-                onRequestControl = onRequestControl,
-                onSendTerminalText = onSendTerminalText,
-                onSendTerminalKey = onSendTerminalKey,
-                onObserveTerminal = onObserveTerminal,
-                onStopObserve = onStopObserve,
-                onOpenProjectReview = onOpenProjectReview,
+                message = "This Host has not connected yet.",
                 modifier = modifier,
             )
         }
@@ -168,6 +117,7 @@ fun AgentsSection(
                 state = state,
                 onRefresh = onRefresh,
                 onOpenAgent = onOpenAgent,
+                onOpenAcp = onOpenAcp,
                 onCheckUnconfirmed = onCheckUnconfirmed,
                 onResumeSession = onResumeSession,
                 onLoadAcpAgents = onLoadAcpAgents,
@@ -187,6 +137,7 @@ fun AgentListPane(
     state: HostUhpState,
     onRefresh: () -> Unit,
     onOpenAgent: (String) -> Unit,
+    onOpenAcp: () -> Unit = {},
     onCheckUnconfirmed: () -> Unit,
     onResumeSession: (String) -> Unit = {},
     onLoadAcpAgents: () -> Unit = {},
@@ -200,100 +151,119 @@ fun AgentListPane(
         onLoadAcpAgents()
         onShowLaunchAcp(true)
     }
+    val entries = state.agentEntries()
+    val waiting = state.waitingEntries()
+    val nowEpochMs = System.currentTimeMillis()
     Box(modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = state.loading,
             onRefresh = onRefresh,
             modifier = Modifier.fillMaxSize(),
         ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                AgentsHeaderCard(
-                    host = host,
-                    mission = state.mission,
-                    onWaitingClick = {
-                        val pane = host.firstBlockedPaneId
-                            ?: state.agents.firstOrNull { it.status == AgentStatus.Blocked }?.paneId
-                        if (pane != null) onOpenAgent(pane)
-                    },
-                )
-            }
-            state.errorText?.let { error ->
-                item {
-                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            state.agentDetail.errorText?.let { error ->
-                item {
-                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            state.agentDetail.unconfirmed?.let { kind ->
-                item { UnconfirmedBanner(kind = kind, onCheck = onCheckUnconfirmed) }
-            }
-            if (state.agents.isEmpty()) {
-                item {
-                    if (state.capabilities.acpSession) {
-                        LaunchAgentCard(onLaunch = openLaunch)
-                    } else {
-                        Text(
-                            if (state.connected) "No Agents in the current snapshot." else "Connect to this host",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (state.attentionCount() > 0) {
+                    item(key = "attention") {
+                        AttentionBanner(
+                            count = state.attentionCount(),
+                            onClick = {
+                                val first = waiting.firstOrNull() ?: return@AttentionBanner
+                                if (first.kind == AgentKind.Acp) onOpenAcp() else first.paneId?.let(onOpenAgent)
+                            },
+                        )
+                    }
+                } else {
+                    item(key = "mission") {
+                        val summary = state.mission?.summary
+                        val detail = summary?.let {
+                            buildString {
+                                val live = state.mission?.rows?.count { row -> row.kind == MissionRowKind.LIVE } ?: 0
+                                append(live)
+                                append(" live")
+                                if (it.tokens > 0) {
+                                    append(" · ")
+                                    append(it.tokens)
+                                    append(" tokens")
+                                }
+                            }
+                        }
+                        MissionStrip(
+                            working = host.workingAgents,
+                            blocked = host.blockedAgents,
+                            done = host.completedAgents,
+                            detail = detail,
                         )
                     }
                 }
-            } else {
-                val blocked = state.agents.filter { it.status == AgentStatus.Blocked }
-                val working = state.agents.filter { it.status == AgentStatus.Working }
-                val idle = state.agents.filter { it.status == AgentStatus.Idle || it.status == AgentStatus.Unknown }
-                val done = state.agents.filter { it.status == AgentStatus.Done }
-                listOf(
-                    "Blocked" to blocked,
-                    "Working" to working,
-                    "Idle" to idle,
-                    "Done" to done,
-                ).forEach { (title, agents) ->
-                    if (agents.isNotEmpty()) {
-                        item(key = "section-$title") {
-                            Text(
-                                title,
-                                style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier.padding(top = 8.dp),
+                state.errorText?.let { error ->
+                    item {
+                        Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                state.agentDetail.unconfirmed?.let { kind ->
+                    item { UnconfirmedBanner(kind = kind, onCheck = onCheckUnconfirmed) }
+                }
+                if (entries.isEmpty()) {
+                    item {
+                        if (state.capabilities.acpSession) {
+                            LaunchAgentCard(onLaunch = openLaunch)
+                        } else {
+                            EmptyState(
+                                title = "No Agents",
+                                message = if (state.connected) {
+                                    "No Agents. Launch one, or start one in Luvus."
+                                } else {
+                                    "This Host has not connected yet."
+                                },
+                                modifier = Modifier.fillMaxWidth(),
                             )
                         }
-                        items(agents, key = { it.paneId }) { agent ->
-                            AgentRow(agent = agent, onClick = { onOpenAgent(agent.paneId) })
+                    }
+                } else {
+                    val waitingRows = entries.filter { it.status == AgentStatus.Blocked }
+                    val working = entries.filter { it.status == AgentStatus.Working }
+                    val idle = entries.filter { it.status == AgentStatus.Idle || it.status == AgentStatus.Unknown }
+                    val done = entries.filter { it.status == AgentStatus.Done }
+                    listOf(
+                        "Waiting" to waitingRows,
+                        "Working" to working,
+                        "Idle" to idle,
+                        "Done" to done,
+                    ).forEach { (title, rows) ->
+                        if (rows.isNotEmpty()) {
+                            item(key = "section-$title") { SectionHeader(title) }
+                            items(rows, key = { it.id }) { entry ->
+                                AgentRow(
+                                    entry = entry,
+                                    nowEpochMs = nowEpochMs,
+                                    onClick = {
+                                        if (entry.kind == AgentKind.Acp) onOpenAcp() else entry.paneId?.let(onOpenAgent)
+                                    },
+                                )
+                            }
                         }
                     }
                 }
-            }
-            if (state.agentSessions.isNotEmpty()) {
-                item {
-                    Text(
-                        "Resumable sessions",
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
-                items(state.agentSessions, key = { it.sessionId }) { session ->
-                    AgentSessionRow(
-                        sessionId = session.sessionId,
-                        agent = session.agent,
-                        cwd = session.cwd,
-                        canResume = state.canMutate && state.capabilities.agentResume,
-                        onResume = { onResumeSession(session.sessionId) },
-                    )
+                if (state.agentSessions.isNotEmpty()) {
+                    item { SectionHeader("Resumable sessions") }
+                    items(state.agentSessions, key = { it.sessionId }) { session ->
+                        AgentSessionRow(
+                            sessionId = session.sessionId,
+                            agent = session.agent,
+                            cwd = session.cwd,
+                            canResume = state.canMutate && state.capabilities.agentResume,
+                            onResume = { onResumeSession(session.sessionId) },
+                        )
+                    }
                 }
             }
-        }
         }
         if (state.capabilities.acpSession) {
             ExtendedFloatingActionButton(
-                text = { Text("Launch") },
+                text = { Text("New agent") },
                 icon = { Icon(Icons.Filled.Add, contentDescription = null) },
                 onClick = openLaunch,
                 modifier = Modifier
@@ -313,172 +283,8 @@ fun AgentListPane(
     }
 }
 
-@Composable
-private fun AgentsHeaderCard(
-    host: HostUiModel,
-    mission: MissionSnapshot?,
-    onWaitingClick: () -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (host.blockedAgents > 0) {
-            Card(
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onWaitingClick),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-            ) {
-                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        if (host.blockedAgents == 1) {
-                            "1 agent waiting for you"
-                        } else {
-                            "${host.blockedAgents} agents waiting for you"
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                    Text(
-                        "Jump to the first Blocked Agent.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                }
-            }
-        }
-        Card {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Mission", style = MaterialTheme.typography.titleSmall)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    MetricChip("Working", host.workingAgents)
-                    MetricChip("Blocked", host.blockedAgents, loud = host.blockedAgents > 0)
-                    MetricChip("Done", host.completedAgents)
-                }
-                val summary = mission?.summary
-                if (summary != null) {
-                    Text(
-                        buildString {
-                            val live = mission.rows.count { it.kind == MissionRowKind.LIVE }
-                            val resumable = mission.rows.size - live
-                            append(live)
-                            append(" live")
-                            if (resumable > 0) {
-                                append(" · ")
-                                append(resumable)
-                                append(" resumable")
-                            }
-                            if (summary.tokens > 0) {
-                                append(" · ")
-                                append(summary.tokens)
-                                append(" tokens")
-                            }
-                            if (summary.costUsd > 0.0) {
-                                append(" · $")
-                                append("%.2f".format(summary.costUsd))
-                            }
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                host.activeTask?.let { task ->
-                    Text(task, style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-        }
-    }
-}
 
-@Composable
-private fun MetricChip(label: String, value: Int, loud: Boolean = false) {
-    val colors = if (loud) {
-        AssistChipDefaults.assistChipColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            labelColor = MaterialTheme.colorScheme.onPrimary,
-            disabledContainerColor = MaterialTheme.colorScheme.primary,
-            disabledLabelColor = MaterialTheme.colorScheme.onPrimary,
-        )
-    } else {
-        AssistChipDefaults.assistChipColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-    AssistChip(
-        onClick = {},
-        enabled = false,
-        label = { Text("$label $value") },
-        colors = colors,
-    )
-}
 
-@Composable
-private fun AgentRow(agent: AgentSummary, onClick: () -> Unit) {
-    val blocked = agent.status == AgentStatus.Blocked
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(
-            containerColor = if (blocked) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            },
-        ),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    agent.name ?: agent.agent ?: "Agent",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 2,
-                )
-                AgentStatusChip(agent.status)
-            }
-            val kind = agent.agent
-            if (!kind.isNullOrBlank() && kind != agent.name) {
-                Text(kind, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            val place = listOfNotNull(agent.workspaceName ?: agent.workspace, agent.branch).joinToString(" · ")
-            if (place.isNotBlank()) {
-                Text(
-                    place,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-internal fun AgentStatusChip(status: AgentStatus) {
-    val blocked = status == AgentStatus.Blocked
-    val container = if (blocked) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.surfaceContainer
-    }
-    val label = if (blocked) {
-        MaterialTheme.colorScheme.onPrimary
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    AssistChip(
-        onClick = {},
-        enabled = false,
-        label = { Text(status.name) },
-        colors = AssistChipDefaults.assistChipColors(
-            containerColor = container,
-            labelColor = label,
-            disabledContainerColor = container,
-            disabledLabelColor = label,
-        ),
-    )
-}
 
 @Composable
 fun AgentDetailPane(
@@ -513,12 +319,10 @@ fun AgentDetailPane(
     val mutationPending = detail.sending || detail.unconfirmed != null
     val canPrompt = state.canMutate && state.capabilities.agentPrompt && !mutationPending
     val canKeys = state.canMutate && state.capabilities.agentKeys && !mutationPending
-    // Held in ViewModel state, not rememberSaveable: the compact and expanded
-    // layouts put this pane under different saveable-state scopes, so a
+    var overflowOpen by remember { mutableStateOf(false) }
+    val transcriptText = detail.transcript?.text.orEmpty()
     // composition-local draft is lost on every layout switch.
     val draft = detail.draft
-    var pendingKeys by remember { mutableStateOf<PendingAgentAction?>(null) }
-    val transcriptText = detail.transcript?.text.orEmpty()
     val onSurface = MaterialTheme.colorScheme.onSurface
     val surface = MaterialTheme.colorScheme.surface
     val transcriptParts = remember(transcriptText) { transcriptSegments(transcriptText) }
@@ -592,54 +396,52 @@ fun AgentDetailPane(
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
                 )
-                if (!kind.isNullOrBlank() && kind != titleName) {
-                    Text(kind, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            FilledTonalButton(onClick = onRefresh) { Text("Refresh") }
-        }
-        val canName = state.canMutate && state.capabilities.agentName && !mutationPending
-        val canFork = state.canMutate && state.capabilities.agentFork && !mutationPending
-        if (canName || canFork) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (canName) {
-                    FilledTonalButton(onClick = { onShowNameChange(true) }) { Text("Name") }
-                }
-                if (canFork) {
-                    FilledTonalButton(onClick = { onShowForkChange(true) }) { Text("Fork") }
-                }
-            }
-        }
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                AgentStatusChip(status)
                 if (place.isNotBlank()) {
                     Text(
                         place,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.clickable(onClick = onOpenProjectReview),
                     )
                 }
             }
-            if (!cwd.isNullOrBlank()) {
-                Text(
-                    cwd,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            AgentStatusPill(status)
+            val canName = state.canMutate && state.capabilities.agentName && !mutationPending
+            val canFork = state.canMutate && state.capabilities.agentFork && !mutationPending
+            if (canName || canFork) {
+                Box {
+                    IconButton(onClick = { overflowOpen = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                    }
+                    DropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
+                        if (canName) {
+                            DropdownMenuItem(
+                                text = { Text("Name") },
+                                onClick = {
+                                    overflowOpen = false
+                                    onShowNameChange(true)
+                                },
+                            )
+                        }
+                        if (canFork) {
+                            DropdownMenuItem(
+                                text = { Text("Fork") },
+                                onClick = {
+                                    overflowOpen = false
+                                    onShowForkChange(true)
+                                },
+                            )
+                        }
+                    }
+                }
             }
+        }
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             missionRow?.usage?.let { usage ->
                 Text(
                     buildString {
@@ -648,17 +450,6 @@ fun AgentDetailPane(
                             if (isNotEmpty()) append(" · ")
                             append(it)
                             append(" tokens")
-                        }
-                        usage.context?.let {
-                            if (isNotEmpty()) append(" · ")
-                            append("context ")
-                            append("%.0f".format(it * 100))
-                            append("%")
-                        }
-                        usage.costUsd?.let {
-                            if (isNotEmpty()) append(" · ")
-                            append("$")
-                            append("%.2f".format(it))
                         }
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -794,15 +585,27 @@ fun AgentDetailPane(
                     .padding(bottom = bottomInset + 8.dp, top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (canKeys) {
-                    AgentKeyRow(
-                        canPrompt = canPrompt,
-                        mutationPending = mutationPending,
-                        blocked = blocked,
-                        prominent = yesNoPrompt,
-                        onPrompt = onPrompt,
-                        onSendKeys = onSendKeys,
-                        onPending = { pendingKeys = it },
+                if (blocked) {
+                    val actions = buildList {
+                        if (yesNoPrompt && (canPrompt || state.isObserver)) {
+                            add(BlockedAction("Yes", BlockedActionKind.Allow) { onPrompt("y") })
+                            add(BlockedAction("No", BlockedActionKind.Reject) { onPrompt("n") })
+                        }
+                        if (canKeys || state.isObserver) {
+                            add(BlockedAction("Enter") { onSendKeys(listOf(AgentKey.ENTER)) })
+                            add(BlockedAction("Esc") { onSendKeys(listOf(AgentKey.ESC)) })
+                        }
+                    }
+                    BlockedCard(
+                        title = "Blocked — answer",
+                        body = if (yesNoPrompt) {
+                            "This Agent is waiting for a yes or no."
+                        } else {
+                            "This Agent is waiting."
+                        },
+                        actions = actions,
+                        enabled = !mutationPending && !state.isObserver && (canPrompt || canKeys),
+                        caption = if (state.isObserver) "Observer — can't answer" else null,
                     )
                 }
                 if (canPrompt) {
@@ -912,33 +715,6 @@ fun AgentDetailPane(
             },
         )
     }
-    pendingKeys?.let { pending ->
-        AlertDialog(
-            onDismissRequest = { pendingKeys = null },
-            title = { Text("Send to Blocked Agent?") },
-            text = {
-                Text(
-                    if (pending.promptText != null) {
-                        "Send Agent prompt \"${pending.label}\" to this Blocked Agent."
-                    } else {
-                        "Send Agent keys ${pending.label} to this Blocked Agent."
-                    },
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val action = pending
-                        pendingKeys = null
-                        if (action.promptText != null) onPrompt(action.promptText) else onSendKeys(action.keys.orEmpty())
-                    },
-                ) { Text("Send") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingKeys = null }) { Text("Cancel") }
-            },
-        )
-    }
 }
 
 @Composable
@@ -992,66 +768,6 @@ internal fun UnconfirmedBanner(kind: UnconfirmedKind, onCheck: () -> Unit) {
     }
 }
 
-@Composable
-private fun AgentKeyRow(
-    canPrompt: Boolean,
-    mutationPending: Boolean,
-    blocked: Boolean,
-    prominent: Boolean,
-    onPrompt: (String) -> Unit,
-    onSendKeys: (List<AgentKey>) -> Unit,
-    onPending: (PendingAgentAction) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .horizontalScroll(rememberScrollState())
-            .padding(start = 12.dp, end = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (canPrompt) {
-            AgentKeyButton("y+Enter", enabled = !mutationPending, prominent = prominent) {
-                val action = PendingAgentAction("y+Enter", null, "y")
-                if (blocked) onPending(action) else onPrompt("y")
-            }
-            AgentKeyButton("n+Enter", enabled = !mutationPending, prominent = prominent) {
-                val action = PendingAgentAction("n+Enter", null, "n")
-                if (blocked) onPending(action) else onPrompt("n")
-            }
-        }
-        AgentKeyButton("Enter", enabled = !mutationPending, prominent = prominent) {
-            val action = PendingAgentAction("Enter", listOf(AgentKey.ENTER), null)
-            if (blocked) onPending(action) else onSendKeys(action.keys.orEmpty())
-        }
-        AgentKeyButton("Esc", enabled = !mutationPending, prominent = prominent) {
-            val action = PendingAgentAction("Esc", listOf(AgentKey.ESC), null)
-            if (blocked) onPending(action) else onSendKeys(action.keys.orEmpty())
-        }
-        AgentKeyButton("Up", enabled = !mutationPending, prominent = prominent) {
-            val action = PendingAgentAction("Up", listOf(AgentKey.UP), null)
-            if (blocked) onPending(action) else onSendKeys(action.keys.orEmpty())
-        }
-        AgentKeyButton("Down", enabled = !mutationPending, prominent = prominent) {
-            val action = PendingAgentAction("Down", listOf(AgentKey.DOWN), null)
-            if (blocked) onPending(action) else onSendKeys(action.keys.orEmpty())
-        }
-        AgentKeyButton("Tab", enabled = !mutationPending, prominent = prominent) {
-            val action = PendingAgentAction("Tab", listOf(AgentKey.TAB), null)
-            if (blocked) onPending(action) else onSendKeys(action.keys.orEmpty())
-        }
-    }
-}
-
-@Composable
-private fun AgentKeyButton(label: String, enabled: Boolean, prominent: Boolean = false, onClick: () -> Unit) {
-    if (prominent) {
-        Button(onClick = onClick, enabled = enabled) { Text(label) }
-    } else {
-        FilledTonalButton(onClick = onClick, enabled = enabled) { Text(label) }
-    }
-}
 
 private fun transcriptLooksLikeYesNo(text: String): Boolean {
     val tail = text.trim().takeLast(500)
@@ -1066,19 +782,13 @@ internal fun UhpEmptyPane(
     onAction: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.padding(24.dp),
-        ) {
-            Text(title, style = MaterialTheme.typography.headlineSmall)
-            Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (action != null && onAction != null) {
-                Button(onClick = onAction) { Text(action) }
-            }
-        }
-    }
+    EmptyState(
+        title = title,
+        message = message,
+        modifier = modifier,
+        action = action,
+        onAction = onAction,
+    )
 }
 
 @Composable
@@ -1127,8 +837,3 @@ private fun AgentSessionRow(
     }
 }
 
-private data class PendingAgentAction(
-    val label: String,
-    val keys: List<AgentKey>?,
-    val promptText: String?,
-)

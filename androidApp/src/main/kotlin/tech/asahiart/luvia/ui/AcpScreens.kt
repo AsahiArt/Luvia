@@ -421,66 +421,30 @@ private fun AcpPermissionCard(
     onAnswer: (String) -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        tonalElevation = 3.dp,
-        shape = MaterialTheme.shapes.large,
-    ) {
-        Column(
-            Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(request.title, style = MaterialTheme.typography.titleMedium)
-            val detail = listOfNotNull(request.description, request.toolTitle)
-                .filter { it.isNotBlank() }
-                .joinToString(" · ")
-            if (detail.isNotEmpty()) {
-                Text(
-                    detail,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                request.options.forEach { option ->
-                    AcpPermissionOptionButton(
-                        option = option,
-                        onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onAnswer(option.optionId)
-                        },
-                    )
-                }
-            }
-        }
-    }
+    val detail = listOfNotNull(request.description, request.toolTitle)
+        .filter { it.isNotBlank() }
+        .joinToString(" · ")
+        .ifBlank { "This Agent is waiting." }
+    BlockedCard(
+        title = request.title,
+        body = detail,
+        actions = request.options.map { option ->
+            BlockedAction(
+                label = option.name,
+                kind = when (option.kind) {
+                    AcpPermissionKind.AllowOnce, AcpPermissionKind.AllowAlways -> BlockedActionKind.Allow
+                    AcpPermissionKind.RejectOnce, AcpPermissionKind.RejectAlways -> BlockedActionKind.Reject
+                    else -> BlockedActionKind.Neutral
+                },
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onAnswer(option.optionId)
+                },
+            )
+        },
+    )
 }
 
-@Composable
-private fun AcpPermissionOptionButton(
-    option: AcpPermissionOption,
-    onClick: () -> Unit,
-) {
-    when (option.kind) {
-        AcpPermissionKind.AllowOnce, AcpPermissionKind.AllowAlways -> {
-            Button(onClick = onClick) { Text(option.name) }
-        }
-        AcpPermissionKind.RejectOnce, AcpPermissionKind.RejectAlways -> {
-            OutlinedButton(
-                onClick = onClick,
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error,
-                ),
-            ) { Text(option.name) }
-        }
-        AcpPermissionKind.Other -> {
-            FilledTonalButton(onClick = onClick) { Text(option.name) }
-        }
-    }
-}
 
 @Composable
 private fun AcpPlanCard(entries: List<AcpPlanEntry>) {

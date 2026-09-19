@@ -38,6 +38,8 @@ class LuviaViewModel(
     private val triedTerminals = mutableMapOf<String, MutableSet<String>>()
 
     val hosts: StateFlow<List<HostRuntime>> = manager.hosts
+    val surfaces: StateFlow<Map<String, HostUhpState>> = uhpRegistry.states
+
 
     private val _pairing = MutableStateFlow(PairingUiState())
     val pairing: StateFlow<PairingUiState> = _pairing.asStateFlow()
@@ -481,8 +483,14 @@ internal fun HostRuntime.toUi(): HostUiModel {
     )
 }
 
-internal fun List<HostRuntime>.toSortedUi(): List<HostUiModel> =
-    mapIndexed { index, runtime -> index to runtime.toUi() }
+internal fun List<HostRuntime>.toSortedUi(
+    attentionByHost: Map<String, Int> = emptyMap(),
+): List<HostUiModel> =
+    mapIndexed { index, runtime ->
+        val ui = runtime.toUi()
+        val attention = maxOf(ui.blockedAgents, attentionByHost[ui.id] ?: 0)
+        index to ui.copy(blockedAgents = attention)
+    }
         .sortedWith(
             compareBy<Pair<Int, HostUiModel>> { (_, host) ->
                 when {

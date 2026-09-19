@@ -13,6 +13,8 @@ struct ContentView: View {
             HostSidebarView(
                 hosts: model.hosts,
                 selection: $model.selectedHostID,
+                boundHostID: model.selectedHostID,
+                boundAttentionCount: model.uhp.attentionCount,
                 addHost: { model.isPairingPresented = true },
                 onUnpair: { id in _Concurrency.Task { await model.unpair(id) } },
                 onDisconnect: { id in model.disconnect(id) },

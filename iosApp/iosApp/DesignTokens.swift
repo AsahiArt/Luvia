@@ -7,10 +7,20 @@ enum DesignTokens {
     static let ink = Color(light: "1C1916", dark: "F3EDE6")
     static let inkMuted = Color(light: "6A635C", dark: "A39B93")
     static let accent = Color(light: "C45C26", dark: "E07A42")
-    static let live = Color(light: "2F6F4E", dark: "5BA87A")
-    static let connecting = Color(light: "3D6B99", dark: "7BA3C9")
-    static let stale = Color(light: "B56A1B", dark: "E09A4A")
-    static let offline = Color(light: "8A837C", dark: "8A837C")
+    static let linkLive = Color(light: "2F6F4E", dark: "5BA87A")
+    static let linkConnecting = Color(light: "3D6B99", dark: "7BA3C9")
+    static let linkStale = Color(light: "B56A1B", dark: "E09A4A")
+    static let linkOffline = Color(light: "8A837C", dark: "8A837C")
+    static let live = linkLive
+    static let connecting = linkConnecting
+    static let stale = linkStale
+    static let offline = linkOffline
+    static let agentIdle = inkMuted
+    static let agentWorking = linkConnecting
+    static let agentBlocked = accent
+    static let agentUnknown = linkOffline
+    static let diffAdd = Color(light: "0B6E3F", dark: "81C784")
+    static let diffDel = Color(light: "B71C1C", dark: "EF9A9A")
 
     enum Space {
         static let xs: CGFloat = 4
@@ -18,6 +28,7 @@ enum DesignTokens {
         static let m: CGFloat = 16
         static let l: CGFloat = 24
         static let xl: CGFloat = 32
+        static let xxl: CGFloat = 48
     }
 
     enum Radius {
@@ -29,7 +40,7 @@ enum DesignTokens {
     enum Typography {
         static let display = Font.system(.largeTitle, design: .serif).weight(.bold)
         static let title = Font.system(.title2, design: .serif).weight(.semibold)
-        static let heading = Font.system(.headline, design: .serif)
+        static let heading = Font.headline
         static let mono = Font.custom(TerminalFont.postScriptName, size: 13, relativeTo: .footnote)
     }
 
@@ -37,6 +48,8 @@ enum DesignTokens {
         static let background = Color(hex: "1A1815")
         static let foreground = Color(hex: "E8E2D8")
         static let muted = Color(hex: "9A9186")
+        static let bg = background
+        static let fg = foreground
     }
 }
 

@@ -21,9 +21,9 @@ struct AutomationsSurfaceView: View {
         Group {
             if !model.hasLiveSession {
                 unavailable(
-                    "Connect to this host",
+                    "This Host has not connected yet.",
                     symbol: "bolt.horizontal.circle",
-                    text: "A live session is required to load Automations."
+                    text: "Automations appear after the first live session."
                 )
             } else if !model.uhp.caps.automationList && !model.uhp.caps.automationHealth {
                 unavailable(
@@ -782,8 +782,7 @@ private struct AutomationHistorySheet: View {
                             }
                             if let taskId = run.taskId, !taskId.isEmpty {
                                 Button("Open task") {
-                                    model.selectedSection = .tasks
-                                    model.uhp.moreSurface = nil
+                                    model.showWorkspaceTasks()
                                     dismiss()
                                 }
                                 .font(.caption.weight(.semibold))
@@ -824,7 +823,7 @@ private struct AutomationRebindSheet: View {
                             model.rebindHostAutomation(id: automationID, pane: agent.id, terminalId: terminalId)
                             dismiss()
                         } label: {
-                            AgentRowView(agent: agent)
+                            AgentRow(item: AgentListItem(agent))
                         }
                         .disabled(!model.uhp.isController || model.uhp.isSending)
                     }

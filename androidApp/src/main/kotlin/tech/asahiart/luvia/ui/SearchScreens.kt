@@ -48,8 +48,8 @@ fun SearchSection(
     modifier: Modifier = Modifier,
 ) {
     when {
-        !host.connected && !state.connected -> {
-            UhpEmptyPane(title = "Search", message = "Connect to this host", modifier = modifier)
+        host.shouldShowOfflineEmpty(state.connected) -> {
+            UhpEmptyPane(title = "Search", message = host.offlineEmptyMessage(), modifier = modifier)
         }
         !state.capabilities.searchQuery -> {
             UhpEmptyPane(title = "Search", message = "Search is not available on this host.", modifier = modifier)

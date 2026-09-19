@@ -1,9 +1,122 @@
 import SwiftUI
+import LuviaShared
+
+struct MoreSectionView: View {
+    @Bindable var model: AppModel
+    let host: HostViewState
+
+    private var hasContent: Bool {
+        model.hasLiveSession || host.hasCachedContent
+    }
+
+    var body: some View {
+        Group {
+            if !hasContent && host.connection == .connecting {
+                EmptyState(title: "Connecting…", message: "Loading this Host.", systemImage: "ellipsis.circle")
+            } else if !hasContent {
+                EmptyState(
+                    title: "This Host has not connected yet.",
+                    message: "Host tools appear after the first live session.",
+                    systemImage: "ellipsis.circle"
+                )
+            } else {
+                List {
+                    Section("Project tools") {
+                        if shows(.files) {
+                            NavigationLink(value: MoreSurface.files) {
+                                moreRow(.files)
+                            }
+                        }
+                        if shows(.search) {
+                            NavigationLink(value: MoreSurface.search) {
+                                moreRow(.search)
+                            }
+                        }
+                        if shows(.worktrees) {
+                            NavigationLink(value: MoreSurface.worktrees) {
+                                moreRow(.worktrees)
+                            }
+                        }
+                    }
+                    Section("Host") {
+                        if shows(.automations) {
+                            NavigationLink(value: MoreSurface.automations) {
+                                moreRow(.automations)
+                            }
+                        }
+                        if shows(.layout) {
+                            NavigationLink(value: MoreSurface.layout) {
+                                moreRow(.layout)
+                            }
+                        }
+                    }
+                    Section("This device") {
+                        Button {
+                            model.isHostSettingsPresented = true
+                        } label: {
+                            Label("Settings", systemImage: "gearshape")
+                                .foregroundStyle(DesignTokens.ink)
+                        }
+                    }
+                }
+                .listStyle(.insetGrouped)
+            }
+        }
+    }
+
+    private func moreRow(_ surface: MoreSurface) -> some View {
+        Label(surface.title, systemImage: surface.symbol)
+    }
+
+    private func shows(_ surface: MoreSurface) -> Bool {
+        guard let snapshot = model.uhp.snapshot, snapshot.connected else { return true }
+        let visible: [LuviaShared.HostSection] = KotlinLists.array(snapshot.visibleSections() as Any)
+        let wanted: LuviaShared.HostSection = switch surface {
+        case .files: .files
+        case .search: .search
+        case .worktrees: .worktrees
+        case .automations: .automations
+        case .layout: .layout
+        }
+        return visible.contains(wanted)
+    }
+}
+
+struct MoreSurfaceDestination: View {
+    @Bindable var model: AppModel
+    let surface: MoreSurface
+
+    var body: some View {
+        Group {
+            switch surface {
+            case .files:
+                FilesSurfaceView(model: model)
+            case .search:
+                SearchSurfaceView(model: model)
+            case .worktrees:
+                WorktreesSurfaceView(model: model)
+            case .automations:
+                AutomationsSurfaceView(model: model)
+            case .layout:
+                LayoutSurfaceView(model: model)
+            }
+        }
+        .navigationTitle(surface.title)
+        .task(id: surface) {
+            let model = model
+            let surface = surface
+            _Concurrency.Task { @MainActor in
+                await model.loadMoreSurface(surface)
+            }
+        }
+    }
+}
 
 struct MoreSurfaceSheet: View {
     @Bindable var model: AppModel
     let surface: MoreSurface
     @Environment(\.dismiss) private var dismiss
+
 
     var body: some View {
         NavigationStack {
@@ -45,7 +158,7 @@ struct FilesSurfaceView: View {
     var body: some View {
         Group {
             if !model.hasLiveSession {
-                unavailable("Connect to this host", symbol: "bolt.horizontal.circle", text: "A live session is required to load Files.")
+                unavailable("This Host has not connected yet.", symbol: "bolt.horizontal.circle", text: "Files appear after the first live session.")
             } else if !model.uhp.caps.filesTree {
                 unavailable("Files", symbol: "folder", text: "This Host does not expose Files.")
             } else if model.uhp.fileRows.isEmpty {
@@ -100,7 +213,7 @@ struct SearchSurfaceView: View {
     var body: some View {
         Group {
             if !model.hasLiveSession {
-                unavailable("Connect to this host", symbol: "bolt.horizontal.circle", text: "A live session is required to search.")
+                unavailable("This Host has not connected yet.", symbol: "bolt.horizontal.circle", text: "Search appears after the first live session.")
             } else if !model.uhp.caps.searchQuery {
                 unavailable("Search", symbol: "magnifyingglass", text: "This Host does not expose Search.")
             } else {
@@ -176,7 +289,7 @@ struct WorktreesSurfaceView: View {
     var body: some View {
         Group {
             if !model.hasLiveSession {
-                unavailable("Connect to this host", symbol: "bolt.horizontal.circle", text: "A live session is required to load Worktrees.")
+                unavailable("This Host has not connected yet.", symbol: "bolt.horizontal.circle", text: "Worktrees appear after the first live session.")
             } else if !model.uhp.caps.worktreeList {
                 unavailable("Worktrees", symbol: "arrow.triangle.branch", text: "This Host does not expose Worktrees.")
             } else if model.uhp.worktrees.isEmpty {
@@ -295,7 +408,7 @@ struct LayoutSurfaceView: View {
     var body: some View {
         Group {
             if !model.hasLiveSession {
-                unavailable("Connect to this host", symbol: "bolt.horizontal.circle", text: "A live session is required to load Layout.")
+                unavailable("This Host has not connected yet.", symbol: "bolt.horizontal.circle", text: "Layout appears after the first live session.")
             } else if !model.uhp.caps.workspaceList && !model.uhp.caps.paneList {
                 unavailable("Layout", symbol: "rectangle.split.3x1", text: "This Host does not expose Layout.")
             } else if model.uhp.workspaces.isEmpty && model.uhp.panes.isEmpty {

@@ -115,7 +115,8 @@ extension AppModel {
         case "permission":
             pendingPresentAcp = true
         case "done":
-            selectedSection = .tasks
+            workspaceSegment = .tasks
+            selectedSection = .workspace
         default:
             selectedSection = .agents
             pendingBlockedWake = true

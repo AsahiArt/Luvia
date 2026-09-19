@@ -36,6 +36,37 @@ struct AgentViewState: Identifiable, Hashable, Sendable {
     var isBlocked: Bool { statusKind == .blocked }
 }
 
+struct AgentListItem: Identifiable, Hashable, Sendable {
+    let id: String
+    var name: String
+    var statusKind: AgentStatusKind
+    var isAcp: Bool
+    var projectLabel: String?
+    var branch: String?
+    var lastLine: String?
+    var updatedEpochMs: Int64?
+    var paneId: String?
+
+    var isWaiting: Bool { statusKind == .blocked }
+
+    var subtitle: String? {
+        let parts = [projectLabel, branch].compactMap { value in
+            value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    var relativeTime: String? {
+        guard let updatedEpochMs, updatedEpochMs > 0 else { return nil }
+        let date = Date(timeIntervalSince1970: TimeInterval(updatedEpochMs) / 1000)
+        let seconds = max(0, Int(Date().timeIntervalSince(date)))
+        if seconds < 60 { return "\(seconds)s" }
+        if seconds < 3600 { return "\(seconds / 60)m" }
+        if seconds < 86_400 { return "\(seconds / 3600)h" }
+        return "\(seconds / 86_400)d"
+    }
+}
+
 enum AgentStatusKind: String, Hashable, Sendable {
     case idle
     case working
@@ -601,20 +632,25 @@ struct HostViewState: Identifiable, Hashable, Sendable {
 
 enum HostSection: String, CaseIterable, Identifiable, Sendable {
     case agents = "Agents"
-    case review = "Review"
-    case tasks = "Tasks"
-    case automations = "Automations"
+    case workspace = "Workspace"
+    case more = "More"
 
     var id: Self { self }
 
     var symbol: String {
         switch self {
         case .agents: "person.2"
-        case .review: "plus.forwardslash.minus"
-        case .tasks: "checklist"
-        case .automations: "clock.arrow.2.circlepath"
+        case .workspace: "plus.forwardslash.minus"
+        case .more: "ellipsis"
         }
     }
+}
+
+enum WorkspaceSegment: String, CaseIterable, Identifiable, Sendable {
+    case review = "Review"
+    case tasks = "Tasks"
+
+    var id: Self { self }
 }
 
 private func isStatus(_ status: AgentStatus, _ expected: AgentStatus) -> Bool {
@@ -820,6 +856,36 @@ extension AgentViewState {
     }
 }
 
+extension AgentListItem {
+    init(_ entry: AgentEntry) {
+        self.init(
+            id: entry.id,
+            name: entry.name,
+            statusKind: AgentStatusKind(entry.status),
+            isAcp: entry.kind == .acp,
+            projectLabel: entry.projectLabel,
+            branch: nil,
+            lastLine: entry.lastLine,
+            updatedEpochMs: kotlinInt64(entry.updatedEpochMs),
+            paneId: entry.paneId
+        )
+    }
+
+    init(_ agent: AgentViewState) {
+        self.init(
+            id: agent.id,
+            name: agent.name,
+            statusKind: agent.statusKind,
+            isAcp: false,
+            projectLabel: agent.workspace,
+            branch: agent.branch,
+            lastLine: nil,
+            updatedEpochMs: nil,
+            paneId: agent.id
+        )
+    }
+}
+
 extension TaskViewState {
     init(_ summary: TaskSummary) {
         self.init(id: summary.id, title: summary.title, status: summary.status)
@@ -841,6 +907,10 @@ extension HostViewState {
             value = "\(seconds / 86400)d"
         }
         return "synced \(value) ago"
+    }
+
+    var hasCachedContent: Bool {
+        !agents.isEmpty || !tasks.isEmpty || !workspaces.isEmpty || lastUpdated != nil || sessionName != nil
     }
 }
 

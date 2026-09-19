@@ -47,8 +47,8 @@ fun LayoutSection(
     modifier: Modifier = Modifier,
 ) {
     when {
-        !host.connected && !state.connected -> {
-            UhpEmptyPane(title = "Layout", message = "Connect to this host", modifier = modifier)
+        host.shouldShowOfflineEmpty(state.connected) -> {
+            UhpEmptyPane(title = "Layout", message = host.offlineEmptyMessage(), modifier = modifier)
         }
         !state.capabilities.workspaceList && !state.capabilities.paneList -> {
             UhpEmptyPane(title = "Layout", message = "Layout is not available on this host.", modifier = modifier)

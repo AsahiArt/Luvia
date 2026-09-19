@@ -75,6 +75,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
                     it.acp.copy(
                         run = AcpRunState.Starting,
                         open = true,
+                        viewing = true,
                         showLaunch = false,
                         info = null,
                         transcript = emptyList(),
@@ -90,7 +91,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
                 is Outcome.Ok -> {
                     session = result.value
                     ctx.update {
-                        it.copy(acp = it.acp.copy(info = result.value.info, run = AcpRunState.Ready))
+                        it.copy(acp = it.acp.copy(info = result.value.info, run = AcpRunState.Ready, viewing = true))
                     }
                     collector =
                         ctx.launch {
@@ -108,6 +109,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
                                 it.acp.copy(
                                     run = AcpRunState.Idle,
                                     open = false,
+                                    viewing = false,
                                     errorText = result.failure.userMessage(),
                                 ),
                         )
@@ -173,10 +175,22 @@ internal class AcpBoard(private val ctx: UhpContext) {
         }
     }
 
+    fun view() {
+        ctx.update { state ->
+            if (!state.acp.open) state else state.copy(acp = state.acp.copy(viewing = true))
+        }
+    }
+
+    fun hide() {
+        ctx.update { it.copy(acp = it.acp.copy(viewing = false)) }
+    }
+
     fun close() {
         stop()
         ctx.update {
-            it.copy(acp = it.acp.copy(open = false, run = AcpRunState.Idle, permission = null))
+            it.copy(
+                acp = it.acp.copy(open = false, viewing = false, run = AcpRunState.Idle, permission = null),
+            )
         }
     }
 

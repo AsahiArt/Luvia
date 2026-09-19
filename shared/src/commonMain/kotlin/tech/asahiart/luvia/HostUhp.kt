@@ -248,6 +248,10 @@ public class HostUhp(
 
     public fun cancelAcp() = acp.cancel()
 
+    public fun viewAcp() = acp.view()
+
+    public fun hideAcp() = acp.hide()
+
     public fun closeAcp() = acp.close()
 
     public fun close() {

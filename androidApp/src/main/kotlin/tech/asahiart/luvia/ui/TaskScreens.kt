@@ -56,8 +56,8 @@ fun TasksSection(
     modifier: Modifier = Modifier,
 ) {
     when {
-        !state.connected -> {
-            UhpEmptyPane(title = "Tasks", message = "Connect to this host", modifier = modifier)
+        host.shouldShowOfflineEmpty(state.connected) -> {
+            UhpEmptyPane(title = "Tasks", message = host.offlineEmptyMessage(), modifier = modifier)
         }
         !state.capabilities.taskList -> {
             UhpEmptyPane(title = "Tasks", message = "Tasks are not available on this host.", modifier = modifier)
@@ -116,7 +116,6 @@ private fun TaskListPane(
     val projectTasks = state.projectTasks()
     val grouped = projectTasks.groupBy { it.status.ifBlank { "unknown" } }
     Column(modifier.fillMaxSize()) {
-        ProjectChips(state = state, onSelect = onSelectWorkspace)
         PullToRefreshBox(
             isRefreshing = state.tasks.loading,
             onRefresh = onRefresh,

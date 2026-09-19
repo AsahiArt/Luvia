@@ -124,6 +124,48 @@ class AcpTest {
         uhp.close()
         session.close()
     }
+
+    @Test
+    fun hideAcpKeepsSessionOpenAndCloseAcpClearsIt() = runTest {
+        val session =
+            openAcpClient(
+                backgroundScope,
+                streamEvents = listOf(AGENT_HELLO, TURN_ENDED),
+            )
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        uhp.setLaunchAcpAgent("codex")
+        uhp.setLaunchAcpCwd("/tmp/work")
+        uhp.launchAcp()
+        val opened =
+            withTimeout(2.seconds) {
+                uhp.state.first { state ->
+                    state.acp.open && state.acp.viewing && state.acp.transcript.any { it is AcpTranscriptItem.Turn }
+                }
+            }
+        val transcript = opened.acp.transcript
+        assertEquals(true, opened.acp.viewing)
+        assertEquals(true, opened.acp.open)
+
+        uhp.hideAcp()
+        val hidden = uhp.state.value
+        assertEquals(false, hidden.acp.viewing)
+        assertEquals(true, hidden.acp.open)
+        assertEquals(transcript, hidden.acp.transcript)
+
+        uhp.viewAcp()
+        assertEquals(true, uhp.state.value.acp.viewing)
+        assertEquals(true, uhp.state.value.acp.open)
+
+        uhp.closeAcp()
+        val closed = uhp.state.value.acp
+        assertEquals(false, closed.open)
+        assertEquals(false, closed.viewing)
+        uhp.close()
+        session.close()
+    }
+
 }
 
 private suspend fun openAcpClient(

@@ -106,8 +106,8 @@ fun AutomationsSection(
     modifier: Modifier = Modifier,
 ) {
     when {
-        !host.connected && !state.connected -> {
-            UhpEmptyPane(title = "Automations", message = "Connect to this host", modifier = modifier)
+        host.shouldShowOfflineEmpty(state.connected) -> {
+            UhpEmptyPane(title = "Automations", message = host.offlineEmptyMessage(), modifier = modifier)
         }
         !state.capabilities.automationList -> {
             UhpEmptyPane(
@@ -417,9 +417,9 @@ private fun AutomationCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusPill(targetChipLabel(automation.target), tonal = true)
+                AutomationStatusChip(targetChipLabel(automation.target), tonal = true)
                 if (needsRebind) {
-                    StatusPill(
+                    AutomationStatusChip(
                         "Needs rebind",
                         container = MaterialTheme.colorScheme.errorContainer,
                         content = MaterialTheme.colorScheme.onErrorContainer,
@@ -427,7 +427,7 @@ private fun AutomationCard(
                     )
                 }
                 view?.latestStatus?.takeIf { it.isNotBlank() }?.let { status ->
-                    StatusPill(status.replaceFirstChar { it.titlecase(Locale.getDefault()) }, status = status)
+                    AutomationStatusChip(status.replaceFirstChar { it.titlecase(Locale.getDefault()) }, status = status)
                 }
             }
             val next = relativeTime(automation.nextRunAt ?: view?.nextRunAt)
@@ -943,7 +943,7 @@ private fun HistoryRunRow(run: AutomationRun) {
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusPill(
+                AutomationStatusChip(
                     (run.status ?: "unknown").replaceFirstChar { it.titlecase(Locale.getDefault()) },
                     status = run.status,
                 )
@@ -1024,7 +1024,7 @@ private fun SurfaceChoice(selected: Boolean, title: String, subtitle: String, on
 }
 
 @Composable
-private fun StatusPill(
+private fun AutomationStatusChip(
     label: String,
     status: String? = null,
     tonal: Boolean = false,

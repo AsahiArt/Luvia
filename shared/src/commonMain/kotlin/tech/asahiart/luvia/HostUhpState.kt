@@ -207,6 +207,20 @@ public sealed class AcpTranscriptItem {
     ) : AcpTranscriptItem()
 }
 
+public enum class AgentKind { Pane, Acp }
+
+public data class AgentEntry(
+    public val id: String,
+    public val kind: AgentKind,
+    public val name: String,
+    public val status: AgentStatus,
+    public val projectLabel: String?,
+    public val lastLine: String?,
+    public val updatedEpochMs: Long?,
+    public val paneId: String? = null,
+    public val acpSessionId: String? = null,
+)
+
 public enum class AcpRunState { Idle, Starting, Ready, Working, AwaitingPermission, Exited }
 
 public data class AcpState(
@@ -216,6 +230,7 @@ public data class AcpState(
     public val launchAgentId: String? = null,
     public val launchCwd: String = "",
     public val open: Boolean = false,
+    public val viewing: Boolean = false,
     public val info: AcpSessionInfo? = null,
     public val run: AcpRunState = AcpRunState.Idle,
     public val transcript: List<AcpTranscriptItem> = emptyList(),
@@ -332,7 +347,61 @@ public data class HostUhpState(
             tasks.tasks
         }
     }
+
+    public fun agentEntries(): List<AgentEntry> {
+        val panes = agents.map { agent -> agent.toEntry(lastLineForPane(agent.paneId)) }
+        val session = acp.takeIf { it.open }?.toEntry() ?: return panes
+        return panes + session
+    }
+
+    public fun waitingEntries(): List<AgentEntry> =
+        agentEntries().filter { it.status == AgentStatus.Blocked }
+
+    public fun attentionCount(): Int = waitingEntries().size
+
+    private fun lastLineForPane(paneId: String): String? {
+        if (agentDetail.paneId != paneId) return null
+        return lastNonEmptyLine(agentDetail.transcript?.text)
+    }
 }
+
+private fun AgentSummary.toEntry(lastLine: String?): AgentEntry =
+    AgentEntry(
+        id = paneId,
+        kind = AgentKind.Pane,
+        name = name?.takeIf { it.isNotBlank() } ?: agent?.takeIf { it.isNotBlank() } ?: "Agent",
+        status = status,
+        projectLabel = workspaceName ?: project ?: workspace,
+        lastLine = lastLine,
+        updatedEpochMs = null,
+        paneId = paneId,
+    )
+
+private fun AcpState.toEntry(): AgentEntry =
+    AgentEntry(
+        id = info?.sessionId?.let { "acp:$it" } ?: "acp",
+        kind = AgentKind.Acp,
+        name = info?.agentName?.takeIf { it.isNotBlank() } ?: "Agent",
+        status = run.toAgentStatus(),
+        projectLabel = info?.cwd?.takeIf { it.isNotBlank() },
+        lastLine = lastNonEmptyLine(
+            transcript.lastOrNull { it is AcpTranscriptItem.Message }?.let { (it as AcpTranscriptItem.Message).text },
+        ),
+        updatedEpochMs = null,
+        acpSessionId = info?.sessionId,
+    )
+
+private fun AcpRunState.toAgentStatus(): AgentStatus =
+    when (this) {
+        AcpRunState.AwaitingPermission -> AgentStatus.Blocked
+        AcpRunState.Working, AcpRunState.Starting -> AgentStatus.Working
+        AcpRunState.Ready, AcpRunState.Idle -> AgentStatus.Idle
+        AcpRunState.Exited -> AgentStatus.Done
+    }
+
+private fun lastNonEmptyLine(text: String?): String? =
+    text?.lineSequence()?.map { it.trimEnd() }?.lastOrNull { it.isNotBlank() }
+
 
 internal fun LuviaSession.toCapabilities(): HostCapabilities =
     HostCapabilities(

@@ -86,10 +86,6 @@ private fun HostDetailPreview() {
                     state = previewAgentsState(),
                     onRefresh = {},
                     onOpenAgent = {},
-                    onCloseAgent = {},
-                    onPrompt = {},
-                    onDraftChange = {},
-                    onSendKeys = {},
                     onCheckUnconfirmed = {},
                     modifier = modifier,
                 )
@@ -143,10 +139,6 @@ private fun AgentsListPreview() {
             state = previewAgentsState(),
             onRefresh = {},
             onOpenAgent = {},
-            onCloseAgent = {},
-            onPrompt = {},
-            onDraftChange = {},
-            onSendKeys = {},
             onCheckUnconfirmed = {},
         )
     }
@@ -156,7 +148,7 @@ private fun AgentsListPreview() {
 @Composable
 private fun AgentDetailBlockedPreview() {
     LuviaTheme {
-        AgentsSection(
+        AgentDetailPane(
             host = previewHost(),
             state = previewAgentsState().copy(
                 agentDetail = AgentDetailState(
@@ -181,9 +173,8 @@ private fun AgentDetailBlockedPreview() {
                     ),
                 ),
             ),
+            onBack = {},
             onRefresh = {},
-            onOpenAgent = {},
-            onCloseAgent = {},
             onPrompt = {},
             onDraftChange = {},
             onSendKeys = {},
@@ -191,6 +182,7 @@ private fun AgentDetailBlockedPreview() {
         )
     }
 }
+
 
 @FormFactorPreviews
 @Composable
@@ -266,6 +258,63 @@ private fun TasksListPreview() {
         )
     }
 }
+
+@Preview(name = "Connecting host", showBackground = true)
+@Composable
+private fun ConnectingHostPreview() {
+    LuviaTheme {
+        HostDetailPane(
+            host = previewHost().copy(
+                connection = ConnectionBadge.Connecting,
+                connected = true,
+                hasSnapshot = true,
+            ),
+            section = HostSection.Agents,
+            onSection = {},
+            state = previewAgentsState(),
+            attentionCount = 1,
+            agentsContent = { modifier ->
+                AgentsSection(
+                    host = previewHost().copy(connection = ConnectionBadge.Connecting, hasSnapshot = true),
+                    state = previewAgentsState(),
+                    onRefresh = {},
+                    onOpenAgent = {},
+                    onCheckUnconfirmed = {},
+                    modifier = modifier,
+                )
+            },
+        )
+    }
+}
+
+@Preview(name = "Blocked card", showBackground = true)
+@Composable
+private fun BlockedCardPreview() {
+    LuviaTheme {
+        BlockedCard(
+            title = "Blocked — answer",
+            body = "This Agent is waiting for a yes or no.",
+            actions = listOf(
+                BlockedAction("Yes", BlockedActionKind.Allow) {},
+                BlockedAction("No", BlockedActionKind.Reject) {},
+                BlockedAction("Enter") {},
+                BlockedAction("Esc") {},
+            ),
+        )
+    }
+}
+
+@Preview(name = "Workspace pick", showBackground = true)
+@Composable
+private fun WorkspacePickPreview() {
+    LuviaTheme {
+        EmptyState(
+            title = "Select a project",
+            message = "Review and Tasks use the project you pick, not the TUI focus.",
+        )
+    }
+}
+
 
 private fun previewHost() = HostUiModel(
     id = "studio",

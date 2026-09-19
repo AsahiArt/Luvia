@@ -17,25 +17,19 @@ struct HostDetailView: View {
                         Label(HostSection.agents.rawValue, systemImage: HostSection.agents.symbol)
                     }
                     .tag(HostSection.agents)
+                    .badge(model.uhp.attentionCount)
 
-                ReviewSectionView(model: model, host: host)
+                WorkspaceSectionView(model: model, host: host)
                     .tabItem {
-                        Label(HostSection.review.rawValue, systemImage: HostSection.review.symbol)
+                        Label(HostSection.workspace.rawValue, systemImage: HostSection.workspace.symbol)
                     }
-                    .tag(HostSection.review)
+                    .tag(HostSection.workspace)
 
-                TasksSectionView(model: model, host: host)
+                MoreSectionView(model: model, host: host)
                     .tabItem {
-                        Label(HostSection.tasks.rawValue, systemImage: HostSection.tasks.symbol)
+                        Label(HostSection.more.rawValue, systemImage: HostSection.more.symbol)
                     }
-                    .tag(HostSection.tasks)
-
-                AutomationsSurfaceView(model: model)
-                    .tabItem {
-                        Label(HostSection.automations.rawValue, systemImage: HostSection.automations.symbol)
-                    }
-                    .tag(HostSection.automations)
-                    .task { await model.loadAutomations() }
+                    .tag(HostSection.more)
             }
             .tint(DesignTokens.accent)
             .hostSessionChrome(host: host, model: model)
@@ -43,17 +37,15 @@ struct HostDetailView: View {
                 AgentDetailView(model: model, agentID: id)
                     .task { await model.openAgent(id) }
             }
+            .navigationDestination(for: AcpRoute.self) { _ in
+                AcpSessionView(model: model)
+            }
+            .navigationDestination(for: MoreSurface.self) { surface in
+                MoreSurfaceDestination(model: model, surface: surface)
+            }
             .navigationDestination(for: DiffFileItem.self) { file in
                 DiffFileDetailView(model: model, file: file)
                     .task { await model.openDiffFile(file) }
-            }
-            .sheet(item: $model.uhp.moreSurface) { surface in
-                MoreSurfaceSheet(model: model, surface: surface)
-            }
-            .fullScreenCover(isPresented: $model.uhp.isAcpPresented, onDismiss: {
-                model.closeAcp()
-            }) {
-                AcpSessionView(model: model)
             }
             .onChange(of: model.pendingOpenAgentID) { _, id in
                 guard let id else { return }
@@ -67,22 +59,18 @@ struct HostDetailView: View {
                 section = next
                 model.pendingHostSection = nil
             }
-            .onChange(of: model.pendingPresentAcp) { _, present in
-                guard present else { return }
-                if model.uhp.snapshot?.acp.open == true {
-                    model.uhp.isAcpPresented = true
-                    model.pendingPresentAcp = false
+            .onChange(of: model.uhp.snapshot?.acp.viewing) { _, viewing in
+                if viewing == true {
+                    path.append(AcpRoute.session)
                 }
             }
         }
     }
-
 }
 
 struct HostSessionChrome: ViewModifier {
     let host: HostViewState
     @Bindable var model: AppModel
-    @State private var editingConnection = false
 
     func body(content: Content) -> some View {
         content
@@ -90,45 +78,20 @@ struct HostSessionChrome: ViewModifier {
             .navigationBarTitleDisplayMode(model.hasLiveSession ? .large : .inline)
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
-                ToolbarItemGroup(placement: .primaryAction) {
-                    if host.connection == .live || host.connection == .connecting {
-                        Button("Disconnect", systemImage: "pause.circle") {
-                            model.disconnect(host.id)
+                ToolbarItem(placement: .primaryAction) {
+                    HStack(spacing: 8) {
+                        StatusPill.link(host.connection)
+                        if host.backend == "herdr" {
+                            TypeBadge(kind: .herdr)
                         }
-                    } else {
-                        Button("Connect", systemImage: "bolt.horizontal.circle") {
-                            model.connect(host.id)
+                        Button("Host settings", systemImage: "gearshape") {
+                            model.isHostSettingsPresented = true
                         }
                     }
-                    Button("Refresh", systemImage: "arrow.clockwise") {
-                        _Concurrency.Task { await model.refresh(host.id) }
-                    }
-                    .disabled(host.connection != .live)
-                    Button("Edit Connection", systemImage: "network") {
-                        editingConnection = true
-                    }
-                    Menu {
-                        Button("Files", systemImage: MoreSurface.files.symbol) {
-                            model.uhp.moreSurface = .files
-                        }
-                        Button("Search", systemImage: MoreSurface.search.symbol) {
-                            model.uhp.moreSurface = .search
-                        }
-                        Button("Worktrees", systemImage: MoreSurface.worktrees.symbol) {
-                            model.uhp.moreSurface = .worktrees
-                        }
-                        Button("Layout", systemImage: MoreSurface.layout.symbol) {
-                            model.uhp.moreSurface = .layout
-                        }
-                    } label: {
-                        Label("More", systemImage: "ellipsis.circle")
-                    }
-                    .disabled(host.connection != .live)
-                    .accessibilityLabel("More")
                 }
             }
-            .sheet(isPresented: $editingConnection) {
-                EditConnectionSheet(host: host, model: model)
+            .sheet(isPresented: $model.isHostSettingsPresented) {
+                HostSettingsSheet(host: host, model: model)
             }
     }
 }
@@ -139,7 +102,7 @@ extension View {
     }
 }
 
-private struct EditConnectionSheet: View {
+private struct HostSettingsSheet: View {
     let host: HostViewState
     @Bindable var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -150,6 +113,7 @@ private struct EditConnectionSheet: View {
     @State private var username: String
     @State private var errorMessage: String?
     @State private var saving = false
+    @State private var confirmUnpair = false
 
     init(host: HostViewState, model: AppModel) {
         self.host = host
@@ -163,19 +127,8 @@ private struct EditConnectionSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    TextField("Name", text: $alias)
-                    TextField("Host", text: $hosts)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    TextField("Port", text: $port)
-                        .keyboardType(.numberPad)
-                    TextField("Username", text: $username)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                } footer: {
-                    Text("Comma-separated hosts. SSH host keys stay pinned from pairing.")
+                Section("Role") {
+                    LabeledContent("Role", value: host.isController ? "Controller" : "Observer")
                 }
                 if model.uhp.caps.push {
                     Section {
@@ -187,22 +140,62 @@ private struct EditConnectionSheet: View {
                         Text("Wake this phone when an agent is blocked or an ACP agent asks for permission. The Host never sends transcript text.")
                     }
                 }
+                Section {
+                    TextField("Name", text: $alias)
+                    TextField("Host", text: $hosts)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    TextField("Port", text: $port)
+                        .keyboardType(.numberPad)
+                    TextField("Username", text: $username)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } header: {
+                    Text("Edit connection")
+                } footer: {
+                    Text("Comma-separated hosts. SSH host keys stay pinned from pairing.")
+                }
+                Section {
+                    if host.connection == .live || host.connection == .connecting {
+                        Button(host.connection == .connecting ? "Cancel" : "Disconnect", role: .destructive) {
+                            model.disconnect(host.id)
+                            dismiss()
+                        }
+                    }
+                    Button("Unpair", role: .destructive) {
+                        confirmUnpair = true
+                    }
+                }
                 if let errorMessage {
                     Section {
                         Text(errorMessage).foregroundStyle(.red)
                     }
                 }
             }
-            .navigationTitle("Edit Connection")
+            .navigationTitle("Host settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Close") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
                         .disabled(saving)
                 }
+            }
+            .confirmationDialog(
+                "Unpair \(host.name)?",
+                isPresented: $confirmUnpair,
+                titleVisibility: .visible
+            ) {
+                Button("Unpair", role: .destructive) {
+                    dismiss()
+                    _Concurrency.Task { await model.unpair(host.id) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This device will no longer be able to connect until you pair again.")
             }
         }
     }
@@ -228,6 +221,8 @@ private struct EditConnectionSheet: View {
         }
     }
 }
+
+
 
 
 private enum TerminalChrome {

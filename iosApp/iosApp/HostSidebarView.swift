@@ -4,6 +4,8 @@ import SwiftUI
 struct HostSidebarView: View {
     let hosts: [HostViewState]
     @Binding var selection: HostViewState.ID?
+    var boundHostID: String? = nil
+    var boundAttentionCount = 0
     let addHost: () -> Void
     let onUnpair: (String) -> Void
     var onDisconnect: (String) -> Void = { _ in }
@@ -14,11 +16,33 @@ struct HostSidebarView: View {
 
     private var visibleHosts: [HostViewState] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return hosts }
-        return hosts.filter {
-            $0.name.localizedCaseInsensitiveContains(trimmed)
-                || $0.address.localizedCaseInsensitiveContains(trimmed)
+        let filtered = trimmed.isEmpty
+            ? hosts
+            : hosts.filter {
+                $0.name.localizedCaseInsensitiveContains(trimmed)
+                    || $0.address.localizedCaseInsensitiveContains(trimmed)
+            }
+        return filtered.enumerated()
+            .sorted { lhs, rhs in
+                let left = sortGroup(lhs.element)
+                let right = sortGroup(rhs.element)
+                if left != right { return left < right }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
+    }
+
+    private func attention(for host: HostViewState) -> Int {
+        if host.id == boundHostID {
+            return max(host.blockedAgents, boundAttentionCount)
         }
+        return host.blockedAgents
+    }
+
+    private func sortGroup(_ host: HostViewState) -> Int {
+        if attention(for: host) > 0 { return 0 }
+        if host.connection == .live { return 1 }
+        return 2
     }
 
     var body: some View {
@@ -61,7 +85,7 @@ struct HostSidebarView: View {
 
     private var hostList: some View {
         List(visibleHosts, selection: $selection) { host in
-            HostRow(host: host)
+            HostRow(host: host, attentionCount: attention(for: host))
                 .tag(host.id)
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 .listRowBackground(DesignTokens.surface)
@@ -141,21 +165,12 @@ private struct EmptyHostStep: View {
 
 private struct HostRow: View {
     let host: HostViewState
+    var attentionCount = 0
+
 
     var body: some View {
         HStack(spacing: 12) {
-            ZStack(alignment: .bottomTrailing) {
-                Text(String(host.name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased())
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(DesignTokens.accent, in: Circle())
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 11, height: 11)
-                    .overlay(Circle().stroke(DesignTokens.surface, lineWidth: 2))
-                    .accessibilityHidden(true)
-            }
+            HostAvatar(name: host.name, connection: host.connection)
             VStack(alignment: .leading, spacing: 4) {
                 Text(host.name)
                     .font(.body.weight(.semibold))
@@ -166,24 +181,10 @@ private struct HostRow: View {
                         .foregroundStyle(DesignTokens.inkMuted)
                         .lineLimit(1)
                     if ConnectKt.isTailnetAddress(address: host.address) {
-                        Label("Tailnet", systemImage: "point.3.connected.trianglepath.dotted")
-                            .font(.caption2.weight(.medium))
-                            .labelStyle(.titleAndIcon)
-                            .foregroundStyle(DesignTokens.connecting)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(DesignTokens.connecting.opacity(0.12), in: Capsule())
-                            .accessibilityLabel("Reached over Tailscale")
+                        TypeBadge(kind: .tailnet)
                     }
                     if host.backend == "herdr" {
-                        Label("Herdr", systemImage: "square.stack.3d.up")
-                            .font(.caption2.weight(.medium))
-                            .labelStyle(.titleAndIcon)
-                            .foregroundStyle(DesignTokens.stale)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(DesignTokens.stale.opacity(0.12), in: Capsule())
-                            .accessibilityLabel("Herdr backend")
+                        TypeBadge(kind: .herdr)
                     }
                 }
                 if let failure = host.failureMessage, !failure.isEmpty {
@@ -194,44 +195,40 @@ private struct HostRow: View {
                 }
             }
             Spacer(minLength: 8)
-            if host.blockedAgents > 0 {
-                Text("\(host.blockedAgents)")
+            if attentionCount > 0 {
+                Text("Blocked \(attentionCount)")
                     .font(.caption.weight(.semibold))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .foregroundStyle(.white)
                     .background(DesignTokens.accent, in: Capsule())
-                    .accessibilityLabel("\(host.blockedAgents) blocked")
+                    .accessibilityLabel("\(attentionCount) blocked")
             }
         }
         .padding(.vertical, 4)
+        .frame(minHeight: 48)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText)
     }
 
-    private var statusColor: Color {
-        switch host.connection {
-        case .live: DesignTokens.live
-        case .connecting: DesignTokens.connecting
-        case .stale: DesignTokens.stale
-        case .offline: DesignTokens.offline
-        }
-    }
-
     private var statusLine: String {
+        var parts = [host.connection.statusLabel]
         if let freshness = host.freshnessLabel {
-            return "\(host.connection.rawValue) · \(freshness)"
+            parts.append(freshness)
         }
-        return host.connection.rawValue
+        if !host.address.isEmpty {
+            parts.append(host.address)
+        }
+        return parts.joined(separator: " · ")
     }
 
     private var accessibilityText: String {
-        var parts = [host.name, host.connection.rawValue]
+        var parts = [host.name, host.connection.statusLabel]
         if host.backend == "herdr" {
             parts.append("Herdr")
         }
-        if host.blockedAgents > 0 {
-            parts.append("\(host.blockedAgents) blocked")
+        if attentionCount > 0 {
+            parts.append("\(attentionCount) blocked")
         }
         if let freshness = host.freshnessLabel {
             parts.append(freshness)

@@ -21,7 +21,9 @@ final class AppModel {
     private(set) var hosts: [HostViewState] = []
     var selectedHostID: String?
     var selectedSection: HostSection = .agents
+    var workspaceSegment: WorkspaceSegment = .review
     var isPairingPresented = false
+    var isHostSettingsPresented = false
     var terminalText = ""
     var terminalStatus: String?
     private(set) var holdsTerminalControl = false
@@ -212,7 +214,18 @@ final class AppModel {
         if uhp.hostID != selectedHostID {
             uhp.reset(hostID: selectedHostID)
         }
+        autoConnectIfNeeded()
         _Concurrency.Task { await self.loadSelectedSection() }
+    }
+
+    func autoConnectIfNeeded() {
+        guard let host = selectedHost else { return }
+        switch host.connection {
+        case .live, .connecting:
+            return
+        case .stale, .offline:
+            connect(host.id)
+        }
     }
 
     func sendTerminal(_ text: String) async {
@@ -286,7 +299,7 @@ final class AppModel {
         let previousAgents = selectedHost?.agents ?? []
         let openID = uhp.selectedAgentID
         let wasLive = hasLiveSession
-        hosts = Self.sortedHosts(states)
+        hosts = sortedHosts(states)
         if let selectedHostID, !states.contains(where: { $0.id == selectedHostID }) {
             self.selectedHostID = nil
         }
@@ -442,7 +455,14 @@ final class AppModel {
         return directory.appendingPathComponent("hosts.json").path
     }
 
-    private static func sortedHosts(_ states: [HostViewState]) -> [HostViewState] {
+    func attentionCount(for host: HostViewState) -> Int {
+        if host.id == selectedHostID {
+            return max(host.blockedAgents, uhp.attentionCount)
+        }
+        return host.blockedAgents
+    }
+
+    private func sortedHosts(_ states: [HostViewState]) -> [HostViewState] {
         states.enumerated()
             .sorted { lhs, rhs in
                 let left = sortGroup(lhs.element)
@@ -453,8 +473,8 @@ final class AppModel {
             .map(\.element)
     }
 
-    private static func sortGroup(_ host: HostViewState) -> Int {
-        if host.blockedAgents > 0 { return 0 }
+    private func sortGroup(_ host: HostViewState) -> Int {
+        if attentionCount(for: host) > 0 { return 0 }
         if host.connection == .live { return 1 }
         return 2
     }
@@ -520,6 +540,27 @@ final class UhpSurfaceState {
         let live: [AgentSummary] = KotlinLists.array(snapshot?.agents as Any)
         let mapped = live.map(AgentViewState.init)
         return mapped.isEmpty ? hostAgents : mapped
+    }
+
+    var agentEntries: [AgentListItem] {
+        let entries: [AgentEntry] = KotlinLists.array(snapshot?.agentEntries() as Any)
+        if entries.isEmpty {
+            return agents.map(AgentListItem.init)
+        }
+        return entries.map { entry in
+            var item = AgentListItem(entry)
+            if let paneId = entry.paneId {
+                item.branch = agents.first { $0.id == paneId }?.branch
+            }
+            return item
+        }
+    }
+
+    var attentionCount: Int {
+        if let snapshot {
+            return Int(snapshot.attentionCount())
+        }
+        return agents.filter(\.isBlocked).count
     }
 
     var header: AgentHeaderState? {
@@ -803,12 +844,15 @@ extension AppModel {
         switch selectedSection {
         case .agents:
             workspace.show(section: LuviaShared.HostSection.agents)
-        case .review:
-            workspace.show(section: LuviaShared.HostSection.review)
-        case .tasks:
-            workspace.show(section: LuviaShared.HostSection.tasks)
-        case .automations:
-            workspace.show(section: LuviaShared.HostSection.automations)
+        case .workspace:
+            switch workspaceSegment {
+            case .review:
+                workspace.show(section: LuviaShared.HostSection.review)
+            case .tasks:
+                workspace.show(section: LuviaShared.HostSection.tasks)
+            }
+        case .more:
+            break
         }
     }
 
@@ -825,8 +869,18 @@ extension AppModel {
         hostUhp()?.openAgent(paneId: id)
     }
 
+    func closeOpenAgent() {
+        hostUhp()?.closeAgent()
+    }
+
     func showProjectReview() {
-        pendingHostSection = .review
+        workspaceSegment = .review
+        pendingHostSection = .workspace
+    }
+
+    func showWorkspaceTasks() {
+        workspaceSegment = .tasks
+        pendingHostSection = .workspace
     }
 
     func selectWorkspace(_ id: String) {

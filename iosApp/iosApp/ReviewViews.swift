@@ -1,38 +1,80 @@
 import SwiftUI
 
+struct WorkspaceSectionView: View {
+    @Bindable var model: AppModel
+    let host: HostViewState
+
+    private var hasContent: Bool {
+        model.hasLiveSession || host.hasCachedContent
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !hasContent && host.connection == .connecting {
+                EmptyState(title: "Connecting…", message: "Loading this Host.", systemImage: "plus.forwardslash.minus")
+            } else if !hasContent {
+                EmptyState(
+                    title: "This Host has not connected yet.",
+                    message: "Review and Tasks appear after the first live session.",
+                    systemImage: "plus.forwardslash.minus"
+                )
+            } else {
+                if model.uhp.projectChoices.count != 1 {
+                    ProjectChips(
+                        choices: model.uhp.projectChoices,
+                        selectedId: model.uhp.snapshot?.projectWorkspaceId(),
+                        onSelect: { model.selectWorkspace($0) }
+                    )
+                }
+                Picker("Workspace", selection: $model.workspaceSegment) {
+                    ForEach(WorkspaceSegment.allCases) { segment in
+                        Text(segment.rawValue).tag(segment)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, DesignTokens.Space.m)
+                .padding(.vertical, DesignTokens.Space.s)
+                .onChange(of: model.workspaceSegment) { _, _ in
+                    _Concurrency.Task { await model.loadSelectedSection() }
+                }
+                if model.uhp.needsProjectPick {
+                    EmptyState(
+                        title: "Select a project",
+                        message: "Review and Tasks are scoped to one project.",
+                        systemImage: "plus.forwardslash.minus"
+                    )
+                } else {
+                    switch model.workspaceSegment {
+                    case .review:
+                        ReviewSectionView(model: model, host: host)
+                    case .tasks:
+                        TasksSectionView(model: model, host: host)
+                    }
+                }
+            }
+        }
+    }
+}
+
 struct ReviewSectionView: View {
     @Bindable var model: AppModel
     let host: HostViewState
 
     var body: some View {
         Group {
-            if !model.hasLiveSession {
-                ContentUnavailableView(
-                    "Connect to this host",
-                    systemImage: "bolt.horizontal.circle",
-                    description: Text("A live session is required to load Agents, Review, and Tasks.")
+            if !model.uhp.caps.diffList {
+                EmptyState(
+                    title: "Review",
+                    message: "This Host does not expose Diffs.",
+                    systemImage: "plus.forwardslash.minus"
                 )
-            } else if !model.uhp.caps.diffList {
-                ContentUnavailableView(
-                    "Review",
-                    systemImage: "plus.forwardslash.minus",
-                    description: Text("This Host does not expose Diffs.")
-                )
-            } else if model.uhp.needsProjectPick {
-                VStack {
-                    ProjectPickerBar(model: model)
-                    ContentUnavailableView(
-                        "Review",
-                        systemImage: "plus.forwardslash.minus",
-                        description: Text("Select a project.")
-                    )
-                }
             } else {
                 ReviewListView(model: model)
             }
         }
     }
 }
+
 
 struct ProjectPickerBar: View {
     @Bindable var model: AppModel
@@ -90,10 +132,10 @@ struct ReviewListView: View {
     var body: some View {
         Group {
             if model.uhp.diffFiles.isEmpty {
-                ContentUnavailableView(
-                    "Review",
-                    systemImage: "plus.forwardslash.minus",
-                    description: Text("No Diffs in this workspace.")
+                EmptyState(
+                    title: "No Diff for this project.",
+                    message: "Pull to refresh when the Host has changes.",
+                    systemImage: "plus.forwardslash.minus"
                 )
             } else {
                 List {
@@ -148,7 +190,7 @@ struct ReviewListView: View {
                                                     .padding(.horizontal, 6)
                                                     .padding(.vertical, 2)
                                                     .foregroundStyle(.white)
-                                                    .background(Color.orange, in: Capsule())
+                                                    .background(DesignTokens.accent, in: Capsule())
                                                     .accessibilityLabel("\(notes) open notes")
                                             }
                                             Text("+\(file.additions)")
@@ -167,9 +209,6 @@ struct ReviewListView: View {
                     }
                 }
             }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            ProjectPickerBar(model: model)
         }
         .toolbar {
             if model.uhp.caps.diffNoteList {
@@ -314,8 +353,8 @@ struct DiffFileDetailView: View {
 }
 
 private enum DiffPalette {
-    static let add = Color(red: 0.12, green: 0.52, blue: 0.30)
-    static let remove = Color(red: 0.72, green: 0.16, blue: 0.18)
+    static let add = DesignTokens.diffAdd
+    static let remove = DesignTokens.diffDel
 }
 
 private struct DiffLineRow: View {
@@ -605,8 +644,8 @@ struct SendNotesSheet: View {
                     Text("iosApp/AgentViews.swift")
                         .font(.system(.body, design: .monospaced))
                     Spacer()
-                    Text("+24").foregroundStyle(.green)
-                    Text("-3").foregroundStyle(.red)
+                    Text("+24").foregroundStyle(DesignTokens.diffAdd)
+                    Text("-3").foregroundStyle(DesignTokens.diffDel)
                 }
             }
             Section("Worktree") {
@@ -614,8 +653,8 @@ struct SendNotesSheet: View {
                     Text("shared/src/Client.kt")
                         .font(.system(.body, design: .monospaced))
                     Spacer()
-                    Text("+8").foregroundStyle(.green)
-                    Text("-1").foregroundStyle(.red)
+                    Text("+8").foregroundStyle(DesignTokens.diffAdd)
+                    Text("-1").foregroundStyle(DesignTokens.diffDel)
                 }
             }
         }

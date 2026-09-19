@@ -67,6 +67,12 @@ data class LuviaExtendedColors(
     val offline: Color,
     val terminalBg: Color,
     val terminalFg: Color,
+    val agentIdle: Color,
+    val agentWorking: Color,
+    val agentBlocked: Color,
+    val agentUnknown: Color,
+    val diffAdd: Color,
+    val diffDel: Color,
 )
 
 private val LocalLuviaExtendedColors = staticCompositionLocalOf {
@@ -77,6 +83,12 @@ private val LocalLuviaExtendedColors = staticCompositionLocalOf {
         offline = Offline,
         terminalBg = TerminalBg,
         terminalFg = TerminalFg,
+        agentIdle = InkMutedLight,
+        agentWorking = ConnectingLight,
+        agentBlocked = AccentLight,
+        agentUnknown = Offline,
+        diffAdd = Color(0xFF0B6E3F),
+        diffDel = Color(0xFFB71C1C),
     )
 }
 
@@ -87,6 +99,12 @@ private val LuviaLightExtended = LuviaExtendedColors(
     offline = Offline,
     terminalBg = TerminalBg,
     terminalFg = TerminalFg,
+    agentIdle = InkMutedLight,
+    agentWorking = ConnectingLight,
+    agentBlocked = AccentLight,
+    agentUnknown = Offline,
+    diffAdd = Color(0xFF0B6E3F),
+    diffDel = Color(0xFFB71C1C),
 )
 
 private val LuviaDarkExtended = LuviaExtendedColors(
@@ -96,6 +114,12 @@ private val LuviaDarkExtended = LuviaExtendedColors(
     offline = Offline,
     terminalBg = TerminalBg,
     terminalFg = TerminalFg,
+    agentIdle = InkMutedDark,
+    agentWorking = ConnectingDark,
+    agentBlocked = AccentDark,
+    agentUnknown = Offline,
+    diffAdd = Color(0xFF81C784),
+    diffDel = Color(0xFFEF9A9A),
 )
 
 private val LuviaLightColorScheme = lightColorScheme(
