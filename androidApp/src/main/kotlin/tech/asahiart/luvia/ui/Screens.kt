@@ -338,19 +338,7 @@ fun HostDetailPane(
             TopAppBar(
                 title = {
                     Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(host.name, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
-                            ConnectionStatusPill(host.connection)
-                            if (host.backend.equals("herdr", ignoreCase = true)) {
-                                TypeBadge("Herdr", LuviaTheme.extended.live)
-                            }
-                            if (host.isObserver) {
-                                TypeBadge("Observer", MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
+                        Text(host.name, maxLines = 1)
                         Text(
                             host.sessionName ?: host.address,
                             style = MaterialTheme.typography.labelSmall,
@@ -365,11 +353,15 @@ fun HostDetailPane(
                     actionIconContentColor = MaterialTheme.colorScheme.onBackground,
                 ),
                 actions = {
+                    ConnectionStatusPill(host.connection)
+                    if (host.backend.equals("herdr", ignoreCase = true)) {
+                        TypeBadge("Herdr", LuviaTheme.extended.live)
+                    }
                     IconButton(
                         onClick = { showSettings = true },
                         modifier = Modifier.semantics { contentDescription = "Settings" },
                     ) {
-                        Icon(Icons.Filled.Settings, contentDescription = null)
+                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }
                 },
             )

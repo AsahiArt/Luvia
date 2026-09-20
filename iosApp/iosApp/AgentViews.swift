@@ -32,10 +32,13 @@ struct AgentsSectionView: View {
                         )
                         .toolbar {
                             if model.uhp.snapshot?.capabilities.acpSession == true {
-                                ToolbarItem(placement: .primaryAction) {
-                                    Button("New agent", systemImage: "plus") {
+                                ToolbarItem(placement: .topBarTrailing) {
+                                    Button {
                                         model.beginLaunchAcp()
+                                    } label: {
+                                        Image(systemName: "plus")
                                     }
+                                    .accessibilityLabel("New agent")
                                 }
                             }
                         }

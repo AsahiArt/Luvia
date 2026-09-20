@@ -32,7 +32,30 @@ struct HostDetailView: View {
                     .tag(HostSection.more)
             }
             .tint(DesignTokens.accent)
-            .hostSessionChrome(host: host, model: model)
+            .navigationTitle(host.name)
+            .navigationBarTitleDisplayMode(model.hasLiveSession ? .large : .inline)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    StatusPill.link(host.connection)
+                }
+                if host.backend == "herdr" {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        TypeBadge(kind: .herdr)
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        model.isHostSettingsPresented = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("Host settings")
+                }
+            }
+            .sheet(isPresented: $model.isHostSettingsPresented) {
+                HostSettingsSheet(host: host, model: model)
+            }
             .navigationDestination(for: String.self) { id in
                 AgentDetailView(model: model, agentID: id)
                     .task { await model.openAgent(id) }
@@ -68,39 +91,6 @@ struct HostDetailView: View {
     }
 }
 
-struct HostSessionChrome: ViewModifier {
-    let host: HostViewState
-    @Bindable var model: AppModel
-
-    func body(content: Content) -> some View {
-        content
-            .navigationTitle(host.name)
-            .navigationBarTitleDisplayMode(model.hasLiveSession ? .large : .inline)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    HStack(spacing: 8) {
-                        StatusPill.link(host.connection)
-                        if host.backend == "herdr" {
-                            TypeBadge(kind: .herdr)
-                        }
-                        Button("Host settings", systemImage: "gearshape") {
-                            model.isHostSettingsPresented = true
-                        }
-                    }
-                }
-            }
-            .sheet(isPresented: $model.isHostSettingsPresented) {
-                HostSettingsSheet(host: host, model: model)
-            }
-    }
-}
-
-extension View {
-    func hostSessionChrome(host: HostViewState, model: AppModel) -> some View {
-        modifier(HostSessionChrome(host: host, model: model))
-    }
-}
 
 private struct HostSettingsSheet: View {
     let host: HostViewState
