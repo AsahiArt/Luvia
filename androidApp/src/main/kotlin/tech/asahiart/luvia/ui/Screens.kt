@@ -1543,30 +1543,22 @@ private fun EmptyHostsPane(
     onAddHost: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier.fillMaxSize().systemBottomPadding()) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .wrapContentHeight()
-                .align(Alignment.TopStart)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 20.dp)
-                .padding(end = 80.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            Text("No Hosts", style = MaterialTheme.typography.headlineMedium)
-            Text(
-                "Install luvia-host on your computer, then pair this phone.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                EmptyStep(1, "Install luvia-host on the Host that runs Luvus.")
-                EmptyStep(2, "Pair this Device from the app.")
-                EmptyStep(3, "Scan the pairing code the Host prints.")
-            }
-            Button(onClick = onAddHost, modifier = Modifier.fillMaxWidth()) { Text("Add Host") }
+    Column(
+        modifier.padding(horizontal = 24.dp, vertical = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        Text("No Hosts", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            "Install luvia-host on your computer, then pair this phone.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            EmptyStep(1, "Install luvia-host on the Host that runs Luvus.")
+            EmptyStep(2, "Pair this Device from the app.")
+            EmptyStep(3, "Scan the pairing code the Host prints.")
         }
+        Button(onClick = onAddHost, modifier = Modifier.fillMaxWidth()) { Text("Add Host") }
     }
 }
 
