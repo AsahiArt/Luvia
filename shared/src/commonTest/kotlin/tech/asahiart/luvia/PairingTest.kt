@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 import okio.ByteString.Companion.encodeUtf8
 
 class PairingTest {
@@ -36,6 +37,16 @@ class PairingTest {
             "luvia-host pair --name 'misaka'\\''s studio' --role observer --key 'ssh-ed25519 AAAA key'",
             command,
         )
+    }
+
+    @Test
+    fun looksLikeCodeRequiresLuviaPrefix() {
+        assertTrue(PairingCodes.looksLikeCode("  luvia1:abc  "))
+        assertTrue(PairingCodes.looksLikeCode("LUVIA1:abc"))
+        assertFalse(PairingCodes.looksLikeCode(""))
+        assertFalse(PairingCodes.looksLikeCode("luvia-host pair --name 'phone' --role controller --key 'ssh-ed25519 AAAA'"))
+        assertFalse(PairingCodes.looksLikeCode("https://example"))
+        assertFalse(PairingCodes.looksLikeCode("luvia2:abc"))
     }
 
     @Test

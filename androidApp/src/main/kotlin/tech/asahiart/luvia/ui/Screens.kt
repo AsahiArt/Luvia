@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -47,7 +48,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.BadgedBox
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -84,7 +84,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -101,6 +100,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -114,6 +115,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import tech.asahiart.luvia.HostRole
+import tech.asahiart.luvia.PairingCodes
 import tech.asahiart.luvia.isTailnetAddress
 import tech.asahiart.luvia.TerminalKey
 import tech.asahiart.luvia.ui.theme.LuviaTheme
@@ -135,6 +137,7 @@ fun HostListPane(
     val scope = rememberCoroutineScope()
     var refreshing by remember { mutableStateOf(false) }
     var nowEpochMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val compactHeight = LocalConfiguration.current.screenHeightDp < 600
     LaunchedEffect(Unit) {
         while (true) {
             delay(1_000)
@@ -150,37 +153,40 @@ fun HostListPane(
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ) {
-                Icon(Icons.Filled.Add, contentDescription = "Add host")
+                Icon(Icons.Filled.Add, contentDescription = "Add Host")
             }
         },
         topBar = {
-            LargeTopAppBar(
-                title = { Text("Luvia", style = MaterialTheme.typography.headlineMedium) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                ),
+            val title = @Composable { Text("Luvia", style = MaterialTheme.typography.headlineMedium) }
+            val colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.background,
+                scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
             )
+            if (compactHeight) {
+                TopAppBar(title = title, colors = colors)
+            } else {
+                LargeTopAppBar(title = title, colors = colors)
+            }
         },
     ) { padding ->
-        if (hosts.isEmpty()) {
-            EmptyHostsPane(
-                onAddHost = onAddHost,
-                modifier = Modifier.fillMaxSize().padding(padding),
-            )
-        } else {
-            PullToRefreshBox(
-                isRefreshing = refreshing,
-                onRefresh = {
-                    scope.launch {
-                        refreshing = true
-                        onRefreshAll()
-                        delay(400)
-                        refreshing = false
-                    }
-                },
-                modifier = Modifier.fillMaxSize().padding(padding),
-            ) {
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = {
+                scope.launch {
+                    refreshing = true
+                    onRefreshAll()
+                    delay(400)
+                    refreshing = false
+                }
+            },
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
+            if (hosts.isEmpty()) {
+                EmptyHostsPane(
+                    onAddHost = onAddHost,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
@@ -1016,6 +1022,8 @@ fun PairHostPane(
     onBegin: (String, HostRole) -> Unit,
     onCopyCommand: (String) -> Unit,
     onComplete: (raw: String, host: String, port: String, user: String) -> Unit,
+    onClearDraft: () -> Unit = {},
+    onClearError: () -> Unit = {},
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1023,6 +1031,7 @@ fun PairHostPane(
     var reachHost by remember { mutableStateOf("") }
     var reachPort by remember { mutableStateOf("22") }
     var reachUser by remember { mutableStateOf("") }
+    val compactHeight = LocalConfiguration.current.screenHeightDp < 600
     val step = when {
         pairedHostId != null -> 3
         command == null -> 1
@@ -1048,7 +1057,10 @@ fun PairHostPane(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (pairedHostId == null) {
-                PairingStepRail(step = step, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+                PairingStepRail(
+                    step = step,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = if (compactHeight) 4.dp else 8.dp),
+                )
             }
             when {
                 pairedHostId != null ->
@@ -1067,6 +1079,7 @@ fun PairHostPane(
                         onUserChange = { reachUser = it },
                         onBegin = { label, role ->
                             showScan = false
+                            onClearError()
                             onBegin(label, role)
                         },
                         onCancel = onCancel,
@@ -1076,10 +1089,12 @@ fun PairHostPane(
                     PairCommandStep(
                         command = command,
                         fingerprint = fingerprint.orEmpty(),
-                        errorMessage = errorMessage,
                         onCopyCommand = onCopyCommand,
-                        onScan = { showScan = true },
-                        onBack = onCancel,
+                        onScan = {
+                            onClearError()
+                            showScan = true
+                        },
+                        onBack = onClearDraft,
                         modifier = Modifier.fillMaxSize(),
                     )
                 else ->
@@ -1087,7 +1102,10 @@ fun PairHostPane(
                         errorMessage = errorMessage,
                         completing = completing,
                         onComplete = { raw -> onComplete(raw, reachHost, reachPort, reachUser) },
-                        onBack = { showScan = false },
+                        onBack = {
+                            onClearError()
+                            showScan = false
+                        },
                         modifier = Modifier.fillMaxSize(),
                     )
             }
@@ -1127,70 +1145,109 @@ private fun PairLabelStep(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val compactHeight = LocalConfiguration.current.screenHeightDp < 600
     var label by remember { mutableStateOf(defaultDeviceLabel(context)) }
     var role by remember { mutableStateOf(HostRole.Controller) }
-    Column(
-        modifier.imePadding().padding(24.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(
-            "Name this device, then pick whether it may control terminals or only observe.",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        OutlinedTextField(
-            value = label,
-            onValueChange = { label = it },
-            label = { Text("Device label") },
-            singleLine = true,
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Text("Role", style = MaterialTheme.typography.labelLarge)
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            HostRole.entries.forEachIndexed { index, item ->
-                SegmentedButton(
-                    selected = role == item,
-                    onClick = { role = item },
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = HostRole.entries.size),
-                ) {
-                    Text(item.name)
+    val fieldSpacing = if (compactHeight) 8.dp else 16.dp
+    Column(modifier.fillMaxSize().imePadding()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(top = if (compactHeight) 4.dp else 16.dp),
+            verticalArrangement = Arrangement.spacedBy(fieldSpacing),
+        ) {
+            if (!compactHeight) {
+                Text(
+                    "Name this device, then pick whether it may control terminals or only observe.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            OutlinedTextField(
+                value = label,
+                onValueChange = { label = it },
+                label = { Text("Device label") },
+                singleLine = true,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text("Role", style = MaterialTheme.typography.labelLarge)
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                HostRole.entries.forEachIndexed { index, item ->
+                    SegmentedButton(
+                        selected = role == item,
+                        onClick = { role = item },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = HostRole.entries.size),
+                    ) {
+                        Text(item.name)
+                    }
                 }
             }
+            if (!compactHeight) {
+                Text(
+                    "Observer can watch sessions. Controller can prompt agents, review, tasks, and type in terminals.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
-        Text(
-            "Observer can watch sessions. Controller can prompt agents, review, tasks, and type in terminals.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        OutlinedTextField(
-            value = host,
-            onValueChange = onHostChange,
-            label = { Text("Host") },
-            placeholder = { Text("IP or hostname, optional") },
-            singleLine = true,
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = port,
-            onValueChange = onPortChange,
-            label = { Text("Port") },
-            singleLine = true,
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = user,
-            onValueChange = onUserChange,
-            label = { Text("Username") },
-            placeholder = { Text("Optional override") },
-            singleLine = true,
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Column(
+            Modifier
+                .weight(1f)
+                .clipToBounds()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = if (compactHeight) 8.dp else 16.dp),
+            verticalArrangement = Arrangement.spacedBy(fieldSpacing),
+        ) {
+            Text("Reach this Host", style = MaterialTheme.typography.titleSmall)
+            OutlinedTextField(
+                value = host,
+                onValueChange = onHostChange,
+                label = { Text("Host") },
+                placeholder = { Text("IP or hostname") },
+                supportingText = { Text("Optional") },
+                singleLine = true,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = port,
+                onValueChange = onPortChange,
+                label = { Text("Port") },
+                supportingText = { Text("Optional") },
+                singleLine = true,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = user,
+                onValueChange = onUserChange,
+                label = { Text("Username") },
+                placeholder = { Text("SSH user") },
+                supportingText = { Text("Optional") },
+                singleLine = true,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "Optional. Overrides addresses in the pairing code. SSH host keys still come from pairing.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        errorMessage?.let {
+            Text(
+                it,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(horizontal = 24.dp),
+            )
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
             FilledTonalButton(onClick = onCancel) { Text("Cancel") }
             Spacer(Modifier.width(8.dp))
             Button(onClick = { onBegin(label, role) }, enabled = label.isNotBlank()) { Text("Continue") }
@@ -1202,7 +1259,6 @@ private fun PairLabelStep(
 private fun PairCommandStep(
     command: String,
     fingerprint: String,
-    errorMessage: String?,
     onCopyCommand: (String) -> Unit,
     onScan: () -> Unit,
     onBack: () -> Unit,
@@ -1210,47 +1266,69 @@ private fun PairCommandStep(
 ) {
     var copied by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    Column(
-        modifier.imePadding().padding(24.dp).verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(
-            "Run the pairing command on the Host, then scan the QR it prints.",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (fingerprint.isNotBlank()) {
-            Text("Device key fingerprint", style = MaterialTheme.typography.labelLarge)
+    Column(modifier.fillMaxSize().imePadding()) {
+        Column(
+            Modifier
+                .weight(1f)
+                .clipToBounds()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                "Run the pairing command on the Host, then scan the pairing code it prints.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text("Pairing command", style = MaterialTheme.typography.labelLarge)
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 shape = RoundedCornerShape(16.dp),
             ) {
                 SelectionContainer {
                     Text(
-                        fingerprint,
+                        command,
                         fontFamily = FontFamily.Monospace,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(16.dp).fillMaxWidth(),
                     )
                 }
             }
-        }
-        Button(
-            onClick = {
-                onCopyCommand(command)
-                copied = true
-                scope.launch {
-                    delay(2_000)
-                    copied = false
+            Button(
+                onClick = {
+                    onCopyCommand(command)
+                    copied = true
+                    scope.launch {
+                        delay(2_000)
+                        copied = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(if (copied) "Copied. Paste it in a terminal on the host." else "Copy full command") }
+            if (fingerprint.isNotBlank()) {
+                Text("Device key fingerprint", style = MaterialTheme.typography.labelLarge)
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    SelectionContainer {
+                        Text(
+                            fingerprint,
+                            fontFamily = FontFamily.Monospace,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        )
+                    }
                 }
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (copied) "Copied. Paste it in a terminal on the host." else "Copy full command") }
-        errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
             FilledTonalButton(onClick = onBack) { Text("Back") }
             Spacer(Modifier.width(8.dp))
-            Button(onClick = onScan) { Text("Scan QR code") }
+            Button(onClick = onScan) { Text("Scan pairing code") }
         }
     }
 }
@@ -1283,6 +1361,7 @@ private fun PairScanStep(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val keyboard = LocalSoftwareKeyboardController.current
     var cameraGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED,
@@ -1291,6 +1370,7 @@ private fun PairScanStep(
     var cameraDenied by remember { mutableStateOf(false) }
     var showScanner by remember { mutableStateOf(cameraGranted) }
     var pasted by remember { mutableStateOf("") }
+    var pasteHint by remember { mutableStateOf<String?>(null) }
     var lastCode by remember { mutableStateOf<String?>(null) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         cameraGranted = granted
@@ -1298,19 +1378,23 @@ private fun PairScanStep(
         showScanner = granted
     }
     val previewVisible = showScanner && cameraGranted && !cameraDenied
+    val canPair = PairingCodes.looksLikeCode(pasted)
+    LaunchedEffect(previewVisible) {
+        if (previewVisible) keyboard?.hide()
+    }
     Column(
         modifier
+            .fillMaxSize()
             .imePadding()
-            .padding(20.dp)
-            .fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Column(
-            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            modifier = Modifier.weight(1f).clipToBounds().verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text(
-                "Scan the QR printed by luvia-host, or paste the pairing code. The app will verify it.",
+                "Scan the pairing code printed by luvia-host, or paste it. The app will verify it.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1318,6 +1402,7 @@ private fun PairScanStep(
                 Button(
                     onClick = {
                         lastCode = null
+                        keyboard?.hide()
                         if (cameraGranted) {
                             showScanner = true
                             cameraDenied = false
@@ -1327,7 +1412,7 @@ private fun PairScanStep(
                     },
                     enabled = !completing,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Scan QR code") }
+                ) { Text("Scan pairing code") }
             }
             if (cameraDenied) {
                 Text(
@@ -1366,14 +1451,32 @@ private fun PairScanStep(
                         ?.coerceToText(context)
                         ?.toString()
                         .orEmpty()
-                    if (clip.isNotBlank()) pasted = clip
+                    if (PairingCodes.looksLikeCode(clip)) {
+                        pasted = clip.trim()
+                        pasteHint = null
+                    } else if (clip.isNotBlank()) {
+                        pasteHint = "Clipboard is not a luvia1: pairing code."
+                    }
                 },
                 enabled = !completing,
             ) { Text("Paste code instead") }
             OutlinedTextField(
                 value = pasted,
-                onValueChange = { pasted = it },
+                onValueChange = {
+                    pasted = it
+                    pasteHint = null
+                },
                 label = { Text("luvia1: pairing code") },
+                supportingText = {
+                    val hint = pasteHint
+                    when {
+                        hint != null -> Text(hint)
+                        pasted.isNotBlank() && !canPair -> Text("Paste a luvia1: pairing code.")
+                    }
+                },
+                isError = pasted.isNotBlank() && !canPair,
+                minLines = 3,
+                maxLines = 4,
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !completing,
             )
@@ -1390,7 +1493,7 @@ private fun PairScanStep(
             Spacer(Modifier.width(8.dp))
             Button(
                 onClick = { onComplete(pasted) },
-                enabled = !completing && pasted.isNotBlank(),
+                enabled = !completing && canPair,
             ) { Text("Pair") }
         }
     }
@@ -1440,22 +1543,30 @@ private fun EmptyHostsPane(
     onAddHost: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier.padding(horizontal = 24.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-    ) {
-        Text("No Hosts", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            "Install luvia-host on your computer, then pair this phone.",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            EmptyStep(1, "Install luvia-host on the machine that runs Luvus.")
-            EmptyStep(2, "Pair this Device from the app.")
-            EmptyStep(3, "Scan the pairing code the Host prints.")
+    Box(modifier.fillMaxSize().systemBottomPadding()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .align(Alignment.TopStart)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 20.dp)
+                .padding(end = 80.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            Text("No Hosts", style = MaterialTheme.typography.headlineMedium)
+            Text(
+                "Install luvia-host on your computer, then pair this phone.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                EmptyStep(1, "Install luvia-host on the Host that runs Luvus.")
+                EmptyStep(2, "Pair this Device from the app.")
+                EmptyStep(3, "Scan the pairing code the Host prints.")
+            }
+            Button(onClick = onAddHost, modifier = Modifier.fillMaxWidth()) { Text("Add Host") }
         }
-        Button(onClick = onAddHost, modifier = Modifier.fillMaxWidth()) { Text("Add Host") }
     }
 }
 

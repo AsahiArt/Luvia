@@ -4,6 +4,7 @@ import LuviaShared
 
 struct PairHostView: View {
     @Bindable var model: AppModel
+    var onPaired: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
 
     private enum Step {
@@ -158,7 +159,7 @@ struct PairHostView: View {
         if let draft {
             Form {
                 Section {
-                    Text("Run this command on the Host, then scan the QR it prints.")
+                    Text("Run this command on the Host, then scan the pairing code it prints.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -209,13 +210,13 @@ struct PairHostView: View {
     private var codeForm: some View {
         Form {
             Section {
-                Text("Scan the QR printed by luvia-host, or paste the luvia1: line.")
+                Text("Scan the pairing code printed by luvia-host, or paste the luvia1: line.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
             if !showPaste {
                 Section {
-                    Button("Scan QR code") {
+                    Button("Scan pairing code") {
                         #if targetEnvironment(simulator)
                         showPaste = true
                         errorMessage = "Camera access is unavailable. Paste the luvia1: pairing code instead."
@@ -271,7 +272,7 @@ struct PairHostView: View {
                     }
                 )
                 .ignoresSafeArea()
-                .navigationTitle("Scan QR")
+                .navigationTitle("Scan pairing code")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -339,6 +340,7 @@ struct PairHostView: View {
 
     private func finishConnecting() {
         connectingAfterPair = false
+        onPaired()
         model.isPairingPresented = false
         dismiss()
     }

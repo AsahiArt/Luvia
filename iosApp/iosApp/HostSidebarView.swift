@@ -10,6 +10,7 @@ struct HostSidebarView: View {
     let onUnpair: (String) -> Void
     var onDisconnect: (String) -> Void = { _ in }
     var onRefreshAll: () async -> Void = {}
+    var onOpenHost: (String) -> Void = { _ in }
 
     @State private var pendingUnpair: HostViewState?
     @State private var query = ""
@@ -54,6 +55,8 @@ struct HostSidebarView: View {
             }
         }
         .navigationTitle("Luvia")
+        .navigationBarTitleDisplayMode(.large)
+        .luviaSerifLargeTitle()
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -87,6 +90,8 @@ struct HostSidebarView: View {
         List(visibleHosts, selection: $selection) { host in
             HostRow(host: host, attentionCount: attention(for: host))
                 .tag(host.id)
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded { onOpenHost(host.id) })
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                 .listRowBackground(DesignTokens.surface)
                 .swipeActions(edge: .leading, allowsFullSwipe: false) {

@@ -45,6 +45,11 @@ public object PairingCodes {
             ?: return fail(Failure.ProtocolError("pairing code is not valid JSON"))
         return decodeObject(obj)
     }
+
+    public fun looksLikeCode(raw: String): Boolean {
+        val trimmed = raw.trim()
+        return hasLuviaPrefix(trimmed)
+    }
 }
 
 public fun pairCommandFor(deviceLabel: String, role: HostRole, authorizedKeysLine: String): String {

@@ -875,6 +875,12 @@ extension AppModel {
 
     func showProjectReview() {
         workspaceSegment = .review
+        if let name = uhp.header?.workspace?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty,
+           let choice = uhp.projectChoices.first(where: { $0.id == name || $0.label == name })
+        {
+            selectWorkspace(choice.id)
+        }
         pendingHostSection = .workspace
     }
 

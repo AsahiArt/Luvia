@@ -63,6 +63,8 @@ fun LuviaNavigation(
     onBeginPairing: (String, HostRole) -> Unit,
     onCompletePairing: (raw: String, host: String, port: String, user: String, onSuccess: () -> Unit) -> Unit,
     onCancelPairing: () -> Unit,
+    onClearPairingDraft: () -> Unit = {},
+    onClearPairingError: () -> Unit = {},
     onConnect: (String) -> Unit,
     onDisconnect: (String) -> Unit,
     onRefresh: (String) -> Unit,
@@ -87,7 +89,7 @@ fun LuviaNavigation(
         backStack.add(HostRoute(id))
     }
     BoxWithConstraints(modifier.fillMaxSize()) {
-        val twoPane = maxWidth >= 600.dp
+        val twoPane = maxWidth >= 600.dp && maxHeight >= 600.dp
         if (twoPane) {
             Row(Modifier.fillMaxSize()) {
                 HostListPane(
@@ -119,6 +121,8 @@ fun LuviaNavigation(
                         onBeginPairing = onBeginPairing,
                         onCompletePairing = onCompletePairing,
                         onCancelPairing = onCancelPairing,
+                        onClearPairingDraft = onClearPairingDraft,
+                        onClearPairingError = onClearPairingError,
                         onConnect = onConnect,
                         onDisconnect = onDisconnect,
                         onRefresh = onRefresh,
@@ -149,6 +153,8 @@ fun LuviaNavigation(
                 onBeginPairing = onBeginPairing,
                 onCompletePairing = onCompletePairing,
                 onCancelPairing = onCancelPairing,
+                onClearPairingDraft = onClearPairingDraft,
+                onClearPairingError = onClearPairingError,
                 onConnect = onConnect,
                 onDisconnect = onDisconnect,
                 onRefresh = onRefresh,
@@ -181,6 +187,8 @@ private fun DetailNav(
     onBeginPairing: (String, HostRole) -> Unit,
     onCompletePairing: (raw: String, host: String, port: String, user: String, onSuccess: () -> Unit) -> Unit,
     onCancelPairing: () -> Unit,
+    onClearPairingDraft: () -> Unit,
+    onClearPairingError: () -> Unit,
     onConnect: (String) -> Unit,
     onDisconnect: (String) -> Unit,
     onRefresh: (String) -> Unit,
@@ -242,7 +250,7 @@ private fun DetailNav(
                         onRefreshAll = onRefreshAll,
                     )
                 } else {
-                    EmptySelectionPane("Select a host", "Choose a paired host to inspect its sessions.")
+                    EmptySelectionPane("Select a host", "Choose a paired Host to inspect its Agents.")
                 }
             }
             entry<HostRoute> { route ->
@@ -536,6 +544,8 @@ private fun DetailNav(
                     onComplete = { raw, host, port, user ->
                         onCompletePairing(raw, host, port, user) { }
                     },
+                    onClearDraft = onClearPairingDraft,
+                    onClearError = onClearPairingError,
                     onCancel = {
                         onCancelPairing()
                         backStack.removeLastOrNull()

@@ -23,6 +23,7 @@ struct WorkspaceSectionView: View {
                     ProjectChips(
                         choices: model.uhp.projectChoices,
                         selectedId: model.uhp.snapshot?.projectWorkspaceId(),
+                        revealToken: model.selectedSection.rawValue,
                         onSelect: { model.selectWorkspace($0) }
                     )
                 }
@@ -277,17 +278,29 @@ struct DiffFileDetailView: View {
         model.uhp.selectedDiff?.item.id == file.id ? model.uhp.selectedDiff : nil
     }
 
+    private var fileName: String {
+        let leaf = URL(fileURLWithPath: file.path).lastPathComponent
+        return leaf.isEmpty ? file.path : leaf
+    }
+
     var body: some View {
-        ScrollView([.horizontal, .vertical]) {
+        ScrollView {
             LazyVStack(alignment: .leading, spacing: 16) {
-                HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(file.layer)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("+\(file.additions)")
+                            .foregroundStyle(DiffPalette.add)
+                        Text("-\(file.deletions)")
+                            .foregroundStyle(DiffPalette.remove)
+                    }
                     Text(file.path)
-                        .font(.system(.headline, design: .monospaced))
-                    Spacer()
-                    Text("+\(file.additions)")
-                        .foregroundStyle(DiffPalette.add)
-                    Text("-\(file.deletions)")
-                        .foregroundStyle(DiffPalette.remove)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
                 }
                 .padding(.horizontal)
                 if let unconfirmed = model.uhp.unconfirmed {
@@ -320,7 +333,6 @@ struct DiffFileDetailView: View {
                                         }
                                 }
                             }
-                            .fixedSize(horizontal: true, vertical: false)
                         } label: {
                             Text(hunk.header)
                                 .font(.system(.caption, design: .monospaced))
@@ -341,10 +353,9 @@ struct DiffFileDetailView: View {
                         .padding()
                 }
             }
-            .fixedSize(horizontal: true, vertical: false)
             .padding(.vertical)
         }
-        .navigationTitle(file.layer)
+        .navigationTitle(fileName)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $model.uhp.isAddNotePresented) {
             AddNoteSheet(model: model)
@@ -370,8 +381,9 @@ private struct DiffLineRow: View {
             Text(line.text)
                 .font(.system(.footnote, design: .monospaced))
                 .foregroundStyle(.primary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
         }
         .padding(.horizontal)
         .padding(.vertical, 2)

@@ -174,19 +174,7 @@ struct AgentsListView: View {
                 Section("Resumable") {
                     ForEach(model.uhp.agentSessions) { session in
                         HStack(alignment: .firstTextBaseline) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(session.agent)
-                                    .font(.headline)
-                                Text(session.sessionId)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                if !session.cwd.isEmpty {
-                                    Text(session.cwd)
-                                        .font(.system(.caption, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
-                            }
+                            ResumableSessionLabels(session: session)
                             Spacer()
                             if model.uhp.allowsMutation && model.uhp.caps.agentResume {
                                 Button("Resume") {
@@ -591,19 +579,7 @@ struct AgentSessionsSheet: View {
                 } else {
                     List(model.uhp.agentSessions) { session in
                         HStack(alignment: .firstTextBaseline) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(session.agent)
-                                    .font(.headline)
-                                Text(session.sessionId)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                if !session.cwd.isEmpty {
-                                    Text(session.cwd)
-                                        .font(.system(.caption, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
-                            }
+                            ResumableSessionLabels(session: session)
                             Spacer()
                             if model.uhp.allowsMutation && model.uhp.caps.agentResume {
                                 Button("Resume") { pendingResume = session }
@@ -643,6 +619,52 @@ struct AgentSessionsSheet: View {
             }
         }
         .task { await model.loadAgentSessions() }
+    }
+}
+
+private struct ResumableSessionLabels: View {
+    let session: AgentSessionItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(primary)
+                .font(.headline)
+            if let secondary {
+                Text(secondary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            if !session.cwd.isEmpty {
+                Text(session.cwd)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var cwdLeaf: String? {
+        guard !session.cwd.isEmpty else { return nil }
+        let leaf = URL(fileURLWithPath: session.cwd).lastPathComponent
+        return leaf.isEmpty ? session.cwd : leaf
+    }
+
+    private var primary: String {
+        cwdLeaf ?? (session.agent.isEmpty ? "Session" : session.agent)
+    }
+
+    private var secondary: String? {
+        guard cwdLeaf != nil else { return nil }
+        let agent = session.agent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return agent.isEmpty ? nil : agent
+    }
+
+    private var accessibilityText: String {
+        [primary, secondary, session.cwd.isEmpty ? nil : session.cwd]
+            .compactMap { $0 }
+            .joined(separator: ", ")
     }
 }
 

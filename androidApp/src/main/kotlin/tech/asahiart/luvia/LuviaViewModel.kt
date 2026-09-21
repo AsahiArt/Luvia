@@ -136,6 +136,14 @@ class LuviaViewModel(
         _pairing.value = PairingUiState()
     }
 
+    fun clearPairingDraft() {
+        _pairing.update { it.copy(draft = null, errorMessage = null, completing = false) }
+    }
+
+    fun clearPairingError() {
+        _pairing.update { it.copy(errorMessage = null) }
+    }
+
     fun connect(hostId: String) {
         manager.connect(hostId)
     }

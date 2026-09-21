@@ -42,6 +42,13 @@ enum DesignTokens {
         static let title = Font.system(.title2, design: .serif).weight(.semibold)
         static let heading = Font.headline
         static let mono = Font.custom(TerminalFont.postScriptName, size: 13, relativeTo: .footnote)
+
+        static var largeTitleUIFont: UIFont {
+            let base = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .largeTitle)
+            let serif = base.withDesign(.serif) ?? base
+            let bold = serif.withSymbolicTraits(.traitBold) ?? serif
+            return UIFont(descriptor: bold, size: 0)
+        }
     }
 
     enum Terminal {
@@ -62,6 +69,65 @@ extension View {
             self.glassEffect(.regular, in: shape)
         } else {
             self.background(.ultraThinMaterial, in: shape)
+        }
+    }
+
+    func luviaSerifLargeTitle() -> some View {
+        background(SerifLargeNavigationTitle())
+    }
+}
+
+private struct SerifLargeNavigationTitle: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = FinderView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        (uiView as? FinderView)?.apply()
+    }
+
+    private final class FinderView: UIView {
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            apply()
+        }
+
+        func apply() {
+            guard let bar = navigationBar() else { return }
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: DesignTokens.Typography.largeTitleUIFont,
+                .foregroundColor: UIColor(DesignTokens.ink),
+            ]
+            let standard = bar.standardAppearance.copy()
+            standard.largeTitleTextAttributes = attrs
+            bar.standardAppearance = standard
+            let scroll = (bar.scrollEdgeAppearance ?? bar.standardAppearance).copy()
+            scroll.largeTitleTextAttributes = attrs
+            bar.scrollEdgeAppearance = scroll
+            if let compact = bar.compactAppearance?.copy() {
+                compact.largeTitleTextAttributes = attrs
+                bar.compactAppearance = compact
+            }
+            bar.compactScrollEdgeAppearance?.largeTitleTextAttributes = attrs
+        }
+
+        private func navigationBar() -> UINavigationBar? {
+            var responder: UIResponder? = self
+            while let current = responder {
+                if let nav = current as? UINavigationController {
+                    return nav.navigationBar
+                }
+                responder = current.next
+            }
+            var view: UIView? = self
+            while let current = view {
+                if let bar = current as? UINavigationBar { return bar }
+                view = current.superview
+            }
+            return nil
         }
     }
 }

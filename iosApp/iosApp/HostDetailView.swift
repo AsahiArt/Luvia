@@ -5,6 +5,8 @@ struct HostDetailView: View {
     let host: HostViewState
     @Binding var section: HostSection
     @Bindable var model: AppModel
+    var compactColumn: NavigationSplitViewColumn = .detail
+    var chromeNonce: Int = 0
 
     @State private var agentQuery = ""
     @State private var path = NavigationPath()
@@ -87,6 +89,22 @@ struct HostDetailView: View {
                     path.append(AcpRoute.session)
                 }
             }
+            .onChange(of: compactColumn) { _, column in
+                guard column == .sidebar else { return }
+                guard model.pendingOpenAgentID == nil else { return }
+                path = NavigationPath()
+            }
+            .onChange(of: chromeNonce) { _, _ in
+                guard model.pendingOpenAgentID == nil else { return }
+                path = NavigationPath()
+            }
+            .onAppear {
+                if let id = model.pendingOpenAgentID {
+                    section = .agents
+                    path.append(id)
+                    model.pendingOpenAgentID = nil
+                }
+            }
         }
     }
 }
@@ -117,8 +135,10 @@ private struct HostSettingsSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Role") {
-                    LabeledContent("Role", value: host.isController ? "Controller" : "Observer")
+                Section {
+                    Text(host.isController ? "Controller" : "Observer")
+                } header: {
+                    Text("Role")
                 }
                 if model.uhp.caps.push {
                     Section {
@@ -331,25 +351,23 @@ struct TerminalPane: View {
                         .padding(4)
                 }
             }
-            if host.isController {
-                let canSend = !input.isEmpty && host.connection == .live && holdsControl
+            if host.isController, holdsControl {
+                let canSend = !input.isEmpty && host.connection == .live
                 VStack(spacing: 8) {
-                    if holdsControl {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(keys) { spec in
-                                    Button(spec.title) {
-                                        onSendKey(spec.key)
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                    .foregroundStyle(TerminalChrome.foreground)
-                                    .disabled(host.connection != .live)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(keys) { spec in
+                                Button(spec.title) {
+                                    onSendKey(spec.key)
                                 }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .foregroundStyle(TerminalChrome.foreground)
+                                .disabled(host.connection != .live)
                             }
                         }
-                        .fixedSize(horizontal: false, vertical: true)
                     }
+                    .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 10) {
                         TextField("Send to terminal", text: $input)
                             .textInputAutocapitalization(.never)

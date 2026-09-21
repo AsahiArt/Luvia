@@ -95,6 +95,8 @@ fun LuviaApp(launchIntent: Intent? = null) {
             viewModel.completePairing(raw, host, port, user, onSuccess)
         },
         onCancelPairing = viewModel::cancelPairing,
+        onClearPairingDraft = viewModel::clearPairingDraft,
+        onClearPairingError = viewModel::clearPairingError,
         onConnect = viewModel::connect,
         onDisconnect = viewModel::disconnect,
         onRefresh = viewModel::refresh,

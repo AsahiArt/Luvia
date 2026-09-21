@@ -769,7 +769,7 @@ enum FailureText {
     static func pairingAware(_ reason: String) -> String {
         let draftNote = " The draft is still valid."
         if reason == "pairing code is for a different device key" {
-            return "This pairing code is for a different Device key. Run the command from the previous step on the Host, then scan the QR it prints." + draftNote
+            return "This pairing code is for a different Device key. Run the command from the previous step on the Host, then scan the pairing code it prints." + draftNote
         }
         if reason == "pairing code must start with luvia1:" {
             return "This is not a luvia1: pairing code. Scan or paste a luvia1: code." + draftNote

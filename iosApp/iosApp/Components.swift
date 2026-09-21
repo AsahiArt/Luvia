@@ -371,28 +371,41 @@ struct MissionStrip: View {
 struct ProjectChips: View {
     let choices: [ProjectChoice]
     let selectedId: String?
+    var revealToken: String = ""
     let onSelect: (String) -> Void
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: DesignTokens.Space.s) {
-                ForEach(choices, id: \.id) { choice in
-                    let selected = choice.id == selectedId
-                    Button(choice.label) { onSelect(choice.id) }
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .foregroundStyle(selected ? Color.white : DesignTokens.ink)
-                        .background(
-                            selected ? DesignTokens.accent : DesignTokens.inkMuted.opacity(0.14),
-                            in: Capsule()
-                        )
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: DesignTokens.Space.s) {
+                    ForEach(choices, id: \.id) { choice in
+                        let selected = choice.id == selectedId
+                        Button(choice.label) { onSelect(choice.id) }
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .foregroundStyle(selected ? Color.white : DesignTokens.ink)
+                            .background(
+                                selected ? DesignTokens.accent : DesignTokens.inkMuted.opacity(0.14),
+                                in: Capsule()
+                            )
+                            .id(choice.id)
+                    }
+                }
+                .padding(.horizontal, DesignTokens.Space.m)
+                .padding(.vertical, DesignTokens.Space.s)
+            }
+            .accessibilityLabel("Project")
+            .task(id: "\(revealToken)|\(selectedId ?? "")") {
+                guard let selectedId else { return }
+                try? await _Concurrency.Task.sleep(for: .milliseconds(50))
+                var transaction = Transaction()
+                transaction.animation = .easeInOut(duration: 0.2)
+                withTransaction(transaction) {
+                    proxy.scrollTo(selectedId, anchor: .center)
                 }
             }
-            .padding(.horizontal, DesignTokens.Space.m)
-            .padding(.vertical, DesignTokens.Space.s)
         }
-        .accessibilityLabel("Project")
     }
 }
 
