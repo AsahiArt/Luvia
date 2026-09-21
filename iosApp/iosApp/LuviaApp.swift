@@ -75,6 +75,7 @@ struct LuviaApp: App {
 
     init() {
         TerminalFont.register()
+        TerminalFont.prewarm()
     }
     var body: some Scene {
         WindowGroup {

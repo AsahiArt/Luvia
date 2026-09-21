@@ -19,7 +19,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import tech.asahiart.luvia.ui.LuviaNavigation
+import tech.asahiart.luvia.ui.theme.prewarmTerminalFont
 
 @Composable
 fun LuviaApp(launchIntent: Intent? = null) {
@@ -27,6 +30,11 @@ fun LuviaApp(launchIntent: Intent? = null) {
     val viewModel: LuviaViewModel = viewModel(
         factory = remember(context) { LuviaViewModel.Factory(context.applicationContext) },
     )
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.Default) {
+            prewarmTerminalFont(context.applicationContext)
+        }
+    }
     val runtimes by viewModel.hosts.collectAsStateWithLifecycle()
     val pairing by viewModel.pairing.collectAsStateWithLifecycle()
     val terminals by viewModel.terminals.collectAsStateWithLifecycle()

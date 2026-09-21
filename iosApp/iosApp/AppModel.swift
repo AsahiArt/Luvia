@@ -25,6 +25,7 @@ final class AppModel {
     var isPairingPresented = false
     var isHostSettingsPresented = false
     var terminalText = ""
+    var terminalAnsi = true
     var terminalStatus: String?
     private(set) var holdsTerminalControl = false
     var hasLiveSession = false
@@ -389,6 +390,7 @@ final class AppModel {
         switch onEnum(of: update) {
         case .frame(let wrapped):
             terminalText = wrapped.frame.text
+            terminalAnsi = wrapped.frame.ansi
             if holdsTerminalControl {
                 terminalStatus = wrapped.frame.truncated ? "Output truncated." : nil
             } else if wrapped.frame.truncated, terminalStatus == nil {

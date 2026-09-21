@@ -29,6 +29,58 @@ internal fun ansiAnnotatedString(
     }
 }
 
+internal fun terminalDisplayLines(
+    text: String,
+    isAnsi: Boolean,
+    defaultForeground: Color,
+    defaultBackground: Color,
+): List<AnnotatedString> {
+    if (text.isEmpty()) return emptyList()
+    if (!isAnsi || !text.hasAnsiEscape()) {
+        return text.split('\n').map { AnnotatedString(it) }
+    }
+    return ansiSpansToLines(parseAnsi(text), defaultForeground, defaultBackground)
+}
+
+private fun String.hasAnsiEscape(): Boolean {
+    for (i in indices) {
+        val c = this[i]
+        if (c == '\u001B' || c == '\u009B') return true
+    }
+    return false
+}
+
+private fun ansiSpansToLines(
+    spans: List<AnsiSpan>,
+    defaultForeground: Color,
+    defaultBackground: Color,
+): List<AnnotatedString> {
+    if (spans.isEmpty()) return listOf(AnnotatedString(""))
+    val lines = ArrayList<AnnotatedString>()
+    var builder = AnnotatedString.Builder()
+    for (span in spans) {
+        val style = span.toSpanStyle(defaultForeground, defaultBackground)
+        val t = span.text
+        var start = 0
+        while (true) {
+            val nl = t.indexOf('\n', start)
+            val end = if (nl < 0) t.length else nl
+            if (end > start) {
+                val from = builder.length
+                builder.append(t, start, end)
+                builder.addStyle(style, from, builder.length)
+            }
+            if (nl < 0) break
+            lines.add(builder.toAnnotatedString())
+            builder = AnnotatedString.Builder()
+            start = nl + 1
+        }
+    }
+    lines.add(builder.toAnnotatedString())
+    return lines
+}
+
+
 private fun AnsiSpan.toSpanStyle(
     defaultForeground: Color,
     defaultBackground: Color,

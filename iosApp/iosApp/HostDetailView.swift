@@ -250,6 +250,7 @@ private struct TerminalKeySpec: Identifiable {
 struct TerminalPane: View {
     let host: HostViewState
     let text: String
+    var ansi: Bool = true
     let status: String?
     let holdsControl: Bool
     var onSend: (String) -> Void
@@ -257,7 +258,8 @@ struct TerminalPane: View {
     var onRequestControl: () -> Void
 
     @State private var input = ""
-    @State private var wrap = true
+    @State private var wrap = false
+    @State private var stickToBottom = true
 
     private var keys: [TerminalKeySpec] {
         [
@@ -328,28 +330,25 @@ struct TerminalPane: View {
                 .foregroundStyle(TerminalChrome.foreground)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                JumpToLatestScroll(token: text, wrap: wrap) {
-                    Text(
-                        ansiAttributedString(
-                            text,
-                            defaultForeground: TerminalChrome.foreground,
-                            defaultBackground: TerminalChrome.background
-                        )
-                    )
-                    .font(DesignTokens.Typography.mono)
-                    .fixedSize(horizontal: !wrap, vertical: false)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding()
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(
-                            holdsControl ? DesignTokens.live.opacity(0.85) : TerminalChrome.muted.opacity(0.45),
-                            lineWidth: 2
-                        )
-                        .padding(4)
-                }
+                TerminalCanvas(text: text, ansi: ansi, wrap: wrap, stickToBottom: $stickToBottom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(
+                                holdsControl ? DesignTokens.live.opacity(0.85) : TerminalChrome.muted.opacity(0.45),
+                                lineWidth: 2
+                            )
+                            .padding(4)
+                    }
+                    .overlay(alignment: .bottom) {
+                        if !stickToBottom {
+                            Button("Jump to latest") {
+                                stickToBottom = true
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .padding(.bottom, 12)
+                        }
+                    }
             }
             if host.isController, holdsControl {
                 let canSend = !input.isEmpty && host.connection == .live
@@ -404,6 +403,7 @@ struct TerminalPane: View {
     }
 }
 
+
 struct JumpToLatestScroll<Content: View>: View {
     let token: String
     var wrap = false
@@ -450,3 +450,5 @@ struct JumpToLatestScroll<Content: View>: View {
         }
     }
 }
+
+

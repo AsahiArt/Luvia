@@ -227,7 +227,7 @@ One screen for "talk to this Agent". Not a form with chips.
 
 6. Composer (Transcript only): rounded field, send. Placeholder "Agent prompt". Disabled while sending/unconfirmed/observer.
 
-**Terminal segment.** Existing `TerminalPane` restyled with tokens (no `Color(0xFFFFC66D)`). **Wrap toggle** (default on for phone). Control / Observing / Conflict using `link*` / `agent*` roles. Key chips (arrows, Ctrl-C, Tab) only here. Observe only while this segment is selected.
+**Terminal segment.** Existing `TerminalPane` restyled with tokens (no `Color(0xFFFFC66D)`). **Wrap toggle** (default off). Control / Observing / Conflict using `link*` / `agent*` roles. Key chips (arrows, Ctrl-C, Tab) only here. Observe only while this segment is selected.
 
 **Name / Fork.** Sheets/dialogs as today, from overflow.
 

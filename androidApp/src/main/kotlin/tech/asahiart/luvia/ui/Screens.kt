@@ -18,6 +18,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -28,14 +29,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroidSize
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
@@ -88,32 +97,47 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import tech.asahiart.luvia.HostRole
 import tech.asahiart.luvia.PairingCodes
 import tech.asahiart.luvia.isTailnetAddress
@@ -814,25 +838,48 @@ fun TerminalPane(
     boundToPane: Boolean = false,
 ) {
     var input by remember { mutableStateOf("") }
-    var wrap by remember { mutableStateOf(true) }
+    var wrap by remember { mutableStateOf(false) }
+    var userZoom by remember { mutableFloatStateOf(1f) }
+    var liveScale by remember { mutableFloatStateOf(1f) }
+    var fit by remember { mutableFloatStateOf(1f) }
+    var referenceBufferWidth by remember { mutableFloatStateOf(0f) }
+    val textMeasurer = rememberTextMeasurer()
     val defaultFg = LuviaTheme.extended.terminalFg
     val defaultBg = LuviaTheme.extended.terminalBg
-    val displayed = remember(terminal.text) {
-        ansiAnnotatedString(terminal.text, defaultFg, defaultBg)
+    val lines = remember(terminal.text, terminal.isAnsi, defaultFg, defaultBg) {
+        terminalDisplayLines(terminal.text, terminal.isAnsi, defaultFg, defaultBg)
     }
-    val terminalVertical = rememberScrollState()
+    val maxLineChars = lines.maxOfOrNull { it.length } ?: 0
+    val monoAdvancePx = remember(textMeasurer) {
+        measureTerminalCharAdvancePx(textMeasurer, LuviaTheme.mono)
+    }
+    val listState = rememberLazyListState()
     val terminalHorizontal = rememberScrollState()
     var pinToBottom by remember { mutableStateOf(true) }
     val live = terminal.errorText == null
-    LaunchedEffect(terminalVertical.isScrollInProgress, terminalVertical.value, terminalVertical.maxValue) {
-        if (!terminalVertical.isScrollInProgress) {
-            pinToBottom = terminalVertical.maxValue == 0 ||
-                terminalVertical.value >= terminalVertical.maxValue - 80
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()
+            val total = info.totalItemsCount
+            val atBottom = when {
+                total == 0 -> true
+                lastVisible == null -> false
+                else -> {
+                    lastVisible.index >= total - 1 &&
+                        lastVisible.offset + lastVisible.size <= info.viewportEndOffset + 80
+                }
+            }
+            listState.isScrollInProgress to atBottom
+        }.collect { (inProgress, atBottom) ->
+            if (!inProgress) {
+                pinToBottom = atBottom
+            }
         }
     }
-    LaunchedEffect(terminal.text) {
-        if (pinToBottom) {
-            terminalVertical.scrollTo(terminalVertical.maxValue)
+    LaunchedEffect(terminal.text, pinToBottom) {
+        if (pinToBottom && !listState.isScrollInProgress) {
+            listState.scrollToBottom(lines.size)
         }
     }
     val ext = LuviaTheme.extended
@@ -889,7 +936,56 @@ fun TerminalPane(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        BoxWithConstraints(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .clipToBounds()
+                .detectTerminalPinchZoom(
+                    onZoomDelta = { delta ->
+                        val zoomMin = if (wrap) TerminalZoomMin else TerminalZoomFitMin
+                        val next = (userZoom * liveScale * delta).coerceIn(zoomMin, TerminalZoomMax)
+                        liveScale = next / userZoom
+                    },
+                    onZoomEnd = {
+                        val zoomMin = if (wrap) TerminalZoomMin else TerminalZoomFitMin
+                        userZoom = (userZoom * liveScale).coerceIn(zoomMin, TerminalZoomMax)
+                        liveScale = 1f
+                    },
+                ),
+        ) {
+            val density = LocalDensity.current
+            val vPx = (constraints.maxWidth - with(density) { 32.dp.roundToPx() }).coerceAtLeast(0)
+            fun updateFit(remeasureBuffer: Boolean) {
+                if (wrap) {
+                    fit = 1f
+                    return
+                }
+                var width = referenceBufferWidth
+                if (remeasureBuffer || width <= 0f) {
+                    width = maxLineChars * monoAdvancePx
+                    referenceBufferWidth = width
+                }
+                fit = if (width > 0f && vPx > 0) minOf(1f, vPx / width) else 1f
+            }
+            LaunchedEffect(wrap) {
+                if (wrap) {
+                    updateFit(remeasureBuffer = false)
+                } else {
+                    if (userZoom < TerminalZoomFitMin) userZoom = TerminalZoomFitMin
+                    updateFit(remeasureBuffer = true)
+                }
+            }
+            LaunchedEffect(lines.isNotEmpty()) {
+                if (!wrap && referenceBufferWidth <= 0f && lines.isNotEmpty() && vPx > 0) {
+                    updateFit(remeasureBuffer = true)
+                }
+            }
+            LaunchedEffect(vPx) {
+                updateFit(remeasureBuffer = userZoom == 1f && liveScale == 1f)
+            }
+            val committedScale = if (wrap) userZoom else fit * userZoom
+            val visualScale = committedScale * liveScale
             if (!live) {
                 Column(
                     Modifier.fillMaxSize().padding(24.dp),
@@ -924,25 +1020,54 @@ fun TerminalPane(
                     }
                 }
             } else {
-                SelectionContainer {
-                    Text(
-                        displayed,
-                        color = defaultFg,
-                        fontFamily = LuviaTheme.mono,
-                        style = MaterialTheme.typography.bodySmall,
-                        softWrap = wrap,
-                        modifier = Modifier
+                val minLineWidth = with(density) { (maxLineChars * monoAdvancePx).toDp() }
+                Box(Modifier.fillMaxSize().padding(16.dp)) {
+                    Box(
+                        Modifier
                             .fillMaxSize()
-                            .verticalScroll(terminalVertical)
-                            .then(if (wrap) Modifier else Modifier.horizontalScroll(terminalHorizontal))
-                            .padding(16.dp),
-                    )
+                            .then(if (wrap) Modifier else Modifier.horizontalScroll(terminalHorizontal)),
+                    ) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .then(if (wrap) Modifier.fillMaxWidth() else Modifier),
+                        ) {
+                            items(lines.size) { index ->
+                                Text(
+                                    lines[index],
+                                    color = defaultFg,
+                                    fontFamily = LuviaTheme.mono,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = TerminalBaseFontSp.sp,
+                                    lineHeight = (TerminalBaseFontSp * 1.3f).sp,
+                                    softWrap = wrap,
+                                    overflow = TextOverflow.Visible,
+                                    modifier = Modifier
+                                        .then(
+                                            if (wrap) Modifier
+                                            else Modifier.widthIn(min = minLineWidth),
+                                        )
+                                        .terminalPinchLayout(
+                                            relative = visualScale,
+                                            wrap = wrap,
+                                            wrapLayoutWidthPx = if (visualScale <= 0f) {
+                                                0
+                                            } else {
+                                                (vPx / visualScale).roundToInt()
+                                            },
+                                        ),
+                                )
+                            }
+                        }
+                    }
                 }
                 JumpToLatestPill(
-                    visible = !pinToBottom && terminalVertical.maxValue > 0,
-                    onClick = {
-                        pinToBottom = true
-                    },
+                    visible = !pinToBottom &&
+                        (listState.firstVisibleItemIndex > 0 ||
+                            listState.canScrollForward ||
+                            listState.canScrollBackward),
+                    onClick = { pinToBottom = true },
                     modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
                 )
             }
@@ -991,9 +1116,113 @@ fun TerminalPane(
             }
         }
     }
-    LaunchedEffect(pinToBottom, terminalVertical.maxValue) {
-        if (pinToBottom) {
-            terminalVertical.scrollTo(terminalVertical.maxValue)
+}
+
+private const val TerminalBaseFontSp = 13f
+private const val TerminalZoomMin = 0.7f
+private const val TerminalZoomFitMin = 1f
+private const val TerminalZoomMax = 2.5f
+
+private fun measureTerminalCharAdvancePx(
+    measurer: TextMeasurer,
+    fontFamily: FontFamily,
+): Float {
+    return measurer.measure(
+        text = "M",
+        style = TextStyle(
+            fontFamily = fontFamily,
+            fontSize = TerminalBaseFontSp.sp,
+            lineHeight = (TerminalBaseFontSp * 1.3f).sp,
+        ),
+        softWrap = false,
+        overflow = TextOverflow.Visible,
+        maxLines = 1,
+        constraints = Constraints(),
+    ).size.width.toFloat()
+}
+
+private suspend fun LazyListState.scrollToBottom(itemCount: Int) {
+    if (itemCount <= 0) return
+    val last = itemCount - 1
+    scrollToItem(last)
+    val info = layoutInfo
+    val visible = info.visibleItemsInfo.lastOrNull() ?: return
+    val overflow = visible.offset + visible.size - info.viewportEndOffset
+    if (overflow > 0) {
+        scrollToItem(visible.index, overflow)
+    }
+}
+
+private fun Modifier.terminalPinchLayout(
+    relative: Float,
+    wrap: Boolean,
+    wrapLayoutWidthPx: Int,
+): Modifier = layout { measurable, constraints ->
+    val childConstraints = if (wrap) {
+        val width = wrapLayoutWidthPx.coerceAtLeast(0)
+        constraints.copy(minWidth = width, maxWidth = width)
+    } else {
+        constraints.copy(
+            minWidth = 0,
+            maxWidth = Constraints.Infinity,
+            minHeight = 0,
+            maxHeight = Constraints.Infinity,
+        )
+    }
+    val placeable = measurable.measure(childConstraints)
+    layout(
+        width = (placeable.width * relative).roundToInt().coerceAtLeast(0),
+        height = (placeable.height * relative).roundToInt().coerceAtLeast(0),
+    ) {
+        placeable.placeRelative(0, 0)
+    }
+}.graphicsLayer {
+    scaleX = relative
+    scaleY = relative
+    transformOrigin = TransformOrigin(0f, 0f)
+}
+
+private fun Modifier.detectTerminalPinchZoom(
+    onZoomDelta: (Float) -> Unit,
+    onZoomEnd: () -> Unit,
+): Modifier = pointerInput(Unit) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false)
+        var pinching = false
+        var accumulatedZoom = 1f
+        var pastTouchSlop = false
+        val touchSlop = viewConfiguration.touchSlop
+        try {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val pressedCount = event.changes.count { it.pressed }
+                if (pressedCount >= 2) {
+                    val zoomChange = event.calculateZoom()
+                    if (!pastTouchSlop) {
+                        accumulatedZoom *= zoomChange
+                        val centroidSize = event.calculateCentroidSize(useCurrent = false)
+                        val zoomMotion = abs(1f - accumulatedZoom) * centroidSize
+                        if (zoomMotion > touchSlop) {
+                            pastTouchSlop = true
+                        }
+                    }
+                    if (pastTouchSlop) {
+                        pinching = true
+                        if (zoomChange != 1f) {
+                            onZoomDelta(zoomChange)
+                        }
+                        event.changes.forEach { it.consume() }
+                    }
+                } else if (pinching) {
+                    onZoomEnd()
+                    pinching = false
+                    pastTouchSlop = false
+                    accumulatedZoom = 1f
+                }
+                if (pressedCount == 0) break
+            }
+        } finally {
+            if (pinching) onZoomEnd()
         }
     }
 }

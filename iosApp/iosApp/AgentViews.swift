@@ -268,6 +268,7 @@ struct AgentDetailView: View {
                 TerminalPane(
                     host: host,
                     text: model.terminalText,
+                    ansi: model.terminalAnsi,
                     status: model.terminalStatus,
                     holdsControl: model.holdsTerminalControl,
                     onSend: { text in _Concurrency.Task { await model.sendTerminal(text) } },
