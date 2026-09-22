@@ -966,6 +966,7 @@ fun TerminalPane(
                     width = maxLineChars * monoAdvancePx
                     referenceBufferWidth = width
                 }
+                if (liveScale != 1f) return
                 fit = if (width > 0f && vPx > 0) minOf(1f, vPx / width) else 1f
             }
             LaunchedEffect(wrap) {
@@ -976,13 +977,12 @@ fun TerminalPane(
                     updateFit(remeasureBuffer = true)
                 }
             }
-            LaunchedEffect(lines.isNotEmpty()) {
-                if (!wrap && referenceBufferWidth <= 0f && lines.isNotEmpty() && vPx > 0) {
-                    updateFit(remeasureBuffer = true)
-                }
+            LaunchedEffect(maxLineChars, monoAdvancePx) {
+                if (!wrap) updateFit(remeasureBuffer = true)
             }
-            LaunchedEffect(vPx) {
-                updateFit(remeasureBuffer = userZoom == 1f && liveScale == 1f)
+            LaunchedEffect(vPx, liveScale == 1f) {
+                if (liveScale != 1f) return@LaunchedEffect
+                updateFit(remeasureBuffer = false)
             }
             val committedScale = if (wrap) userZoom else fit * userZoom
             val visualScale = committedScale * liveScale
@@ -1027,37 +1027,39 @@ fun TerminalPane(
                             .fillMaxSize()
                             .then(if (wrap) Modifier else Modifier.horizontalScroll(terminalHorizontal)),
                     ) {
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .then(if (wrap) Modifier.fillMaxWidth() else Modifier),
-                        ) {
-                            items(lines.size) { index ->
-                                Text(
-                                    lines[index],
-                                    color = defaultFg,
-                                    fontFamily = LuviaTheme.mono,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontSize = TerminalBaseFontSp.sp,
-                                    lineHeight = (TerminalBaseFontSp * 1.3f).sp,
-                                    softWrap = wrap,
-                                    overflow = TextOverflow.Visible,
-                                    modifier = Modifier
-                                        .then(
-                                            if (wrap) Modifier
-                                            else Modifier.widthIn(min = minLineWidth),
-                                        )
-                                        .terminalPinchLayout(
-                                            relative = visualScale,
-                                            wrap = wrap,
-                                            wrapLayoutWidthPx = if (visualScale <= 0f) {
-                                                0
-                                            } else {
-                                                (vPx / visualScale).roundToInt()
-                                            },
-                                        ),
-                                )
+                        SelectionContainer {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .then(if (wrap) Modifier.fillMaxWidth() else Modifier),
+                            ) {
+                                items(lines.size) { index ->
+                                    Text(
+                                        lines[index],
+                                        color = defaultFg,
+                                        fontFamily = LuviaTheme.mono,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontSize = TerminalBaseFontSp.sp,
+                                        lineHeight = (TerminalBaseFontSp * 1.3f).sp,
+                                        softWrap = wrap,
+                                        overflow = TextOverflow.Visible,
+                                        modifier = Modifier
+                                            .then(
+                                                if (wrap) Modifier
+                                                else Modifier.widthIn(min = minLineWidth),
+                                            )
+                                            .terminalPinchLayout(
+                                                relative = visualScale,
+                                                wrap = wrap,
+                                                wrapLayoutWidthPx = if (visualScale <= 0f) {
+                                                    0
+                                                } else {
+                                                    (vPx / visualScale).roundToInt()
+                                                },
+                                            ),
+                                    )
+                                }
                             }
                         }
                     }

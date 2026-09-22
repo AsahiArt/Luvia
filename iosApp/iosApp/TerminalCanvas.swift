@@ -39,6 +39,8 @@ struct TerminalCanvas: UIViewRepresentable {
         private var unwrappedSize: CGSize = .zero
         private var ignoringScroll = false
         private var appliedStick = true
+        private var userIsPinching = false
+        private var relayoutAfterPinch = false
 
         init(_ parent: TerminalCanvas) {
             self.parent = parent
@@ -79,8 +81,24 @@ struct TerminalCanvas: UIViewRepresentable {
             host?.zoomView
         }
 
+        func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
+            userIsPinching = true
+        }
+
         func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
+            userIsPinching = false
+            let pending = relayoutAfterPinch
+            relayoutAfterPinch = false
+            if pending {
+                relayout(forceZoom: false)
+            }
             rememberUserZoom(scale)
+            if abs(scrollView.zoomScale - scale) > 0.001 {
+                scrollView.zoomScale = scale
+            }
+            if pending, parent.stickToBottom {
+                scrollToBottom()
+            }
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -112,7 +130,7 @@ struct TerminalCanvas: UIViewRepresentable {
             host.textView.isScrollEnabled = false
             ignoringScroll = false
             relayout(forceZoom: false)
-            if parent.stickToBottom {
+            if parent.stickToBottom, !userIsPinching, !host.scrollView.isZooming {
                 scrollToBottom()
             }
         }
@@ -128,11 +146,15 @@ struct TerminalCanvas: UIViewRepresentable {
 
         private func relayout(forceZoom: Bool) {
             guard let host else { return }
+            let scrollView = host.scrollView
+            if userIsPinching || scrollView.isZooming || scrollView.isZoomBouncing {
+                relayoutAfterPinch = true
+                return
+            }
             let viewport = host.bounds.size
             guard viewport.width > 0, viewport.height > 0 else { return }
             let wrap = parent.wrap
             lastViewport = viewport
-            let scrollView = host.scrollView
 
             ignoringScroll = true
             defer { ignoringScroll = false }
@@ -182,12 +204,11 @@ struct TerminalCanvas: UIViewRepresentable {
                 unwrappedSize = size
                 host.zoomView.frame = CGRect(origin: .zero, size: size)
                 host.textView.frame = host.zoomView.bounds
-                let textWidth = bufferWidth > 0 ? bufferWidth : size.width
-                fit = (textWidth > 0 && viewport.width > 0) ? min(1, viewport.width / textWidth) : 1
+                fit = viewport.width > 0 ? min(1, viewport.width / size.width) : 1
                 if forceZoom {
                     userZoom = 1
                 }
-                userZoom = min(max(userZoom, 1), TerminalFont.maxZoom)
+                userZoom = min(max(userZoom, TerminalFont.minUserZoomWrapOff), TerminalFont.maxZoom)
                 minZoom = fit
                 maxZoom = fit * TerminalFont.maxZoom
                 targetZoom = fit * userZoom
@@ -238,7 +259,7 @@ struct TerminalCanvas: UIViewRepresentable {
                 userZoom = min(max(scale, TerminalFont.minZoom), TerminalFont.maxZoom)
             } else {
                 let currentFit = max(fit, 0.0001)
-                userZoom = min(max(scale / currentFit, 1), TerminalFont.maxZoom)
+                userZoom = min(max(scale / currentFit, TerminalFont.minUserZoomWrapOff), TerminalFont.maxZoom)
             }
         }
 
@@ -329,9 +350,20 @@ final class TerminalCanvasHostView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    private var restoringZoom = false
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        guard !restoringZoom else { return }
+        let scale = scrollView.zoomScale
+        let offset = scrollView.contentOffset
         scrollView.frame = bounds
+        if abs(scrollView.zoomScale - scale) > 0.001 {
+            restoringZoom = true
+            scrollView.zoomScale = scale
+            scrollView.contentOffset = offset
+            restoringZoom = false
+        }
         onLayout?(bounds.size)
     }
 }
@@ -340,19 +372,8 @@ private let terminalCanvasFont: UIFont =
     UIFont(name: TerminalFont.postScriptName, size: TerminalFont.referenceSize)
     ?? UIFont.monospacedSystemFont(ofSize: TerminalFont.referenceSize, weight: .regular)
 
-private let terminalCanvasBackground = UIColor(
-    red: 26 / 255,
-    green: 24 / 255,
-    blue: 21 / 255,
-    alpha: 1
-)
-
-private let terminalCanvasForeground = UIColor(
-    red: 232 / 255,
-    green: 226 / 255,
-    blue: 216 / 255,
-    alpha: 1
-)
+private let terminalCanvasBackground = UIColor(DesignTokens.Terminal.background)
+private let terminalCanvasForeground = UIColor(DesignTokens.Terminal.foreground)
 
 private func makeTerminalAttributedString(text: String, parseANSI: Bool) -> NSAttributedString {
     let attributes: [NSAttributedString.Key: Any] = [

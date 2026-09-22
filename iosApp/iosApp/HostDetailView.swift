@@ -346,7 +346,7 @@ struct TerminalPane: View {
                                 stickToBottom = true
                             }
                             .buttonStyle(.borderedProminent)
-                            .padding(.bottom, 12)
+                            .padding(.bottom, DesignTokens.Space.m)
                         }
                     }
             }
@@ -444,7 +444,7 @@ struct JumpToLatestScroll<Content: View>: View {
                         proxy.scrollTo(endID, anchor: .bottomLeading)
                     }
                     .buttonStyle(.borderedProminent)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, DesignTokens.Space.m)
                 }
             }
         }
