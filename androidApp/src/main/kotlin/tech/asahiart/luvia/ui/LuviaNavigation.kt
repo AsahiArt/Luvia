@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -94,6 +95,18 @@ fun LuviaNavigation(
     modifier: Modifier = Modifier,
 ) {
     val backStack = rememberNavBackStack(NowRoute)
+    // Now is live across Hosts: connect each paired Host once per launch, never again after a manual disconnect.
+    val autoConnected = remember { mutableSetOf<String>() }
+    LaunchedEffect(hosts.map { it.id }) {
+        hosts.forEach { host ->
+            if (autoConnected.add(host.id) &&
+                host.connection != ConnectionBadge.Live &&
+                host.connection != ConnectionBadge.Connecting
+            ) {
+                onConnect(host.id)
+            }
+        }
+    }
     LaunchedEffect(openHostId) {
         val id = openHostId ?: return@LaunchedEffect
         backStack.removeAll { it is PairHostRoute }
@@ -109,6 +122,9 @@ fun LuviaNavigation(
                     hosts = hosts,
                     states = hostStates,
                     onOpenProject = { hostId, ws -> openProject(backStack, workspace, hostId, ws) },
+                    onShowProjects = {
+                        hosts.filter { it.connection == ConnectionBadge.Live }.forEach { workspace(it.id).loadProjects() }
+                    },
                     onOpenThread = { thread -> openThread(backStack, workspace, onMarkViewed, thread) },
                     onAnswer = onAnswerNow,
                     onOpenHosts = {
@@ -236,8 +252,7 @@ private fun DetailNav(
         val id = pairing.pairedHostId ?: return@LaunchedEffect
         val host = hosts.firstOrNull { it.id == id } ?: return@LaunchedEffect
         if (host.hasSnapshot || host.errorMessage != null) {
-            backStack.removeAll { it is PairHostRoute || it is HostRoute }
-            backStack.add(HostRoute(id))
+            backStack.removeAll { it !is NowRoute }
             onCancelPairing()
         }
     }
@@ -265,6 +280,9 @@ private fun DetailNav(
                         hosts = hosts,
                         states = hostStates,
                         onOpenProject = { hostId, ws -> openProject(backStack, workspace, hostId, ws) },
+                    onShowProjects = {
+                        hosts.filter { it.connection == ConnectionBadge.Live }.forEach { workspace(it.id).loadProjects() }
+                    },
                         onOpenThread = { thread -> openThread(backStack, workspace, onMarkViewed, thread) },
                         onAnswer = onAnswerNow,
                         onOpenHosts = { backStack.add(HostsRoute) },
@@ -509,7 +527,11 @@ private fun DetailNav(
                 } else {
                     val surface = workspace(route.hostId)
                     val uhp by surface.state.collectAsStateWithLifecycle()
-                    LaunchedEffect(route.hostId, route.paneId) {
+                    val live = host.connection == ConnectionBadge.Live
+                    LaunchedEffect(route.hostId) {
+                        if (!live && host.connection != ConnectionBadge.Connecting) onConnect(route.hostId)
+                    }
+                    LaunchedEffect(route.hostId, route.paneId, live) {
                         surface.openAgent(route.paneId)
                     }
                     val thread = surface.openThread()

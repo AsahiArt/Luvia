@@ -275,7 +275,7 @@ private struct OutputBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(outputRuns(text).enumerated()), id: \.offset) { _, run in
+            ForEach(Array(OutputRunsKt.outputRuns(text: text).enumerated()), id: \.offset) { _, run in
                 if run.mono {
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(run.text)
@@ -299,33 +299,6 @@ private struct OutputBlock: View {
     }
 }
 
-struct OutputRun {
-    var text: String
-    var mono: Bool
-}
-
-func outputRuns(_ text: String) -> [OutputRun] {
-    var runs: [OutputRun] = []
-    var fenced = false
-    for sub in text.split(separator: "\n", omittingEmptySubsequences: false) {
-        let line = String(sub)
-        if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-            fenced.toggle()
-            continue
-        }
-        let mono = fenced || looksPreformatted(line)
-        if var last = runs.last, last.mono == mono {
-            last.text += "\n" + line
-            runs[runs.count - 1] = last
-        } else {
-            runs.append(OutputRun(text: line, mono: mono))
-        }
-    }
-    return runs
-        .map { OutputRun(text: $0.text.trimmingCharacters(in: .newlines), mono: $0.mono) }
-        .filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
-}
-
 private func isNerdGlyph(_ c: Character) -> Bool {
     c.unicodeScalars.contains { (0xE000...0xF8FF).contains($0.value) || (0xF0000...0x10FFFD).contains($0.value) }
 }
@@ -347,11 +320,6 @@ func withNerdGlyphs(_ text: String) -> AttributedString {
     }
     if !pending.isEmpty { out += AttributedString(pending) }
     return out
-}
-
-private func looksPreformatted(_ line: String) -> Bool {
-    if line.hasPrefix("    ") || line.hasPrefix("\t") { return true }
-    return line.unicodeScalars.contains { (0x2500...0x259F).contains($0.value) }
 }
 
 private struct MineBubble: View {
@@ -638,7 +606,13 @@ private struct TerminalControlView: View {
                 }
             }
         }
-        .onAppear { model.setTerminalVisible(true) }
+        .onAppear {
+            model.setTerminalVisible(true)
+            // Opening Terminal control is the request; ask once so keys work immediately.
+            if model.selectedHost?.isController == true, !model.holdsTerminalControl {
+                model.requestTerminalControl()
+            }
+        }
         .onDisappear { model.setTerminalVisible(false) }
     }
 }

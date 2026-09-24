@@ -1,9 +1,12 @@
 package tech.asahiart.luvia.ui
 
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -159,9 +162,8 @@ fun AgentRow(
     val statusColor = entry.status.color()
     val blocked = entry.status == AgentStatus.Blocked
     Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = if (blocked) {
                 MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
@@ -171,11 +173,11 @@ fun AgentRow(
         ),
         shape = MaterialTheme.shapes.large,
     ) {
-        Row(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
             Box(
                 Modifier
                     .width(3.dp)
-                    .height(88.dp)
+                    .fillMaxHeight()
                     .background(statusColor),
             )
             Column(
@@ -199,14 +201,11 @@ fun AgentRow(
                     if (blocked) {
                         StatusPill("Blocked", LuviaTheme.extended.agentBlocked)
                     }
-                    TypeBadge(
-                        label = if (entry.kind == AgentKind.Acp) "ACP" else "Pane",
-                        color = if (entry.kind == AgentKind.Acp) {
-                            LuviaTheme.extended.connecting
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
+                    if (entry.kind == AgentKind.Acp) {
+                        TypeBadge(label = "ACP", color = LuviaTheme.extended.connecting)
+                    } else {
+                        Text(statusLabel(entry.status), style = MaterialTheme.typography.labelMedium, color = statusColor)
+                    }
                 }
                 if (!entry.projectLabel.isNullOrBlank()) {
                     Text(
@@ -220,7 +219,7 @@ fun AgentRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (!entry.lastLine.isNullOrBlank()) {
                         Text(
-                            entry.lastLine.orEmpty(),
+                            withNerdGlyphs(entry.lastLine.orEmpty()),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -245,8 +244,24 @@ fun AgentRow(
 }
 
 @Composable
-fun KeyChip(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    FilledTonalButton(onClick = onClick, modifier = modifier) { Text(label) }
+fun KeyChip(
+    label: String,
+    modifier: Modifier = Modifier,
+    container: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    content: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = container,
+        contentColor = content,
+        modifier = modifier.heightIn(min = 36.dp).semantics { contentDescription = label },
+    ) {
+        Box(Modifier.padding(horizontal = 14.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+            Text(label, fontFamily = LuviaTheme.mono, style = MaterialTheme.typography.labelLarge)
+        }
+    }
 }
 
 @Composable

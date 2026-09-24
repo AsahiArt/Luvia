@@ -72,6 +72,11 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -728,6 +733,7 @@ fun TerminalPane(
     onSendKey: (TerminalKey) -> Unit = {},
     modifier: Modifier = Modifier,
     boundToPane: Boolean = false,
+    leading: (@Composable () -> Unit)? = null,
 ) {
     var input by remember { mutableStateOf("") }
     var wrap by remember { mutableStateOf(false) }
@@ -749,24 +755,10 @@ fun TerminalPane(
     val terminalHorizontal = rememberScrollState()
     var pinToBottom by remember { mutableStateOf(true) }
     val live = terminal.errorText == null
+    // Only a finished scroll gesture decides pinning; new output alone must not unpin.
     LaunchedEffect(listState) {
-        snapshotFlow {
-            val info = listState.layoutInfo
-            val lastVisible = info.visibleItemsInfo.lastOrNull()
-            val total = info.totalItemsCount
-            val atBottom = when {
-                total == 0 -> true
-                lastVisible == null -> false
-                else -> {
-                    lastVisible.index >= total - 1 &&
-                        lastVisible.offset + lastVisible.size <= info.viewportEndOffset + 80
-                }
-            }
-            listState.isScrollInProgress to atBottom
-        }.collect { (inProgress, atBottom) ->
-            if (!inProgress) {
-                pinToBottom = atBottom
-            }
+        snapshotFlow { listState.isScrollInProgress }.collect { inProgress ->
+            if (!inProgress) pinToBottom = !listState.canScrollForward
         }
     }
     LaunchedEffect(terminal.text, pinToBottom) {
@@ -793,14 +785,29 @@ fun TerminalPane(
         disabledBorderColor = defaultFg.copy(alpha = 0.12f),
     )
     Column(
-        modifier
-            .background(defaultBg)
-            .border(2.dp, chrome.copy(alpha = 0.85f))
-            .imePadding()
-            .systemBottomPadding(),
+        if (boundToPane) {
+            modifier.background(defaultBg)
+        } else {
+            modifier
+                .background(defaultBg)
+                .border(2.dp, chrome.copy(alpha = 0.85f))
+                .imePadding()
+                .systemBottomPadding()
+        },
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(terminal.title, color = defaultFg, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        Row(
+            Modifier.fillMaxWidth().padding(start = if (leading != null) 4.dp else 16.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            leading?.invoke()
+            Text(
+                terminal.title,
+                color = defaultFg,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
             FilterChip(
                 selected = wrap,
                 onClick = { wrap = !wrap },
@@ -847,7 +854,8 @@ fun TerminalPane(
                 ),
         ) {
             val density = LocalDensity.current
-            val vPx = (constraints.maxWidth - with(density) { 32.dp.roundToPx() }).coerceAtLeast(0)
+            val gutter = if (boundToPane) 8.dp else 16.dp
+            val vPx = (constraints.maxWidth - with(density) { (gutter * 2).roundToPx() }).coerceAtLeast(0)
             fun updateFit(remeasureBuffer: Boolean) {
                 if (wrap) {
                     fit = 1f
@@ -913,7 +921,7 @@ fun TerminalPane(
                 }
             } else {
                 val minLineWidth = with(density) { (maxLineChars * monoAdvancePx).toDp() }
-                Box(Modifier.fillMaxSize().padding(16.dp)) {
+                Box(Modifier.fillMaxSize().padding(gutter)) {
                     Box(
                         Modifier
                             .fillMaxSize()
@@ -977,39 +985,68 @@ fun TerminalPane(
                     .padding(horizontal = 12.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                KeyChip("Esc") { onSendKey(TerminalKey.Escape) }
-                KeyChip("Tab") { onSendKey(TerminalKey.Tab) }
-                KeyChip("Ctrl-C") { onSendKey(TerminalKey.CtrlC) }
-                KeyChip("Ctrl-D") { onSendKey(TerminalKey.CtrlD) }
-                KeyChip("↑") { onSendKey(TerminalKey.Up) }
-                KeyChip("↓") { onSendKey(TerminalKey.Down) }
-                KeyChip("←") { onSendKey(TerminalKey.Left) }
-                KeyChip("→") { onSendKey(TerminalKey.Right) }
-                KeyChip("Enter") { onSendKey(TerminalKey.Enter) }
+                TermKey("Esc") { onSendKey(TerminalKey.Escape) }
+                TermKey("Tab") { onSendKey(TerminalKey.Tab) }
+                TermKey("Ctrl-C") { onSendKey(TerminalKey.CtrlC) }
+                TermKey("Ctrl-D") { onSendKey(TerminalKey.CtrlD) }
+                TermKey("↑") { onSendKey(TerminalKey.Up) }
+                TermKey("↓") { onSendKey(TerminalKey.Down) }
+                TermKey("←") { onSendKey(TerminalKey.Left) }
+                TermKey("→") { onSendKey(TerminalKey.Right) }
+                TermKey("Enter") { onSendKey(TerminalKey.Enter) }
             }
         }
         if (live && terminal.canControl) {
-            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            val controlling = terminal.control == TerminalControl.Controlling
+            val submit = {
+                if (input.isNotEmpty()) onSendText(input)
+                onSendKey(TerminalKey.Enter)
+                input = ""
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 OutlinedTextField(
                     value = input,
                     onValueChange = { input = it },
-                    label = { Text("Exact input") },
-                    enabled = terminal.control == TerminalControl.Controlling,
+                    placeholder = { Text("Type, then ⏎ sends with Enter", color = defaultFg.copy(alpha = 0.4f)) },
+                    enabled = controlling,
                     singleLine = true,
+                    textStyle = TextStyle(fontFamily = LuviaTheme.mono, fontSize = 14.sp),
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = ImeAction.Send,
+                        autoCorrectEnabled = false,
+                        capitalization = KeyboardCapitalization.None,
+                    ),
+                    keyboardActions = KeyboardActions(onSend = { submit() }),
+                    shape = RoundedCornerShape(12.dp),
                     colors = fieldColors,
                     modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(8.dp))
-                Button(
-                    enabled = terminal.control == TerminalControl.Controlling && input.isNotEmpty(),
+                Spacer(Modifier.width(4.dp))
+                IconButton(
+                    enabled = controlling && input.isNotEmpty(),
                     onClick = {
                         onSendText(input)
                         input = ""
                     },
-                ) { Text("Send") }
+                    modifier = Modifier.semantics { contentDescription = "Send without Enter" },
+                ) { Text("⇥", color = defaultFg, fontSize = 18.sp) }
+                FilledIconButton(
+                    enabled = controlling,
+                    onClick = submit,
+                    modifier = Modifier.semantics { contentDescription = "Send with Enter" },
+                ) { Text("⏎", fontSize = 18.sp) }
             }
         }
     }
+}
+
+@Composable
+private fun TermKey(label: String, onClick: () -> Unit) {
+    val fg = LuviaTheme.extended.terminalFg
+    KeyChip(label, container = fg.copy(alpha = 0.12f), content = fg, onClick = onClick)
 }
 
 private const val TerminalBaseFontSp = 13f

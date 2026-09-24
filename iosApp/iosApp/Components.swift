@@ -139,7 +139,7 @@ struct AgentRow: View {
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     if let lastLine = item.lastLine, !lastLine.isEmpty {
-                        Text(lastLine)
+                        Text(withNerdGlyphs(lastLine))
                             .font(.caption)
                             .foregroundStyle(DesignTokens.inkMuted)
                             .lineLimit(1)

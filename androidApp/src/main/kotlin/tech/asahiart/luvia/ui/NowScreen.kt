@@ -1,6 +1,14 @@
 package tech.asahiart.luvia.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,15 +70,7 @@ fun NowPane(
                 modifier = Modifier.weight(1f),
             )
             IconButton(onClick = onOpenHosts, modifier = Modifier.semantics { contentDescription = "Hosts and settings" }) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    modifier = Modifier.size(32.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("◉", color = MaterialTheme.colorScheme.onSecondaryContainer)
-                    }
-                }
+                Icon(Icons.Filled.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         if (!hasHosts) {
@@ -134,12 +134,24 @@ private fun LazyListScope.section(
 ) {
     if (groups.isEmpty()) return
     item(key = "h:$title") {
-        Text(
-            "$title  ${groups.sumOf { it.threads.size }}",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 20.dp, bottom = 4.dp),
-        )
+        Row(
+            Modifier.padding(top = 20.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                title.uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.2.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "${groups.sumOf { it.threads.size }}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
     }
     for (group in groups) {
         item(key = "g:$title:${group.hostId}") { HostGroupHeader(group) }
@@ -170,32 +182,55 @@ fun HostGroupHeader(group: NowGroup, modifier: Modifier = Modifier) {
 
 @Composable
 fun ThreadLine(thread: AgentThread, onClick: () -> Unit, modifier: Modifier = Modifier, divider: Boolean = true) {
-    Column(
+    Row(
         modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+            .padding(horizontal = 4.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                listOfNotNull(thread.title, thread.projectLabel).joinToString(" · "),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            StatusGlyph(thread.status)
-        }
-        thread.summary?.takeIf { thread.ask == null }?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Box(
+            Modifier
+                .padding(top = 6.dp)
+                .size(10.dp)
+                .clip(CircleShape)
+                .background(thread.status.color()),
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    thread.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                thread.projectLabel?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    statusLabel(thread.status),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = thread.status.color(),
+                )
+            }
+            thread.summary?.takeIf { thread.ask == null && it.isNotBlank() }?.let {
+                Text(
+                    withNerdGlyphs(it),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
     if (divider) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))

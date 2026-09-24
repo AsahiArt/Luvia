@@ -1,5 +1,9 @@
 package tech.asahiart.luvia.ui
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -76,7 +80,7 @@ fun ProjectsPane(
                     item(key = "e:${host.id}") {
                         ProjectLine(
                             title = "All threads",
-                            detail = "${threads.size} threads",
+                            detail = threadCount(threads.size),
                             needsYou = threads.count { it.needsYou },
                             onClick = { onOpenProject(host.id, null) },
                         )
@@ -86,7 +90,7 @@ fun ProjectsPane(
                         val mine = threads.filter { it.projectKey == choice.id }
                         ProjectLine(
                             title = choice.label,
-                            detail = "${mine.size} threads",
+                            detail = threadCount(mine.size),
                             needsYou = mine.count { it.needsYou },
                             onClick = { onOpenProject(host.id, choice.id) },
                         )
@@ -95,6 +99,12 @@ fun ProjectsPane(
             }
         }
     }
+}
+
+private fun threadCount(n: Int): String = when (n) {
+    0 -> "No threads"
+    1 -> "1 thread"
+    else -> "$n threads"
 }
 
 @Composable
@@ -126,9 +136,14 @@ fun HomePane(
     onRefreshAll: () -> Unit,
     onOpenProject: (hostId: String, workspaceId: String?) -> Unit,
     modifier: Modifier = Modifier,
+    onShowProjects: () -> Unit = {},
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    Column(modifier.fillMaxSize()) {
+    val liveHosts = hosts.filter { it.connection == ConnectionBadge.Live }.map { it.id }
+    LaunchedEffect(tab, liveHosts) {
+        if (tab == 1) onShowProjects()
+    }
+    Column(modifier.fillMaxSize().statusBarsPadding()) {
         if (tab == 0) {
             NowPane(
                 now = now,
@@ -147,8 +162,16 @@ fun HomePane(
             NavigationBarItem(
                 selected = tab == 0,
                 onClick = { tab = 0 },
-                icon = { Icon(Icons.Filled.Home, contentDescription = null) },
-                label = { Text(if (now.needsYouCount > 0) "Now · ${now.needsYouCount}" else "Now") },
+                icon = {
+                    if (now.needsYouCount > 0) {
+                        BadgedBox(badge = { Badge { Text("${now.needsYouCount}") } }) {
+                            Icon(Icons.Filled.Home, contentDescription = null)
+                        }
+                    } else {
+                        Icon(Icons.Filled.Home, contentDescription = null)
+                    }
+                },
+                label = { Text("Now") },
             )
             NavigationBarItem(
                 selected = tab == 1,

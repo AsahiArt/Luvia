@@ -398,7 +398,7 @@ struct TerminalPane: View {
                     }
             }
             if host.isController, holdsControl {
-                let canSend = !input.isEmpty && host.connection == .live
+                let canSend = host.connection == .live
                 VStack(spacing: 8) {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
@@ -415,17 +415,15 @@ struct TerminalPane: View {
                     }
                     .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 10) {
-                        TextField("Send to terminal", text: $input)
+                        TextField("Type, then ⏎ sends with Enter", text: $input)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                            .font(.body)
+                            .font(DesignTokens.Typography.mono)
                             .foregroundStyle(TerminalChrome.foreground)
-                        Button {
-                            let payload = input
-                            input = ""
-                            onSend(payload)
-                        } label: {
-                            Image(systemName: "arrow.up")
+                            .submitLabel(.send)
+                            .onSubmit(submit)
+                        Button(action: submit) {
+                            Image(systemName: "return")
                                 .font(.body.weight(.bold))
                                 .foregroundStyle(.white)
                                 .frame(width: 32, height: 32)
@@ -433,7 +431,7 @@ struct TerminalPane: View {
                         }
                         .disabled(!canSend)
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Send")
+                        .accessibilityLabel("Send with Enter")
                     }
                     .padding(.leading, 16)
                     .padding(.trailing, 6)
@@ -447,6 +445,13 @@ struct TerminalPane: View {
         }
         .background(TerminalChrome.background)
         .colorScheme(.dark)
+    }
+
+    private func submit() {
+        let payload = input
+        input = ""
+        if !payload.isEmpty { onSend(payload) }
+        onSendKey(.enter)
     }
 }
 

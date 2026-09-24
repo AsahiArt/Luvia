@@ -35,6 +35,13 @@ struct ProjectsView: View {
         .navigationTitle("Projects")
         .navigationBarTitleDisplayMode(.large)
         .luviaSerifLargeTitle()
+        .task(id: liveHostIDs) {
+            for id in liveHostIDs { model.uhpRegistry.workspace(hostId: id).loadProjects() }
+        }
+    }
+
+    private var liveHostIDs: [String] {
+        model.hosts.filter { $0.connection == .live }.map(\.id)
     }
 
     @ViewBuilder
@@ -69,7 +76,7 @@ private struct ProjectLine: View {
                 if needsYou > 0 {
                     Text("● \(needsYou)").font(.caption.weight(.semibold)).foregroundStyle(DesignTokens.agentBlocked)
                 }
-                Text("\(threads.count) threads").font(.caption).foregroundStyle(DesignTokens.inkMuted)
+                Text(threads.isEmpty ? "No threads" : threads.count == 1 ? "1 thread" : "\(threads.count) threads").font(.caption).foregroundStyle(DesignTokens.inkMuted)
             }
             .contentShape(Rectangle())
         }
@@ -102,5 +109,6 @@ struct HomeView: View {
                 .tag(1)
         }
         .tint(DesignTokens.accent)
+        .task(id: model.hosts.map(\.id)) { model.connectHostsOnce() }
     }
 }

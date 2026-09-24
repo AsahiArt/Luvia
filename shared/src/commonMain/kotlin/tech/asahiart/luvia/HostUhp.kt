@@ -67,6 +67,11 @@ public class HostUhp(
         agents.load()
     }
 
+    /** Loads the workspace list the Projects tab groups by. */
+    public fun loadProjects() {
+        layout.load()
+    }
+
     public fun show(section: HostSection) {
         when (section) {
             HostSection.Agents -> {

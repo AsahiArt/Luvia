@@ -364,6 +364,17 @@ public data class HostUhpState(
         return agentEntries().filter { it.paneId == null || it.paneId !in scoped }
     }
 
+    /** Resumable sessions under the picked project's directories; all when the project has no known cwd. */
+    public fun projectSessions(): List<AgentSessionEntry> {
+        val id = selectedWorkspaceId?.takeIf { it.isNotBlank() } ?: return agentSessions
+        val roots = agents.filter { it.workspaceId == id }.mapNotNull { it.cwd?.trimEnd('/') }.filter { it.isNotEmpty() }
+        if (roots.isEmpty()) return agentSessions
+        return agentSessions.filter { session ->
+            val cwd = session.cwd.trimEnd('/')
+            roots.any { cwd == it || cwd.startsWith("$it/") }
+        }
+    }
+
     public fun waitingEntries(): List<AgentEntry> =
         agentEntries().filter { it.status == AgentStatus.Blocked }
 

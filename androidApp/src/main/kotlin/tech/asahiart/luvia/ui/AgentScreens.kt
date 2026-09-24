@@ -151,7 +151,8 @@ fun AgentListPane(
         onLoadAcpAgents()
         onShowLaunchAcp(true)
     }
-    val entries = state.agentEntries()
+    val entries = state.projectEntries()
+    val sessions = state.projectSessions()
     val nowEpochMs = System.currentTimeMillis()
     Box(modifier.fillMaxSize()) {
         PullToRefreshBox(
@@ -213,9 +214,9 @@ fun AgentListPane(
                         }
                     }
                 }
-                if (state.agentSessions.isNotEmpty()) {
+                if (sessions.isNotEmpty()) {
                     item { SectionHeader("Resumable sessions") }
-                    items(state.agentSessions, key = { it.sessionId }) { session ->
+                    items(sessions, key = { it.sessionId }) { session ->
                         AgentSessionRow(
                             sessionId = session.sessionId,
                             agent = session.agent,

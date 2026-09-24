@@ -23,10 +23,11 @@ class SlashCommandTest {
     }
 
     @Test
-    fun catalogReturnsEmptyForUnknownOrNullAgent() {
-        assertTrue(SlashCommandCatalog.forAgent(null).isEmpty())
-        assertTrue(SlashCommandCatalog.forAgent("").isEmpty())
-        assertTrue(SlashCommandCatalog.forAgent("pi").isEmpty())
+    fun catalogFallsBackToCommonCommandsForUnknownAgent() {
+        val common = SlashCommandCatalog.forAgent(null)
+        assertTrue(common.any { it.name == "/help" })
+        assertEquals(common, SlashCommandCatalog.forAgent("some-new-agent"))
+        assertTrue(SlashCommandCatalog.forAgent("omp").any { it.name == "/settings" })
     }
 
     @Test

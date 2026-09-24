@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -46,6 +45,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -78,6 +82,7 @@ import tech.asahiart.luvia.thread.Ask
 import tech.asahiart.luvia.thread.AskOption
 import tech.asahiart.luvia.thread.AskTone
 import tech.asahiart.luvia.thread.AgentThread
+import tech.asahiart.luvia.thread.outputRuns
 import tech.asahiart.luvia.thread.TimelineItem
 import tech.asahiart.luvia.ui.theme.LuviaTheme
 
@@ -125,7 +130,7 @@ fun ThreadPane(
     val canKeys = isPane && idle && state.capabilities.agentKeys
     var showTerminal by remember(thread.id) { mutableStateOf(false) }
 
-    Column(modifier.fillMaxSize().imePadding()) {
+    Column(modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime))) {
         ThreadTopBar(thread, state, actions)
         errorText?.let {
             Text(
@@ -178,7 +183,7 @@ fun ThreadPane(
 
     val paneId = thread.paneId
     if (showTerminal && paneId != null) {
-        TerminalControl(
+        TerminalControlSheet(
             paneId = paneId,
             title = thread.title,
             terminal = terminal,
@@ -351,28 +356,6 @@ private fun OutputBlock(text: String, streaming: Boolean) {
     }
 }
 
-internal data class OutputRun(val text: String, val mono: Boolean)
-
-internal fun outputRuns(text: String): List<OutputRun> {
-    val runs = mutableListOf<OutputRun>()
-    var fenced = false
-    for (line in text.lines()) {
-        if (line.trimStart().startsWith("```")) {
-            fenced = !fenced
-            continue
-        }
-        val mono = fenced || looksPreformatted(line)
-        val last = runs.lastOrNull()
-        runs += if (last != null && last.mono == mono) {
-            runs.removeAt(runs.lastIndex)
-            last.copy(text = last.text + "\n" + line)
-        } else {
-            OutputRun(line, mono)
-        }
-    }
-    return runs.map { it.copy(text = it.text.trim('\n')) }.filter { it.text.isNotBlank() }
-}
-
 private fun isNerdGlyph(cp: Int): Boolean =
     cp in 0xE000..0xF8FF || cp in 0xF0000..0x10FFFD
 
@@ -390,10 +373,6 @@ internal fun withNerdGlyphs(text: String): AnnotatedString = buildAnnotatedStrin
         i = end
     }
 }
-
-private fun looksPreformatted(line: String): Boolean =
-    line.startsWith("    ") || line.startsWith("\t") ||
-        line.any { it in '\u2500'..'\u259F' }
 
 @Composable
 private fun AcpExitBanner(message: String?, onClose: () -> Unit) {
@@ -617,7 +596,7 @@ internal fun KeyBarKey.label(): String = when (this) {
 
 /** Full-screen Terminal control. Observes only while shown (ADR 0001). */
 @Composable
-private fun TerminalControl(
+private fun TerminalControlSheet(
     paneId: String,
     title: String,
     terminal: TerminalUiModel?,
@@ -628,19 +607,36 @@ private fun TerminalControl(
         actions.onObserveTerminal(paneId)
         onDispose { actions.onStopObserve() }
     }
+    // Opening Terminal control is the request; ask once so keys work immediately.
+    var asked by remember(paneId) { mutableStateOf(false) }
+    LaunchedEffect(terminal?.paneId, terminal?.canControl, terminal?.control, terminal?.errorText) {
+        val t = terminal ?: return@LaunchedEffect
+        if (!asked && t.paneId == paneId && t.canControl && t.errorText == null &&
+            t.control == TerminalControl.Observing
+        ) {
+            asked = true
+            actions.onRequestControl()
+        }
+    }
     val fg = LuviaTheme.extended.terminalFg
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
         Surface(color = LuviaTheme.extended.terminalBg, modifier = Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxSize().imePadding()) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(onClick = onDismiss) { Text("Done", color = fg) }
-                    Text(title, color = fg, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                    Spacer(Modifier.size(48.dp))
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.ime)),
+            ) {
+                val done: @Composable () -> Unit = {
+                    TextButton(onClick = onDismiss) { Text("Done", color = fg, fontWeight = FontWeight.SemiBold) }
                 }
                 if (terminal == null) {
+                    Row(Modifier.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        done()
+                        Text(title, color = fg, style = MaterialTheme.typography.titleSmall)
+                    }
                     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                         Text("Connecting to terminal…", color = fg.copy(alpha = 0.7f))
                     }
@@ -651,7 +647,8 @@ private fun TerminalControl(
                         onSendText = actions.onSendTerminalText,
                         onSendKey = actions.onSendTerminalKey,
                         boundToPane = true,
-                        modifier = Modifier.weight(1f).padding(8.dp),
+                        leading = done,
+                        modifier = Modifier.weight(1f),
                     )
                 }
             }

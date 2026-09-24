@@ -18,6 +18,7 @@ final class AppModel {
     @ObservationIgnored var boundUhpHostID: String?
     private var terminalControl: TerminalControl?
     private var wantsTerminalObserve = false
+    @ObservationIgnored private var autoConnectedHosts = Set<String>()
     private let liveActivity = LiveActivityController()
     private var liveActivityHostID: String?
     private var liveActivityBlockedAgents = 0
@@ -235,6 +236,13 @@ final class AppModel {
         }
         autoConnectIfNeeded()
         _Concurrency.Task { await self.loadSelectedSection() }
+    }
+
+    /// Now is live across Hosts: connect each paired Host once per launch, never again after a manual disconnect.
+    func connectHostsOnce() {
+        for host in hosts where autoConnectedHosts.insert(host.id).inserted {
+            if host.connection == .stale || host.connection == .offline { connect(host.id) }
+        }
     }
 
     func autoConnectIfNeeded() {
@@ -793,7 +801,7 @@ final class UhpSurfaceState {
     }
 
     var agentSessions: [AgentSessionItem] {
-        let sessions: [AgentSessionEntry] = KotlinLists.array(snapshot?.agentSessions as Any)
+        let sessions: [AgentSessionEntry] = KotlinLists.array(snapshot?.projectSessions() as Any)
         return sessions.map { session in
             AgentSessionItem(agent: session.agent, sessionId: session.sessionId, cwd: session.cwd)
         }

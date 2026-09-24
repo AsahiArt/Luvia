@@ -35,14 +35,34 @@ public object SlashCommandCatalog {
             SlashCommand("/tools", "List tools", needsTerminal = false),
         )
 
+    private val pi: List<SlashCommand> =
+        listOf(
+            SlashCommand("/model", "Switch model", needsTerminal = true),
+            SlashCommand("/compact", "Compact context", needsTerminal = false),
+            SlashCommand("/new", "Start new session", needsTerminal = false),
+            SlashCommand("/resume", "Resume session", needsTerminal = true),
+            SlashCommand("/settings", "Open settings", needsTerminal = true),
+            SlashCommand("/help", "Show help", needsTerminal = false),
+        )
+
+    /** Commands most terminal Agents share; used when the Agent type is unknown. */
+    private val common: List<SlashCommand> =
+        listOf(
+            SlashCommand("/help", "Show help", needsTerminal = false),
+            SlashCommand("/model", "Switch model", needsTerminal = true),
+            SlashCommand("/compact", "Compact context", needsTerminal = false),
+            SlashCommand("/clear", "Clear session", needsTerminal = false),
+            SlashCommand("/resume", "Resume session", needsTerminal = true),
+        )
+
     public fun forAgent(agentType: String?): List<SlashCommand> {
         val normalized = agentType?.lowercase()?.trim().orEmpty()
-        if (normalized.isEmpty()) return emptyList()
         return when {
             "claude" in normalized -> claude
             "codex" in normalized -> codex
             "gemini" in normalized -> gemini
-            else -> emptyList()
+            normalized == "omp" || normalized == "pi" || "oh-my-pi" in normalized -> pi
+            else -> common
         }
     }
 }

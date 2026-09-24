@@ -150,7 +150,7 @@ struct ThreadLine: View {
                     StatusGlyph(status: thread.status)
                 }
                 if thread.ask == nil, let summary = thread.summary {
-                    Text(summary)
+                    Text(withNerdGlyphs(summary))
                         .font(.subheadline)
                         .foregroundStyle(DesignTokens.inkMuted)
                         .lineLimit(1)

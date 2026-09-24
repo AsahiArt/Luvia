@@ -449,10 +449,19 @@ class LuviaViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             val app = context.applicationContext
             return LuviaViewModel(
-                HostStore(File(app.filesDir, "hosts.json").absolutePath),
+                hostStore(app),
                 DeviceKeyVault(app),
                 app,
             ) as T
+        }
+
+        private companion object {
+            // DataStore allows only one live instance per file for the whole process.
+            @Volatile private var store: HostStore? = null
+
+            fun hostStore(app: Context): HostStore = store ?: synchronized(this) {
+                store ?: HostStore(File(app.filesDir, "hosts.json").absolutePath).also { store = it }
+            }
         }
     }
 }
