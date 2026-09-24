@@ -125,10 +125,10 @@ impl Capabilities {
         let subscribe_admin = self
             .lookup("events.subscribe")
             .map(|contract| contract.scope == "admin");
-        match (snapshot_admin, subscribe_admin) {
-            (Some(false), Some(false)) | (Some(false), None) | (None, Some(false)) => false,
-            _ => true,
-        }
+        !matches!(
+            (snapshot_admin, subscribe_admin),
+            (Some(false), Some(false)) | (Some(false), None) | (None, Some(false))
+        )
     }
 
     pub fn authorize(&self, role: Role, method: &str) -> Result<TokenKind> {
@@ -214,7 +214,6 @@ pub fn fixture_read_scoped_session() -> Capabilities {
     });
     Capabilities::parse(&json).unwrap()
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -336,5 +335,4 @@ mod tests {
             TokenKind::Action
         );
     }
-
 }

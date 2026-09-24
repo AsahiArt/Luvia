@@ -946,16 +946,10 @@ mod tests {
     fn snapshot_keeps_session_token_on_legacy_admin_scope() {
         let caps = capabilities::fixture();
         assert!(caps.needs_session_token());
-        let prepared = prepare_request(
-            &grant(),
-            &caps,
-            &tokens(),
-            &frame("1", "session.snapshot"),
-        )
-        .unwrap();
+        let prepared =
+            prepare_request(&grant(), &caps, &tokens(), &frame("1", "session.snapshot")).unwrap();
         assert_eq!(prepared.token_kind, TokenKind::Session);
         let injected: Value = serde_json::from_slice(&prepared.injected).unwrap();
         assert_eq!(injected["auth"], "luv_tok_session");
     }
-
 }
