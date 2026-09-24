@@ -1,3 +1,4 @@
+import LuviaShared
 import SwiftUI
 import UIKit
 
@@ -5,27 +6,19 @@ struct ContentView: View {
     @Bindable var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var lastBlockedTotal = 0
-    @State private var preferredCompactColumn = NavigationSplitViewColumn.detail
+    @State private var preferredCompactColumn = NavigationSplitViewColumn.sidebar
     @State private var pairingLandsOnHost = false
     @State private var hostChromeNonce = 0
+    @State private var isHostsPresented = false
 
     var body: some View {
         @Bindable var model = model
 
         NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
-            HostSidebarView(
-                hosts: model.hosts,
-                selection: $model.selectedHostID,
-                boundHostID: model.selectedHostID,
-                boundAttentionCount: model.uhp.attentionCount,
-                addHost: { model.isPairingPresented = true },
-                onUnpair: { id in _Concurrency.Task { await model.unpair(id) } },
-                onDisconnect: { id in model.disconnect(id) },
-                onRefreshAll: { await model.refreshAll() },
-                onOpenHost: { _ in
-                    preferredCompactColumn = .detail
-                    hostChromeNonce += 1
-                }
+            NowView(
+                model: model,
+                onOpenThread: openThread,
+                onOpenHosts: { isHostsPresented = true }
             )
         } detail: {
             if let host = model.selectedHost {
@@ -39,9 +32,9 @@ struct ContentView: View {
                 .id(host.id)
             } else {
                 ContentUnavailableView(
-                    "Select a Host",
-                    systemImage: "server.rack",
-                    description: Text("Choose a paired host from the sidebar.")
+                    "Nothing selected",
+                    systemImage: "sparkles",
+                    description: Text("Pick an Agent from Now.")
                 )
             }
         }
@@ -63,6 +56,13 @@ struct ContentView: View {
                 lastBlockedTotal = model.hosts.reduce(0) { $0 + $1.blockedAgents }
             }
         }
+        .sheet(isPresented: $isHostsPresented) {
+            HostsSheet(model: model) { id in
+                model.selectedHostID = id
+                preferredCompactColumn = .detail
+                hostChromeNonce += 1
+            }
+        }
         .sheet(isPresented: $model.isPairingPresented, onDismiss: {
             if pairingLandsOnHost {
                 preferredCompactColumn = .detail
@@ -79,6 +79,19 @@ struct ContentView: View {
         }) {
             PairHostView(model: model, onPaired: { pairingLandsOnHost = true })
         }
+    }
+}
+
+extension ContentView {
+    private func openThread(_ thread: AgentThread) {
+        model.uhpRegistry.markViewed(thread: thread)
+        model.selectedHostID = thread.hostId
+        if thread.kind == .acp {
+            model.uhpRegistry.workspace(hostId: thread.hostId).viewAcp()
+        } else if let pane = thread.paneId {
+            model.pendingOpenAgentID = pane
+        }
+        preferredCompactColumn = .detail
     }
 }
 

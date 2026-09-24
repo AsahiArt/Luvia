@@ -35,6 +35,12 @@ import tech.asahiart.luvia.HostUhp
 import tech.asahiart.luvia.ui.ConnectionBadge
 import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.HostSection
+import tech.asahiart.luvia.thread.AgentThread
+import tech.asahiart.luvia.thread.AskOption
+import tech.asahiart.luvia.thread.NowState
+
+@Serializable
+private data object NowRoute : NavKey
 
 @Serializable
 private data object HostsRoute : NavKey
@@ -55,6 +61,9 @@ private data class AcpRoute(val hostId: String) : NavKey
 @Composable
 fun LuviaNavigation(
     hosts: List<HostUiModel>,
+    now: NowState,
+    onAnswerNow: (AgentThread, AskOption) -> Unit,
+    onMarkViewed: (AgentThread) -> Unit,
     terminalForHost: (String) -> TerminalUiModel?,
     workspace: (String) -> HostUhp,
     onRefreshSection: (String, HostSection) -> Unit,
@@ -82,7 +91,7 @@ fun LuviaNavigation(
     onSetPushEnabled: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val backStack = rememberNavBackStack(HostsRoute)
+    val backStack = rememberNavBackStack(NowRoute)
     LaunchedEffect(openHostId) {
         val id = openHostId ?: return@LaunchedEffect
         backStack.removeAll { it is PairHostRoute }
@@ -93,27 +102,30 @@ fun LuviaNavigation(
         val twoPane = maxWidth >= 600.dp && maxHeight >= 600.dp
         if (twoPane) {
             Row(Modifier.fillMaxSize()) {
-                HostListPane(
-                    hosts = hosts,
-                    selectedHostId = (backStack.lastOrNull { it is HostRoute } as? HostRoute)?.id,
-                    onSelect = { id ->
-                        backStack.removeAll { it is HostRoute || it is PairHostRoute }
-                        backStack.add(HostRoute(id))
+                NowPane(
+                    now = now,
+                    hasHosts = hosts.isNotEmpty(),
+                    onOpenThread = { thread -> openThread(backStack, workspace, onMarkViewed, thread) },
+                    onAnswer = onAnswerNow,
+                    onOpenHosts = {
+                        backStack.removeAll { it !is NowRoute }
+                        backStack.add(HostsRoute)
                     },
                     onAddHost = {
                         backStack.removeAll { it is PairHostRoute }
                         backStack.add(PairHostRoute)
                     },
-                    onConnect = onConnect,
-                    onDisconnect = onDisconnect,
                     onRefreshAll = onRefreshAll,
-                    modifier = Modifier.width(320.dp).fillMaxHeight(),
+                    modifier = Modifier.width(360.dp).fillMaxHeight(),
                 )
                 VerticalDivider()
                 Box(Modifier.weight(1f).fillMaxHeight()) {
                     DetailNav(
                         backStack = backStack,
                         hosts = hosts,
+                        now = now,
+                        onAnswerNow = onAnswerNow,
+                        onMarkViewed = onMarkViewed,
                         terminalForHost = terminalForHost,
                         workspace = workspace,
                         onRefreshSection = onRefreshSection,
@@ -146,6 +158,9 @@ fun LuviaNavigation(
             DetailNav(
                 backStack = backStack,
                 hosts = hosts,
+                now = now,
+                onAnswerNow = onAnswerNow,
+                onMarkViewed = onMarkViewed,
                 terminalForHost = terminalForHost,
                 workspace = workspace,
                 onRefreshSection = onRefreshSection,
@@ -180,6 +195,9 @@ fun LuviaNavigation(
 private fun DetailNav(
     backStack: NavBackStack<NavKey>,
     hosts: List<HostUiModel>,
+    now: NowState,
+    onAnswerNow: (AgentThread, AskOption) -> Unit,
+    onMarkViewed: (AgentThread) -> Unit,
     terminalForHost: (String) -> TerminalUiModel?,
     workspace: (String) -> HostUhp,
     onRefreshSection: (String, HostSection) -> Unit,
@@ -233,8 +251,26 @@ private fun DetailNav(
             }
         },
         entryProvider = entryProvider {
-            entry<HostsRoute> {
+            entry<NowRoute> {
                 if (showList) {
+                    NowPane(
+                        now = now,
+                        hasHosts = hosts.isNotEmpty(),
+                        onOpenThread = { thread -> openThread(backStack, workspace, onMarkViewed, thread) },
+                        onAnswer = onAnswerNow,
+                        onOpenHosts = { backStack.add(HostsRoute) },
+                        onAddHost = {
+                            backStack.removeAll { it is PairHostRoute }
+                            backStack.add(PairHostRoute)
+                        },
+                        onRefreshAll = onRefreshAll,
+                    )
+                } else {
+                    EmptySelectionPane("Nothing selected", "Pick an Agent on the left.")
+                }
+            }
+            entry<HostsRoute> {
+                run {
                     HostListPane(
                         hosts = hosts,
                         selectedHostId = (backStack.lastOrNull { it is HostRoute } as? HostRoute)?.id,
@@ -250,8 +286,6 @@ private fun DetailNav(
                         onDisconnect = onDisconnect,
                         onRefreshAll = onRefreshAll,
                     )
-                } else {
-                    EmptySelectionPane("Select a host", "Choose a paired Host to inspect its Agents.")
                 }
             }
             entry<HostRoute> { route ->
@@ -584,5 +618,25 @@ private fun EmptySelectionPane(title: String, message: String) {
             Text(title, style = MaterialTheme.typography.headlineSmall)
             Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+}
+
+private fun openThread(
+    backStack: NavBackStack<NavKey>,
+    workspace: (String) -> HostUhp,
+    onMarkViewed: (AgentThread) -> Unit,
+    thread: AgentThread,
+) {
+    onMarkViewed(thread)
+    val surface = workspace(thread.hostId)
+    backStack.removeAll { it !is NowRoute }
+    backStack.add(HostRoute(thread.hostId))
+    val paneId = thread.paneId
+    if (thread.kind == AgentKind.Acp) {
+        surface.viewAcp()
+        backStack.add(AcpRoute(thread.hostId))
+    } else if (paneId != null) {
+        surface.openAgent(paneId)
+        backStack.add(AgentRoute(thread.hostId, paneId))
     }
 }

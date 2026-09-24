@@ -90,8 +90,12 @@ fun LuviaApp(launchIntent: Intent? = null) {
         onDispose { notifications.dismiss() }
     }
 
+    val now by viewModel.now.collectAsStateWithLifecycle()
     LuviaNavigation(
         hosts = hosts,
+        now = now,
+        onAnswerNow = viewModel::answer,
+        onMarkViewed = viewModel::markViewed,
         terminalForHost = { id -> terminals[id] },
         workspace = viewModel::workspace,
         onRefreshSection = viewModel::refreshSection,

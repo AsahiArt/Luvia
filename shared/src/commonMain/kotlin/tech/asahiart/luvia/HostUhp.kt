@@ -7,6 +7,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
+import kotlin.time.Clock
+import tech.asahiart.luvia.thread.DoneLedger
+import tech.asahiart.luvia.thread.NowHost
+import tech.asahiart.luvia.thread.NowState
+import tech.asahiart.luvia.thread.buildNowState
 import kotlinx.coroutines.launch
 import tech.asahiart.luvia.internal.uhp.AgentBoard
 import tech.asahiart.luvia.internal.uhp.AcpBoard
@@ -284,6 +292,13 @@ public class HostUhp(
         }
     }
 
+    /** Answers [thread]'s Ask from outside its conversation (Now). */
+    public fun answer(thread: AgentThread, option: AskOption) {
+        val paneId = thread.paneId
+        if (thread.kind == AgentKind.Pane && paneId != null && !agents.target(paneId)) return
+        answer(option)
+    }
+
     public fun sendKeyBar(key: KeyBarKey) {
         if (key == KeyBarKey.CtrlC && openThread()?.kind == AgentKind.Acp) {
             acp.cancel()
@@ -325,6 +340,35 @@ public class HostUhpRegistry(
     private val collectJobs: MutableMap<String, Job> = mutableMapOf()
 
     public val states: StateFlow<Map<String, HostUhpState>> = combined.asStateFlow()
+
+    private val ledger: MutableStateFlow<DoneLedger> = MutableStateFlow(DoneLedger())
+
+    /** Attention across every Host, from cached state only. */
+    public val now: StateFlow<NowState> =
+        combine(manager.hosts, combined, ledger) { runtimes, slices, done ->
+            val hosts = runtimes.map { runtime ->
+                NowHost(
+                    hostId = runtime.profile.id,
+                    name = runtime.profile.alias,
+                    freshness = runtime.freshness,
+                    isObserver = runtime.profile.role == HostRole.Observer,
+                    state = slices[runtime.profile.id],
+                )
+            }
+            val nowMs = Clock.System.now().toEpochMilliseconds()
+            val threads = hosts.flatMap { h -> h.state?.threads(h.hostId).orEmpty() }
+            val seen = done.observe(threads, nowMs)
+            if (seen != done) ledger.value = seen
+            buildNowState(hosts, seen, nowMs)
+        }.stateIn(registryScope, SharingStarted.Eagerly, NowState())
+
+    public fun answer(thread: AgentThread, option: AskOption) {
+        workspace(thread.hostId).answer(thread, option)
+    }
+
+    public fun markViewed(thread: AgentThread) {
+        ledger.update { it.markViewed(thread) }
+    }
 
     init {
         registryScope.launch {

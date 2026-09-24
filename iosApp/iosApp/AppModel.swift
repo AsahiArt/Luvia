@@ -11,6 +11,8 @@ final class AppModel {
     @ObservationIgnored private nonisolated(unsafe) var hostsTask: _Concurrency.Task<Void, Never>?
     @ObservationIgnored private nonisolated(unsafe) var terminalTask: _Concurrency.Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) var uhpTask: _Concurrency.Task<Void, Never>?
+    @ObservationIgnored private nonisolated(unsafe) var nowTask: _Concurrency.Task<Void, Never>?
+    var now: NowState?
     @ObservationIgnored var boundUhpHostID: String?
     private var terminalControl: TerminalControl?
     private var wantsTerminalObserve = false
@@ -57,6 +59,12 @@ final class AppModel {
                 }
             }
         }
+        let registryRef = uhpRegistry
+        nowTask = _Concurrency.Task { [weak self] in
+            for await state in registryRef.now {
+                await MainActor.run { self?.now = state }
+            }
+        }
         restorePushRegistration()
     }
 
@@ -66,6 +74,7 @@ final class AppModel {
         hostsTask?.cancel()
         terminalTask?.cancel()
         uhpTask?.cancel()
+        nowTask?.cancel()
         uhpRegistry.close()
         manager.close()
     }

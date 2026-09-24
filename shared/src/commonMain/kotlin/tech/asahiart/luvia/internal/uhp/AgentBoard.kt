@@ -172,6 +172,16 @@ internal class AgentBoard(private val ctx: UhpContext) {
         ctx.update { it.copy(agentDetail = it.agentDetail.copy(open = false)) }
     }
 
+    /** Points sends at [paneId] without opening detail. False while another pane has a pending send. */
+    fun target(paneId: String): Boolean {
+        val existing = ctx.value().agentDetail
+        if (existing.paneId == paneId) return true
+        if (existing.sending || existing.unconfirmed != null) return false
+        val summary = ctx.value().agents.firstOrNull { it.paneId == paneId }
+        ctx.update { it.copy(agentDetail = AgentDetailState(paneId = paneId, summary = summary)) }
+        return true
+    }
+
     fun setDraft(text: String) {
         ctx.update { it.copy(agentDetail = it.agentDetail.copy(draft = text)) }
     }

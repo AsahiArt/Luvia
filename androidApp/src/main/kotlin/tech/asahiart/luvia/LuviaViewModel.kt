@@ -1,5 +1,8 @@
 package tech.asahiart.luvia
 
+import tech.asahiart.luvia.thread.AgentThread
+import tech.asahiart.luvia.thread.AskOption
+import tech.asahiart.luvia.thread.NowState
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -38,6 +41,11 @@ class LuviaViewModel(
     private val triedTerminals = mutableMapOf<String, MutableSet<String>>()
 
     val hosts: StateFlow<List<HostRuntime>> = manager.hosts
+    val now: StateFlow<NowState> = uhpRegistry.now
+
+    fun answer(thread: AgentThread, option: AskOption) = uhpRegistry.answer(thread, option)
+
+    fun markViewed(thread: AgentThread) = uhpRegistry.markViewed(thread)
     val surfaces: StateFlow<Map<String, HostUhpState>> = uhpRegistry.states
 
 
