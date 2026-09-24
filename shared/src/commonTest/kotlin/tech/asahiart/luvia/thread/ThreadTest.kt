@@ -109,6 +109,12 @@ class ThreadTest {
     }
 
     @Test
+    fun transcriptKeepsNerdGlyphs() {
+        val t = PaneTimeline().ingestTranscript("\u001B[32m\uE0A0 main\u001B[0m \u25CF ok\n")
+        assertEquals("\uE0A0 main \u25CF ok", (t.items.single() as TimelineItem.Output).text)
+    }
+
+    @Test
     fun rejectedSendDropsMine() {
         val t = PaneTimeline().recordMine("a").recordMine("b").dropLastMine()
         assertEquals(listOf("a"), t.items.map { (it as TimelineItem.Mine).text })

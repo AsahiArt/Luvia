@@ -57,7 +57,11 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -336,7 +340,11 @@ private fun OutputBlock(text: String, streaming: Boolean) {
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 )
             } else {
-                Text(run.text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    withNerdGlyphs(run.text),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
             }
         }
         if (streaming) StreamingCursor()
@@ -363,6 +371,24 @@ internal fun outputRuns(text: String): List<OutputRun> {
         }
     }
     return runs.map { it.copy(text = it.text.trim('\n')) }.filter { it.text.isNotBlank() }
+}
+
+private fun isNerdGlyph(cp: Int): Boolean =
+    cp in 0xE000..0xF8FF || cp in 0xF0000..0x10FFFD
+
+/** Body sans has no Powerline / Nerd Font glyphs; those code points use the terminal font. */
+internal fun withNerdGlyphs(text: String): AnnotatedString = buildAnnotatedString {
+    var i = 0
+    while (i < text.length) {
+        val cp = text.codePointAt(i)
+        val end = i + Character.charCount(cp)
+        if (isNerdGlyph(cp)) {
+            withStyle(SpanStyle(fontFamily = LuviaTheme.mono)) { append(text, i, end) }
+        } else {
+            append(text, i, end)
+        }
+        i = end
+    }
 }
 
 private fun looksPreformatted(line: String): Boolean =
@@ -397,7 +423,7 @@ private fun MineBubble(text: String, unconfirmed: Boolean) {
                 modifier = Modifier.widthIn(max = 320.dp),
             ) {
                 Text(
-                    text,
+                    withNerdGlyphs(text),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),

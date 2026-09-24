@@ -287,7 +287,7 @@ private struct OutputBlock: View {
                     }
                     .background(DesignTokens.surface, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.m, style: .continuous))
                 } else {
-                    Text(run.text)
+                    Text(withNerdGlyphs(run.text))
                         .font(.body)
                         .foregroundStyle(DesignTokens.ink)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -326,6 +326,29 @@ func outputRuns(_ text: String) -> [OutputRun] {
         .filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
 }
 
+private func isNerdGlyph(_ c: Character) -> Bool {
+    c.unicodeScalars.contains { (0xE000...0xF8FF).contains($0.value) || (0xF0000...0x10FFFD).contains($0.value) }
+}
+
+/// Body sans has no Powerline / Nerd Font glyphs; those characters use the terminal font.
+func withNerdGlyphs(_ text: String) -> AttributedString {
+    guard text.contains(where: isNerdGlyph) else { return AttributedString(text) }
+    var out = AttributedString()
+    var pending = ""
+    for c in text {
+        if isNerdGlyph(c) {
+            if !pending.isEmpty { out += AttributedString(pending); pending = "" }
+            var glyph = AttributedString(String(c))
+            glyph.font = .custom(TerminalFont.postScriptName, size: 17, relativeTo: .body)
+            out += glyph
+        } else {
+            pending.append(c)
+        }
+    }
+    if !pending.isEmpty { out += AttributedString(pending) }
+    return out
+}
+
 private func looksPreformatted(_ line: String) -> Bool {
     if line.hasPrefix("    ") || line.hasPrefix("\t") { return true }
     return line.unicodeScalars.contains { (0x2500...0x259F).contains($0.value) }
@@ -339,7 +362,7 @@ private struct MineBubble: View {
         HStack {
             Spacer(minLength: 48)
             VStack(alignment: .trailing, spacing: 2) {
-                Text(text)
+                Text(withNerdGlyphs(text))
                     .foregroundStyle(DesignTokens.ink)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)

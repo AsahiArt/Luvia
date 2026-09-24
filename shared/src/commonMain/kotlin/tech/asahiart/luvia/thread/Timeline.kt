@@ -7,7 +7,7 @@ import tech.asahiart.luvia.AcpToolCall
 import tech.asahiart.luvia.AcpTranscriptItem
 import tech.asahiart.luvia.AcpTranscriptRole
 import tech.asahiart.luvia.AgentStatus
-import tech.asahiart.luvia.stripAnsi
+import tech.asahiart.luvia.parseAnsi
 
 public sealed class TimelineItem {
     public abstract val id: String
@@ -39,8 +39,9 @@ public data class PaneTimeline(
     private val lastStatus: AgentStatus? = null,
     private val seq: Long = 0,
 ) {
+    /** Keeps Nerd Font glyphs; the Thread screen renders them with the terminal font. */
     public fun ingestTranscript(text: String): PaneTimeline {
-        val lines = stripAnsi(text).lines().map { it.trimEnd() }.dropLastWhile { it.isBlank() }
+        val lines = parseAnsi(text).joinToString("") { it.text }.lines().map { it.trimEnd() }.dropLastWhile { it.isBlank() }
         val fresh = lines.drop(overlap(lastLines, lines))
         val chunk = fresh.dropWhile { it.isBlank() }.joinToString("\n")
         val next = copy(lastLines = lines)
