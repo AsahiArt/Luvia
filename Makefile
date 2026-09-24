@@ -1,5 +1,6 @@
 # Luvia — Android, iOS, host, and tests.
-# `make` prints targets. Run targets prefer a physical device over emulator/sim.
+# `make` prints targets. Device targets install on physical phones only.
+# Simulator and emulator are explicit: `make ios-sim`, `make android-emulator`.
 # CI calls the same targets (GitHub Actions sets CI=true → gradle --stacktrace).
 
 SHELL := /bin/bash
@@ -47,6 +48,7 @@ endif
 
 .PHONY: help doctor \
 	mobile android android-build android-install android-release android-device \
+	android-emulator \
 	ios ios-build ios-device ios-sim ios-open ios-compile ios-test ios-framework \
 	ios-sync-shared \
 	host host-dev host-test \
@@ -58,8 +60,8 @@ help: ## List targets
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-24s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo
 	@echo "  ANDROID_SERIAL=...     pin one adb serial (else every physical phone)"
-	@echo "  IOS_UDID=...           pin one iPhone (else every paired phone)"
-	@echo "  make ios-device        physical iPhones only"
+	@echo "  IOS_UDID=...           pin one iPhone, or a Simulator with make ios-sim"
+	@echo "  make android-emulator  x86_64 ABI and an AVD"
 	@echo "  make ios-sim           Simulator only"
 
 doctor: ## Check local toolchains and attached devices
@@ -78,7 +80,7 @@ doctor: ## Check local toolchains and attached devices
 
 # --- Android ---------------------------------------------------------------
 
-android-device: ## List every physical phone; start an AVD only if none
+android-device: ## List every physical phone (or an AVD when ANDROID_EMULATOR=1)
 	@set -euo pipefail; \
 	if [ -z "$(ADB)" ] || [ ! -x "$(ADB)" ]; then \
 	  echo "adb not found. Install Android platform-tools and put them on PATH, or set ANDROID_HOME." >&2; \
@@ -90,24 +92,26 @@ android-device: ## List every physical phone; start an AVD only if none
 	  picks="$(ANDROID_SERIAL)"; \
 	  echo "Using ANDROID_SERIAL=$$picks"; \
 	  ANDROID_SERIAL="$$picks" "$(ADB)" wait-for-device; \
+	elif [ "$(ANDROID_EMULATOR)" = 1 ]; then \
+	  picks="$$("$(ADB)" devices | awk 'NR>1 && $$2=="device" && $$1 ~ /^emulator-/ {print $$1}')"; \
+	  if [ -n "$$picks" ]; then echo "Android emulator:"; echo "$$picks"; fi; \
 	else \
 	  picks="$$("$(ADB)" devices | awk 'NR>1 && $$2=="device" && $$1 !~ /^emulator-/ {print $$1}')"; \
-	  if [ -n "$$picks" ]; then \
-	    echo "Android physical devices:"; echo "$$picks"; \
-	  else \
-	    picks="$$("$(ADB)" devices | awk 'NR>1 && $$2=="device" {print $$1}')"; \
-	    if [ -n "$$picks" ]; then echo "Android emulator: $$picks"; fi; \
-	  fi; \
+	  if [ -n "$$picks" ]; then echo "Android physical devices:"; echo "$$picks"; fi; \
 	fi; \
 	if [ -z "$$picks" ]; then \
-	  unauthorized="$$("$(ADB)" devices | awk 'NR>1 && $$2=="unauthorized" {print $$1}')"; \
-	  if [ -n "$$unauthorized" ]; then \
-	    echo "Unauthorized devices:"; echo "$$unauthorized" >&2; \
-	    echo "Accept USB debugging on the phone." >&2; \
+	  if [ "$(ANDROID_EMULATOR)" != 1 ]; then \
+	    unauthorized="$$("$(ADB)" devices | awk 'NR>1 && $$2=="unauthorized" && $$1 !~ /^emulator-/ {print $$1}')"; \
+	    if [ -n "$$unauthorized" ]; then \
+	      echo "Unauthorized devices:"; echo "$$unauthorized" >&2; \
+	      echo "Accept USB debugging on the phone." >&2; \
+	      exit 1; \
+	    fi; \
+	    echo "No physical Android device. Plug one in, or run make android-emulator." >&2; \
 	    exit 1; \
 	  fi; \
 	  if [ -z "$(EMULATOR)" ] || [ ! -x "$(EMULATOR)" ]; then \
-	    echo "No Android device online, and emulator not found. Plug in a phone or create an AVD." >&2; \
+	    echo "No Android emulator online, and emulator not found. Create an AVD or set ANDROID_HOME." >&2; \
 	    exit 1; \
 	  fi; \
 	  avd="$$("$(EMULATOR)" -list-avds | awk 'NF{print; exit}')"; \
@@ -115,10 +119,10 @@ android-device: ## List every physical phone; start an AVD only if none
 	    echo "No AVDs. Create one in Android Studio (x86_64 or arm64-v8a)." >&2; \
 	    exit 1; \
 	  fi; \
-	  echo "No physical device; starting emulator $$avd"; \
+	  echo "Starting emulator $$avd"; \
 	  "$(EMULATOR)" -avd "$$avd" -netdelay none -netspeed full >/dev/null 2>&1 & \
 	  "$(ADB)" wait-for-device; \
-	  picks="$$("$(ADB)" devices | awk 'NR>1 && $$2=="device" {print $$1}')"; \
+	  picks="$$("$(ADB)" devices | awk 'NR>1 && $$2=="device" && $$1 ~ /^emulator-/ {print $$1}')"; \
 	fi; \
 	printf '%s\n' "$$picks" | awk 'NF' > "$(ANDROID_STAMP)"; \
 	while IFS= read -r serial; do \
@@ -145,6 +149,9 @@ android-install: android-device android-build ## Install Android debug onto ever
 	if [ "$$fail" != 0 ]; then echo "Android install failed on at least one device." >&2; exit 1; fi
 
 mobile: ios android ## Install and launch on every iOS and Android phone
+
+android-emulator: ## Build the emulator ABI and launch on an AVD
+	ANDROID_EMULATOR=1 LUVIA_ANDROID_EMULATOR=1 $(MAKE) android
 
 android: android-install ## Install and launch Android on every physical phone
 	@set -euo pipefail; \
@@ -199,7 +206,7 @@ ios-build: ios-sync-shared ## Build Luvia for the iOS Simulator (unsigned; CI us
 		build
 
 
-ios: ios-sync-shared ## Build, install, and launch on every connected iPhone (else Simulator)
+ios: ios-sync-shared ## Build, install, and launch on every connected iPhone
 	@set -euo pipefail; \
 	export IOS_UDID="$(IOS_UDID)"; \
 	pick="$$(python3 "$(IOS_PICK)")"; \
@@ -245,13 +252,8 @@ ios: ios-sync-shared ## Build, install, and launch on every connected iPhone (el
 	    done; \
 	  fi; \
 	  if [ "$$ok" = 0 ]; then \
-	    if [ "$${IOS_FORCE_DEVICE:-}" = 1 ]; then \
-	      echo "iOS install/launch failed on every device." >&2; \
-	      exit 1; \
-	    fi; \
-	    echo "iOS install/launch failed on every device; falling back to Simulator."; \
-	    IOS_FORCE_SIM=1 IOS_UDID="$(IOS_UDID)" $(MAKE) ios; \
-	    exit $$?; \
+	    echo "iOS install/launch failed on every device." >&2; \
+	    exit 1; \
 	  fi; \
 	  if [ "$$fail" != 0 ]; then echo "iOS install/launch skipped at least one unreachable device."; fi; \
 	else \

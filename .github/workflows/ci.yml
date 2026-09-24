@@ -35,6 +35,9 @@ jobs:
   android:
     name: android
     runs-on: ubuntu-latest
+    env:
+      # Local builds are arm64-v8a only. CI still packages the emulator ABI.
+      LUVIA_ANDROID_EMULATOR: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.98.0

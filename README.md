@@ -62,14 +62,16 @@ Roles: `observer` (read) or `controller` (read plus workspace / agent / terminal
 
 ## Build
 
-From the repository root. Prefer `make`; CI runs the same targets. `make android` / `make ios` / `make mobile` install and launch on **every connected physical phone** (USB or wireless), and fall back to emulator / Simulator if none are present.
+From the repository root. Prefer `make`; CI runs the same targets. `make android` / `make ios` / `make mobile` install and launch on **every connected physical phone** (USB or wireless). They do not start an emulator or Simulator. Use `make android-emulator` or `make ios-sim` for that.
 
 ```sh
 make help
 make mobile           # iOS then Android on every connected phone
-make android          # every physical phone, else AVD
-make ios              # every USB/wireless iPhone, else Simulator (macOS)
-make ios-device       # fail if no paired iPhone
+make android          # every physical phone; fails if none
+make ios              # every USB/wireless iPhone; fails if none
+make ios-device       # also try paired phones CoreDevice cannot see
+make ios-sim          # Simulator only
+make android-emulator # x86_64 ABI and an AVD
 make host             # release luvia-host
 make test             # Rust workspace + Kotlin JVM tests
 ```
@@ -90,7 +92,7 @@ make android-release  # R8
 
 Release (`assembleRelease`) enables R8. Signing is optional: set `LUVIA_STORE_FILE`, `LUVIA_STORE_PASSWORD`, `LUVIA_KEY_ALIAS`, and `LUVIA_KEY_PASSWORD`, or a gitignored `keystore.properties` with the same keys. An unconfigured checkout still builds `debug`.
 
-Pin a device with `ANDROID_SERIAL=…`.
+Pin a device with `ANDROID_SERIAL=…`. The debug APK is `arm64-v8a` only unless `LUVIA_ANDROID_EMULATOR=1` (or `-Pluvia.androidEmulator=true`). `make android-emulator` sets that and launches an AVD.
 
 **iOS**
 
@@ -116,12 +118,12 @@ Android ships **64-bit only**:
 
 | ABI        | Why |
 |------------|-----|
-| `arm64-v8a` | Physical devices |
-| `x86_64`    | Standard Android emulator (without this, contributors cannot run the app) |
+| `arm64-v8a` | Physical devices. This is the only ABI in a default build. |
+| `x86_64`    | Android emulator. Opt in with `make android-emulator` or `LUVIA_ANDROID_EMULATOR=1`. CI sets the env var so the emulator slice still compiles. |
 
 `armeabi-v7a` and `x86` are omitted. 32-bit JNI/UniFFI slices would double native size for hardware that is not a support target.
 
-iOS: `iosArm64` (device) and `iosSimulatorArm64` (Apple Silicon simulator). There is no `iosX64` target.
+iOS: default builds are `iosArm64` (device) only. `iosSimulatorArm64` (Apple Silicon simulator) is built by `make ios-sim`, `make ios-build`, and `make ios-framework`. There is no `iosX64` target.
 
 `luvia-host` releases: macOS universal (`arm64` + `x86_64`) and Linux (`x86_64`, `aarch64`).
 

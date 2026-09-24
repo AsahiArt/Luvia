@@ -14,6 +14,10 @@ plugins {
     alias(libs.plugins.skie)
 }
 
+apply(from = rootProject.file("gradle/android-abis.gradle.kts"))
+
+val luviaAndroidAbis = extra["luviaAndroidAbis"] as List<String>
+
 cargo {
     packageDirectory = rootProject.layout.projectDirectory.dir("transport")
     // Gobley plans a Cargo build per Kotlin target; these blocks only configure them.
@@ -80,7 +84,7 @@ android {
     defaultConfig {
         minSdk = libs.versions.android.minSdk.get().toInt()
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += luviaAndroidAbis
         }
     }
     compileOptions {

@@ -9,6 +9,10 @@ plugins {
     alias(libs.plugins.kotlinSerialization)
 }
 
+apply(from = rootProject.file("gradle/android-abis.gradle.kts"))
+
+val luviaAndroidAbis = extra["luviaAndroidAbis"] as List<String>
+
 kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_11
@@ -27,7 +31,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += luviaAndroidAbis
         }
     }
 

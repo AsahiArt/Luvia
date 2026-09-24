@@ -9,11 +9,12 @@ Default `make ios` only emits devices CoreDevice can actually talk to:
 USB, a live tunnel, or a paired phone whose tunnel is merely down
 (`devicectl` can often bring that link up). Paired-but-unavailable
 phones (no transport, tunnel unavailable) are skipped with a stderr
-note — they are not on this Mac's CoreDevice network.
+note — they are not on this Mac's CoreDevice network. If none are
+reachable, this exits non-zero. It does not select a Simulator.
 
 IOS_UDID selects a specific device or simulator, including unavailable
-ones. IOS_FORCE_SIM=1 / IOS_FORCE_DEVICE=1 override the default;
-`make ios-device` still tries every paired phone.
+ones. IOS_FORCE_SIM=1 (`make ios-sim`) selects a Simulator.
+IOS_FORCE_DEVICE=1 (`make ios-device`) also tries unavailable paired phones.
 """
 
 from __future__ import annotations
@@ -128,8 +129,11 @@ def main() -> int:
         )
         return 1
 
-    print("simulator")
-    return 0
+    print(
+        "No connected iPhone. Plug one in, or run make ios-sim.",
+        file=sys.stderr,
+    )
+    return 1
 
 
 if __name__ == "__main__":
