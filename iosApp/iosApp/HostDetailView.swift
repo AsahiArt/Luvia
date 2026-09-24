@@ -59,11 +59,12 @@ struct HostDetailView: View {
                 HostSettingsSheet(host: host, model: model)
             }
             .navigationDestination(for: String.self) { id in
-                AgentDetailView(model: model, agentID: id)
+                ThreadView(model: model)
                     .task { await model.openAgent(id) }
             }
             .navigationDestination(for: AcpRoute.self) { _ in
-                AcpSessionView(model: model)
+                ThreadView(model: model)
+                    .onAppear { model.viewAcp() }
             }
             .navigationDestination(for: MoreSurface.self) { surface in
                 MoreSurfaceDestination(model: model, surface: surface)

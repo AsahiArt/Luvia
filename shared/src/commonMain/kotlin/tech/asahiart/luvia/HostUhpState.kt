@@ -1,5 +1,7 @@
 package tech.asahiart.luvia
 
+import tech.asahiart.luvia.thread.PaneTimeline
+
 public enum class HostSection {
     Agents,
     Files,
@@ -95,6 +97,7 @@ public data class AgentDetailState(
     public val nameDraft: String = "",
     public val showFork: Boolean = false,
     public val forkDraft: String = "",
+    public val timeline: PaneTimeline = PaneTimeline(),
 )
 
 public data class ReviewState(

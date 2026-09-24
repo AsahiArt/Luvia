@@ -127,276 +127,7 @@ struct AcpLaunchSheet: View {
     }
 }
 
-struct AcpSessionView: View {
-    @Bindable var model: AppModel
-    @Environment(\.dismiss) private var dismiss
-
-    private var acp: AcpState? { model.acpState }
-    private var info: AcpSessionInfo? { acp?.info }
-    private var transcript: [AcpTranscriptItem] { KotlinLists.array(acp?.transcript as Any) }
-    private var plan: [AcpPlanEntry] { KotlinLists.array(acp?.plan as Any) }
-    private var cwdLeaf: String? {
-        guard let cwd = info?.cwd, !cwd.isEmpty else { return nil }
-        let leaf = URL(fileURLWithPath: cwd).lastPathComponent
-        return leaf.isEmpty ? cwd : leaf
-    }
-
-    private var canStop: Bool {
-        switch acp?.run {
-        case .working, .awaitingPermission: true
-        default: false
-        }
-    }
-
-    private var canSend: Bool {
-        guard let acp else { return false }
-        let draft = acp.draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !draft.isEmpty, acp.permission == nil else { return false }
-        switch acp.run {
-        case .starting, .exited: return false
-        default: return true
-        }
-    }
-
-    private var scrollToken: String {
-        let last = transcript.last
-        let tail: String
-        if let message = last as? AcpTranscriptItem.Message {
-            tail = "\(message.id):\(message.text.count):\(message.streaming)"
-        } else {
-            tail = last?.id ?? ""
-        }
-        return "\(transcript.count)|\(tail)"
-    }
-
-    var body: some View {
-        ZStack {
-            DesignTokens.canvas.ignoresSafeArea()
-            sessionBody
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                VStack(spacing: 1) {
-                    Text(info?.agentName ?? "Agent")
-                        .font(.headline)
-                        .foregroundStyle(DesignTokens.ink)
-                    if let cwdLeaf {
-                        Text(cwdLeaf)
-                            .font(.caption)
-                            .foregroundStyle(DesignTokens.inkMuted)
-                    }
-                }
-                .accessibilityElement(children: .combine)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    if canStop {
-                        Button("Cancel turn") { model.cancelAcp() }
-                    }
-                    Button("End session", role: .destructive) {
-                        model.closeAcp()
-                        dismiss()
-                    }
-                } label: {
-                    Label("More", systemImage: "ellipsis.circle")
-                }
-            }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if !plan.isEmpty {
-                AcpPlanCard(entries: plan)
-                    .padding(.horizontal, DesignTokens.Space.m)
-                    .padding(.bottom, DesignTokens.Space.s)
-            }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            bottomBar
-        }
-        .tint(DesignTokens.accent)
-        .onDisappear {
-            model.hideAcp()
-        }
-    }
-
-    @ViewBuilder
-    private var sessionBody: some View {
-        switch acp?.run {
-        case .starting:
-            ProgressView("Starting agent…")
-                .foregroundStyle(DesignTokens.ink)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        default:
-            VStack(spacing: 0) {
-                if acp?.run == .exited {
-                    AcpExitBanner(message: acp?.exitMessage) {
-                        model.closeAcp()
-                        dismiss()
-                    }
-                    .padding(.horizontal, DesignTokens.Space.m)
-                    .padding(.top, DesignTokens.Space.s)
-                }
-                transcriptScroll
-            }
-        }
-    }
-
-    private var transcriptScroll: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: DesignTokens.Space.m) {
-                    ForEach(transcript, id: \.id) { item in
-                        AcpTranscriptRow(item: item)
-                            .id(item.id)
-                    }
-                    Color.clear.frame(height: 1).id("acp-end")
-                }
-                .padding(.horizontal, DesignTokens.Space.m)
-                .padding(.vertical, DesignTokens.Space.s)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .onAppear {
-                proxy.scrollTo("acp-end", anchor: .bottom)
-            }
-            .onChange(of: scrollToken) { _, _ in
-                proxy.scrollTo("acp-end", anchor: .bottom)
-            }
-        }
-    }
-
-    private var bottomBar: some View {
-        VStack(spacing: DesignTokens.Space.s) {
-            if let permission = acp?.permission {
-                let options: [AcpPermissionOption] = KotlinLists.array(permission.options as Any)
-                BlockedCard(
-                    title: permission.title,
-                    message: permission.description_?.isEmpty == false
-                        ? (permission.description_ ?? "")
-                        : (permission.toolTitle ?? "This Agent is waiting."),
-                    observer: model.uhp.isController == false,
-                    options: options.map { option in
-                        (id: option.optionId, title: option.name, kind: blockedKind(option.kind))
-                    },
-                    onOption: { optionId in
-                        model.answerAcpPermission(optionId)
-                    }
-                )
-                .padding(.horizontal, DesignTokens.Space.m)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-            if let error = acp?.errorText, !error.isEmpty {
-                Text(error)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, DesignTokens.Space.m)
-            }
-            composer
-        }
-        .animation(.easeOut(duration: 0.22), value: acp?.permission?.requestId)
-        .padding(.bottom, DesignTokens.Space.s)
-        .background(DesignTokens.canvas)
-    }
-
-    private func blockedKind(_ kind: AcpPermissionKind) -> BlockedOptionKind {
-        switch kind {
-        case .allowOnce, .allowAlways: .allow
-        case .rejectOnce, .rejectAlways: .reject
-        default: .other
-        }
-    }
-
-    private var composer: some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            TextField(
-                "Agent prompt",
-                text: Binding(
-                    get: { acp?.draft ?? "" },
-                    set: { model.setAcpDraft($0) }
-                ),
-                axis: .vertical
-            )
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .lineLimit(1...5)
-            .onSubmit {
-                if canSend { model.promptAcp() }
-            }
-            Button {
-                model.promptAcp()
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title)
-                    .foregroundStyle(canSend ? DesignTokens.accent : DesignTokens.inkMuted.opacity(0.45))
-            }
-            .disabled(!canSend)
-            .buttonStyle(.plain)
-            .accessibilityLabel("Send")
-        }
-        .padding(.leading, 16)
-        .padding(.trailing, 8)
-        .padding(.vertical, 8)
-        .luviaGlass(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .padding(.horizontal, DesignTokens.Space.m)
-    }
-}
-
-private struct AcpTranscriptRow: View {
-    let item: AcpTranscriptItem
-
-    var body: some View {
-        if let message = item as? AcpTranscriptItem.Message {
-            AcpMessageBubble(message: message)
-        } else if let tool = item as? AcpTranscriptItem.Tool {
-            AcpToolRow(call: tool.call)
-        } else if let turn = item as? AcpTranscriptItem.Turn {
-            AcpTurnDivider(reason: turn.stopReason)
-        }
-    }
-}
-
-private struct AcpMessageBubble: View {
-    let message: AcpTranscriptItem.Message
-
-    var body: some View {
-        switch message.role {
-        case .user:
-            HStack {
-                Spacer(minLength: 48)
-                Text(message.text)
-                    .foregroundStyle(DesignTokens.ink)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        DesignTokens.accent.opacity(0.18),
-                        in: RoundedRectangle(cornerRadius: DesignTokens.Radius.m, style: .continuous)
-                    )
-            }
-        case .thought:
-            AcpThoughtBlock(text: message.text)
-        default:
-            HStack(alignment: .bottom, spacing: 0) {
-                HStack(alignment: .bottom, spacing: 4) {
-                    Text(message.text)
-                        .foregroundStyle(DesignTokens.ink)
-                        .textSelection(.enabled)
-                    if message.streaming {
-                        AcpStreamingCursor()
-                    }
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    DesignTokens.surface,
-                    in: RoundedRectangle(cornerRadius: DesignTokens.Radius.m, style: .continuous)
-                )
-                Spacer(minLength: 48)
-            }
-        }
-    }
-}
-
-private struct AcpThoughtBlock: View {
+struct AcpThoughtBlock: View {
     let text: String
     @State private var expanded = false
 
@@ -414,7 +145,7 @@ private struct AcpThoughtBlock: View {
     }
 }
 
-private struct AcpToolRow: View {
+struct AcpToolRow: View {
     let call: AcpToolCall
 
     var body: some View {
@@ -478,7 +209,7 @@ private struct AcpToolRow: View {
     }
 }
 
-private struct AcpTurnDivider: View {
+struct AcpTurnDivider: View {
     let reason: AcpStopReason
 
     var body: some View {
@@ -509,7 +240,7 @@ private struct AcpTurnDivider: View {
     }
 }
 
-private struct AcpPlanCard: View {
+struct AcpPlanCard: View {
     let entries: [AcpPlanEntry]
     @State private var expanded = true
 
@@ -553,68 +284,7 @@ private struct AcpPlanCard: View {
     }
 }
 
-private struct AcpPermissionCard: View {
-    let request: AcpPermissionRequest
-    let onSelect: (String) -> Void
-
-    private var options: [AcpPermissionOption] {
-        KotlinLists.array(request.options as Any)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.Space.s) {
-            Text(request.title)
-                .font(.headline)
-                .foregroundStyle(DesignTokens.ink)
-            if let description = request.description_, !description.isEmpty {
-                Text(description)
-                    .font(.subheadline)
-                    .foregroundStyle(DesignTokens.inkMuted)
-            } else if let toolTitle = request.toolTitle, !toolTitle.isEmpty {
-                Text(toolTitle)
-                    .font(.subheadline)
-                    .foregroundStyle(DesignTokens.inkMuted)
-            }
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: DesignTokens.Space.s) {
-                    ForEach(options, id: \.optionId) { option in
-                        permissionButton(option)
-                    }
-                }
-                VStack(spacing: DesignTokens.Space.s) {
-                    ForEach(options, id: \.optionId) { option in
-                        permissionButton(option)
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-            }
-        }
-        .padding(DesignTokens.Space.m)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .luviaGlass()
-        .padding(.horizontal, DesignTokens.Space.m)
-    }
-
-    @ViewBuilder
-    private func permissionButton(_ option: AcpPermissionOption) -> some View {
-        switch option.kind {
-        case .allowOnce, .allowAlways:
-            Button(option.name) { onSelect(option.optionId) }
-                .buttonStyle(.borderedProminent)
-                .tint(DesignTokens.accent)
-        case .rejectOnce, .rejectAlways:
-            Button(option.name) { onSelect(option.optionId) }
-                .buttonStyle(.bordered)
-                .tint(Color.red)
-        default:
-            Button(option.name) { onSelect(option.optionId) }
-                .buttonStyle(.bordered)
-                .tint(DesignTokens.inkMuted)
-        }
-    }
-}
-
-private struct AcpExitBanner: View {
+struct AcpExitBanner: View {
     let message: String?
     let onClose: () -> Void
 
@@ -641,7 +311,7 @@ private struct AcpExitBanner: View {
     }
 }
 
-private struct AcpStreamingCursor: View {
+struct AcpStreamingCursor: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.53)) { timeline in
             let on = Int(timeline.date.timeIntervalSinceReferenceDate / 0.53) % 2 == 0

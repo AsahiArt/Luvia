@@ -214,7 +214,7 @@ internal class AgentBoard(private val ctx: UhpContext) {
         if (!session.supports(UhpMethods.AGENT_PROMPT)) return
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
-        updatePane(paneId) { it.copy(sending = true, errorText = null) }
+        updatePane(paneId) { it.copy(sending = true, errorText = null, timeline = it.timeline.recordMine(trimmed)) }
         ctx.launch {
             when (val result = session.promptAgent(paneId, trimmed, wait = false)) {
                 is Outcome.Ok -> {
@@ -239,7 +239,8 @@ internal class AgentBoard(private val ctx: UhpContext) {
         if (!state.canMutate || state.agentDetail.sending || state.agentDetail.unconfirmed != null) return
         if (!session.supports(UhpMethods.AGENT_KEYS)) return
         if (keys.isEmpty()) return
-        updatePane(paneId) { it.copy(sending = true, errorText = null) }
+        val label = keys.joinToString(" ") { it.wire }
+        updatePane(paneId) { it.copy(sending = true, errorText = null, timeline = it.timeline.recordMine("⌨ $label")) }
         ctx.launch {
             val fence = state.agentDetail.transcript
             val canFence = fence?.contentRevision != null && !fence.terminalId.isNullOrBlank()
@@ -391,8 +392,12 @@ internal class AgentBoard(private val ctx: UhpContext) {
                 current
             } else {
                 applied = true
+                var timeline = current.agentDetail.timeline
+                if (transcript != null) timeline = timeline.ingestTranscript(transcript.text)
+                current.agents.firstOrNull { it.paneId == paneId }?.let { timeline = timeline.recordStatus(it.status) }
                 current.copy(
                     agentDetail = current.agentDetail.copy(
+                        timeline = timeline,
                         detail = detail ?: current.agentDetail.detail,
                         transcript = transcript ?: current.agentDetail.transcript,
                         loading = false,
@@ -407,9 +412,9 @@ internal class AgentBoard(private val ctx: UhpContext) {
     private fun applyMutationFailure(paneId: String, kind: UnconfirmedKind, failure: Failure) {
         updatePane(paneId) {
             if (failure.isLostMutation()) {
-                it.copy(sending = false, unconfirmed = kind, errorText = null)
+                it.copy(sending = false, unconfirmed = kind, errorText = null, timeline = it.timeline.markLastUnconfirmed())
             } else {
-                it.copy(sending = false, errorText = failure.userMessage())
+                it.copy(sending = false, errorText = failure.userMessage(), timeline = it.timeline.dropLastMine())
             }
         }
     }

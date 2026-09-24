@@ -207,191 +207,6 @@ fun AcpLaunchSheet(
 }
 
 @Composable
-fun AcpSessionPane(
-    host: HostUiModel,
-    state: HostUhpState,
-    onBack: () -> Unit,
-    onDraftChange: (String) -> Unit,
-    onPrompt: () -> Unit,
-    onAnswerPermission: (String) -> Unit,
-    onCancel: () -> Unit,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val acp = state.acp
-    val info = acp.info
-    val titleName = info?.agentName?.takeIf { it.isNotBlank() } ?: "Agent"
-    val cwdSegment = info?.cwd
-        ?.trimEnd('/')
-        ?.substringAfterLast('/')
-        .orEmpty()
-    val listState = rememberLazyListState()
-    val showStop = acp.run == AcpRunState.Working || acp.run == AcpRunState.AwaitingPermission
-    val canSend = acp.draft.isNotBlank() &&
-        acp.run != AcpRunState.Starting &&
-        acp.run != AcpRunState.Exited &&
-        acp.permission == null
-    val permission = acp.permission
-    LaunchedEffect(acp.transcript.size, acp.plan.isNotEmpty()) {
-        val count = acp.transcript.size + if (acp.plan.isNotEmpty()) 1 else 0
-        if (count > 0) {
-            listState.animateScrollToItem(count - 1)
-        }
-    }
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            titleName,
-                            style = MaterialTheme.typography.titleLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (cwdSegment.isNotEmpty()) {
-                            Text(
-                                cwdSegment,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    if (showStop) {
-                        IconButton(onClick = onCancel) {
-                            Icon(AcpIcons.Stop, contentDescription = "Stop")
-                        }
-                    }
-                },
-                windowInsets = WindowInsets(0, 0, 0, 0),
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
-            )
-        },
-        bottomBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .imePadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                AnimatedVisibility(visible = permission != null) {
-                    permission?.let { request ->
-                        AcpPermissionCard(
-                            request = request,
-                            onAnswer = onAnswerPermission,
-                        )
-                    }
-                }
-                acp.errorText?.let { error ->
-                    Text(
-                        error,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                if (acp.run == AcpRunState.Exited) {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            Modifier.fillMaxWidth().padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(
-                                acp.exitMessage ?: "Agent exited",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            Button(onClick = onClose, modifier = Modifier.fillMaxWidth()) {
-                                Text("Close")
-                            }
-                        }
-                    }
-                }
-                OutlinedTextField(
-                    value = acp.draft,
-                    onValueChange = onDraftChange,
-                    placeholder = { Text("Message the agent") },
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 5,
-                    enabled = acp.run != AcpRunState.Starting && acp.run != AcpRunState.Exited,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(
-                        onSend = { if (canSend) onPrompt() },
-                    ),
-                    trailingIcon = {
-                        IconButton(
-                            onClick = onPrompt,
-                            enabled = canSend,
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Send",
-                                tint = if (canSend) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                                },
-                            )
-                        }
-                    },
-                )
-            }
-        },
-    ) { innerPadding ->
-        if (acp.run == AcpRunState.Starting) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                CircularProgressIndicator()
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "Starting agent…",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                reverseLayout = false,
-            ) {
-                if (acp.plan.isNotEmpty()) {
-                    item(key = "plan") {
-                        AcpPlanCard(entries = acp.plan)
-                    }
-                }
-                items(acp.transcript, key = { it.id }) { item ->
-                    AcpTranscriptRow(item)
-                }
-            }
-        }
-    }
-}
-
-@Composable
 fun LaunchAgentCard(
     onLaunch: () -> Unit,
     modifier: Modifier = Modifier,
@@ -416,38 +231,7 @@ fun LaunchAgentCard(
 }
 
 @Composable
-private fun AcpPermissionCard(
-    request: AcpPermissionRequest,
-    onAnswer: (String) -> Unit,
-) {
-    val haptics = LocalHapticFeedback.current
-    val detail = listOfNotNull(request.description, request.toolTitle)
-        .filter { it.isNotBlank() }
-        .joinToString(" · ")
-        .ifBlank { "This Agent is waiting." }
-    BlockedCard(
-        title = request.title,
-        body = detail,
-        actions = request.options.map { option ->
-            BlockedAction(
-                label = option.name,
-                kind = when (option.kind) {
-                    AcpPermissionKind.AllowOnce, AcpPermissionKind.AllowAlways -> BlockedActionKind.Allow
-                    AcpPermissionKind.RejectOnce, AcpPermissionKind.RejectAlways -> BlockedActionKind.Reject
-                    else -> BlockedActionKind.Neutral
-                },
-                onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onAnswer(option.optionId)
-                },
-            )
-        },
-    )
-}
-
-
-@Composable
-private fun AcpPlanCard(entries: List<AcpPlanEntry>) {
+internal fun AcpPlanCard(entries: List<AcpPlanEntry>) {
     var expanded by remember { mutableStateOf(true) }
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -518,71 +302,7 @@ private fun PlanStatusIcon(status: AcpPlanStatus) {
 }
 
 @Composable
-private fun AcpTranscriptRow(item: AcpTranscriptItem) {
-    when (item) {
-        is AcpTranscriptItem.Message -> when (item.role) {
-            AcpTranscriptRole.User -> AcpUserBubble(item.text)
-            AcpTranscriptRole.Agent -> AcpAgentBubble(item.text, item.streaming)
-            AcpTranscriptRole.Thought -> AcpThoughtRow(item.id, item.text)
-        }
-        is AcpTranscriptItem.Tool -> AcpToolRow(item.call)
-        is AcpTranscriptItem.Turn -> AcpTurnDivider(item.stopReason)
-    }
-}
-
-@Composable
-private fun AcpUserBubble(text: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End,
-    ) {
-        Surface(
-            color = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-            shape = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp),
-            modifier = Modifier.padding(start = 48.dp),
-        ) {
-            Text(
-                text,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun AcpAgentBubble(text: String, streaming: Boolean) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Start,
-    ) {
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            shape = MaterialTheme.shapes.large,
-            modifier = Modifier.padding(end = 48.dp),
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                if (text.isNotEmpty()) {
-                    SelectionContainer {
-                        Text(text, style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
-                if (streaming) {
-                    StreamingCursor()
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun StreamingCursor() {
+internal fun StreamingCursor() {
     val infinite = rememberInfiniteTransition(label = "acp-cursor")
     val alpha by infinite.animateFloat(
         initialValue = 1f,
@@ -603,7 +323,7 @@ private fun StreamingCursor() {
 }
 
 @Composable
-private fun AcpThoughtRow(id: String, text: String) {
+internal fun AcpThoughtRow(id: String, text: String) {
     var expanded by remember(id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
         Row(
@@ -640,7 +360,7 @@ private fun AcpThoughtRow(id: String, text: String) {
 }
 
 @Composable
-private fun AcpToolRow(call: AcpToolCall) {
+internal fun AcpToolRow(call: AcpToolCall) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -679,7 +399,7 @@ private fun AcpToolRow(call: AcpToolCall) {
 }
 
 @Composable
-private fun AcpTurnDivider(stopReason: AcpStopReason) {
+internal fun AcpTurnDivider(stopReason: AcpStopReason) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,

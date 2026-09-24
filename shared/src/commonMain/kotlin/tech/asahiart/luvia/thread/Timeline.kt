@@ -65,6 +65,13 @@ public data class PaneTimeline(
         return copy(items = items.toMutableList().also { it[index] = TimelineItem.Unconfirmed(mine.id, mine.text) })
     }
 
+    /** Removes the last [TimelineItem.Mine] after a send the Host definitely rejected. */
+    public fun dropLastMine(): PaneTimeline {
+        val index = items.indexOfLast { it is TimelineItem.Mine }
+        if (index < 0) return this
+        return copy(items = items.filterIndexed { i, _ -> i != index })
+    }
+
     /** Items plus a trailing Ask card when the thread is waiting. */
     public fun render(ask: Ask?): List<TimelineItem> =
         if (ask == null) items else items + TimelineItem.AskCard("ask", ask)

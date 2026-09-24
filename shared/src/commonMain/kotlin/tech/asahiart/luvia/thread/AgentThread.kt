@@ -14,7 +14,7 @@ import tech.asahiart.luvia.command.SlashCommandCatalog
 import tech.asahiart.luvia.stripAnsi
 
 /** A pane Agent or an ACP session, shown the same way. */
-public data class Thread(
+public data class AgentThread(
     public val id: String,
     public val kind: AgentKind,
     public val hostId: String,
@@ -57,7 +57,7 @@ public data class Ask(
     public val options: List<AskOption>,
 )
 
-public fun HostUhpState.threads(hostId: String): List<Thread> {
+public fun HostUhpState.threads(hostId: String): List<AgentThread> {
     val panes = agents.map { it.toThread(hostId, cachedTranscriptFor(it.paneId)) }
     val acpThread = acp.takeIf { it.open }?.toThread(hostId) ?: return panes
     return panes + acpThread
@@ -66,9 +66,9 @@ public fun HostUhpState.threads(hostId: String): List<Thread> {
 private fun HostUhpState.cachedTranscriptFor(paneId: String): String? =
     agentDetail.transcript?.takeIf { agentDetail.paneId == paneId }?.text
 
-internal fun AgentSummary.toThread(hostId: String, transcript: String?): Thread {
+internal fun AgentSummary.toThread(hostId: String, transcript: String?): AgentThread {
     val last = lastNonEmptyLine(transcript?.let(::stripAnsi))
-    return Thread(
+    return AgentThread(
         id = paneId,
         kind = AgentKind.Pane,
         hostId = hostId,
@@ -95,11 +95,11 @@ internal fun paneAsk(question: String?): Ask =
         ),
     )
 
-internal fun AcpState.toThread(hostId: String): Thread {
+public fun AcpState.toThread(hostId: String): AgentThread {
     val request = permission?.takeIf { run == AcpRunState.AwaitingPermission }
     val lastMessage = transcript.lastOrNull { it is AcpTranscriptItem.Message } as AcpTranscriptItem.Message?
     val cwd = info?.cwd?.takeIf { it.isNotBlank() }
-    return Thread(
+    return AgentThread(
         id = info?.sessionId?.let { "acp:$it" } ?: "acp",
         kind = AgentKind.Acp,
         hostId = hostId,

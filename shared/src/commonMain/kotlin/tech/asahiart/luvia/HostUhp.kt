@@ -18,10 +18,18 @@ import tech.asahiart.luvia.internal.uhp.SearchBoard
 import tech.asahiart.luvia.internal.uhp.TaskBoard
 import tech.asahiart.luvia.internal.uhp.UhpContext
 import tech.asahiart.luvia.internal.uhp.WorktreeBoard
+import tech.asahiart.luvia.command.KeyBarKey
+import tech.asahiart.luvia.thread.AskAction
+import tech.asahiart.luvia.thread.AskOption
+import tech.asahiart.luvia.thread.AgentThread
+import tech.asahiart.luvia.thread.TimelineItem
+import tech.asahiart.luvia.thread.threads
+import tech.asahiart.luvia.thread.timeline
+import tech.asahiart.luvia.thread.toThread
 
 public class HostUhp(
     session: () -> LuviaSession?,
-    runtime: () -> HostRuntime?,
+    private val runtime: () -> HostRuntime?,
     scope: CoroutineScope,
     private val manager: HostManager? = null,
 ) {
@@ -31,6 +39,7 @@ public class HostUhp(
     private val stateFlow: MutableStateFlow<HostUhpState> = MutableStateFlow(HostUhpState())
     private val ctx: UhpContext = UhpContext(session, runtime, stateFlow, uhpScope)
     private val agents: AgentBoard = AgentBoard(ctx)
+    private val hostId: String get() = runtime()?.profile?.id.orEmpty()
     private val review: ReviewBoard = ReviewBoard(ctx)
     private val tasks: TaskBoard = TaskBoard(ctx)
     private val files: FilesBoard = FilesBoard(ctx)
@@ -249,6 +258,51 @@ public class HostUhp(
     public fun cancelAcp() = acp.cancel()
 
     public fun viewAcp() = acp.view()
+
+    /** The open conversation: the viewed ACP session, else the open pane Agent. */
+    public fun openThread(): AgentThread? {
+        val s = state.value
+        if (s.acp.open && s.acp.viewing) return s.acp.toThread(hostId)
+        val paneId = s.agentDetail.paneId?.takeIf { s.agentDetail.open } ?: return null
+        return s.threads(hostId).firstOrNull { it.paneId == paneId }
+    }
+
+    public fun timeline(thread: AgentThread): List<TimelineItem> {
+        val s = state.value
+        return when (thread.kind) {
+            AgentKind.Acp -> s.acp.timeline(thread.ask)
+            AgentKind.Pane -> s.agentDetail.timeline.render(thread.ask)
+        }
+    }
+
+    /** Answers an Ask. Sends once; a lost result becomes Unconfirmed, never a resend. */
+    public fun answer(option: AskOption) {
+        when (val action = option.action) {
+            is AskAction.Prompt -> agents.prompt(action.text)
+            is AskAction.Keys -> agents.sendKeys(action.keys)
+            is AskAction.AcpOption -> acp.answerPermission(action.optionId)
+        }
+    }
+
+    public fun sendKeyBar(key: KeyBarKey) {
+        if (key == KeyBarKey.CtrlC && openThread()?.kind == AgentKind.Acp) {
+            acp.cancel()
+        } else {
+            agents.sendKeys(key.toAgentKeys())
+        }
+    }
+
+    /** Sends a slash command (or any free text) to the open conversation. */
+    public fun sendToThread(text: String) {
+        val thread = openThread() ?: return
+        when (thread.kind) {
+            AgentKind.Pane -> agents.prompt(text)
+            AgentKind.Acp -> {
+                acp.setDraft(text)
+                acp.prompt()
+            }
+        }
+    }
 
     public fun hideAcp() = acp.hide()
 

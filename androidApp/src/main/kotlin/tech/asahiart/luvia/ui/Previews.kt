@@ -146,46 +146,6 @@ private fun AgentsListPreview() {
 
 @FormFactorPreviews
 @Composable
-private fun AgentDetailBlockedPreview() {
-    LuviaTheme {
-        AgentDetailPane(
-            host = previewHost(),
-            state = previewAgentsState().copy(
-                agentDetail = AgentDetailState(
-                    paneId = "7",
-                    open = true,
-                    summary = previewBlockedAgent(),
-                    detail = AgentGetResult(
-                        pane = "7",
-                        name = "pi",
-                        agent = "claude",
-                        status = AgentStatus.Blocked,
-                        authority = null,
-                        stateSource = null,
-                        session = null,
-                        cwd = "/Users/misaka/Developer/AsahiArt/Luvia",
-                        revision = 12,
-                    ),
-                    transcript = AgentReadResult(
-                        pane = "7",
-                        text = "Allow network access to api.example.com?\nProceed? (y/n)",
-                        revision = 44,
-                    ),
-                ),
-            ),
-            onBack = {},
-            onRefresh = {},
-            onPrompt = {},
-            onDraftChange = {},
-            onSendKeys = {},
-            onCheckUnconfirmed = {},
-        )
-    }
-}
-
-
-@FormFactorPreviews
-@Composable
 private fun ReviewFileListPreview() {
     LuviaTheme {
         ReviewSection(

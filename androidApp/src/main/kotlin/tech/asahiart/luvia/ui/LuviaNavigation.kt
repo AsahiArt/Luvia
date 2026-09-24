@@ -33,6 +33,7 @@ import tech.asahiart.luvia.PairingUiState
 import tech.asahiart.luvia.TerminalKey
 import tech.asahiart.luvia.HostUhp
 import tech.asahiart.luvia.ui.ConnectionBadge
+import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.HostSection
 
 @Serializable
@@ -466,37 +467,48 @@ private fun DetailNav(
                     LaunchedEffect(route.hostId, route.paneId) {
                         surface.openAgent(route.paneId)
                     }
-                    AgentDetailPane(
-                        host = host,
+                    val thread = surface.openThread()
+                    ThreadPane(
+                        thread = thread,
+                        timeline = thread?.let(surface::timeline).orEmpty(),
                         state = uhp,
-                        onBack = {
-                            surface.closeAgent()
-                            backStack.removeLastOrNull()
-                        },
-                        onRefresh = { onRefreshSection(route.hostId, HostSection.Agents) },
-                        onPrompt = { text -> surface.promptAgent(text) },
-                        onDraftChange = { text -> surface.setAgentDraft(text) },
-                        onSendKeys = { keys -> surface.sendAgentKeys(keys) },
-                        onCheckUnconfirmed = { surface.checkAgent() },
-                        onShowNameChange = { show -> surface.setShowNameAgent(show) },
-                        onNameDraftChange = { text -> surface.setNameAgentDraft(text) },
-                        onNameAgent = { surface.nameAgent() },
-                        onShowForkChange = { show -> surface.setShowForkAgent(show) },
-                        onForkDraftChange = { text -> surface.setForkAgentDraft(text) },
-                        onForkAgent = { surface.forkAgent() },
+                        draft = uhp.agentDetail.draft,
                         terminal = terminalForHost(route.hostId),
-                        onRequestControl = { onRequestControl(route.hostId) },
-                        onSendTerminalText = { text -> onSendTerminalText(route.hostId, text) },
-                        onSendTerminalKey = { key -> onSendTerminalKey(route.hostId, key) },
-                        onObserveTerminal = { pane -> onSelectTerminalPane(route.hostId, pane) },
-                        onStopObserve = { onStopTerminal(route.hostId) },
-                        onOpenProjectReview = {
-                            uhp.projectWorkspaceId()?.let { surface.setSelectedWorkspace(it) }
-                            surface.closeAgent()
-                            backStack.removeLastOrNull()
-                            surface.setSection(HostSection.Review)
-                            surface.show(HostSection.Review)
-                        },
+                        actions = ThreadActions(
+                            onBack = {
+                                surface.closeAgent()
+                                backStack.removeLastOrNull()
+                            },
+                            onDraftChange = surface::setAgentDraft,
+                            onSendDraft = { surface.promptAgent(uhp.agentDetail.draft) },
+                            onSendCommand = surface::sendToThread,
+                            onAnswer = surface::answer,
+                            onKey = surface::sendKeyBar,
+                            onCheckUnconfirmed = surface::checkAgent,
+                            onOpenProject = {
+                                uhp.projectWorkspaceId()?.let { surface.setSelectedWorkspace(it) }
+                                surface.closeAgent()
+                                backStack.removeLastOrNull()
+                                surface.setSection(HostSection.Review)
+                                surface.show(HostSection.Review)
+                            },
+                            onShowName = { surface.setShowNameAgent(true) },
+                            onShowFork = { surface.setShowForkAgent(true) },
+                            onObserveTerminal = { pane -> onSelectTerminalPane(route.hostId, pane) },
+                            onStopObserve = { onStopTerminal(route.hostId) },
+                            onRequestControl = { onRequestControl(route.hostId) },
+                            onSendTerminalText = { text -> onSendTerminalText(route.hostId, text) },
+                            onSendTerminalKey = { key -> onSendTerminalKey(route.hostId, key) },
+                        ),
+                    )
+                    AgentNameDialogs(
+                        state = uhp,
+                        onNameDraft = surface::setNameAgentDraft,
+                        onName = surface::nameAgent,
+                        onDismissName = { surface.setShowNameAgent(false) },
+                        onForkDraft = surface::setForkAgentDraft,
+                        onFork = surface::forkAgent,
+                        onDismissFork = { surface.setShowForkAgent(false) },
                     )
                 }
             }
@@ -510,21 +522,30 @@ private fun DetailNav(
                     LaunchedEffect(route.hostId) {
                         if (uhp.acp.open) surface.viewAcp()
                     }
-                    AcpSessionPane(
-                        host = host,
+                    val thread = surface.openThread()?.takeIf { it.kind == AgentKind.Acp }
+                    ThreadPane(
+                        thread = thread,
+                        timeline = thread?.let(surface::timeline).orEmpty(),
                         state = uhp,
-                        onBack = {
-                            surface.hideAcp()
-                            backStack.removeLastOrNull()
-                        },
-                        onDraftChange = { text -> surface.setAcpDraft(text) },
-                        onPrompt = { surface.promptAcp() },
-                        onAnswerPermission = { optionId -> surface.answerAcpPermission(optionId) },
-                        onCancel = { surface.cancelAcp() },
-                        onClose = {
-                            surface.closeAcp()
-                            backStack.removeLastOrNull()
-                        },
+                        draft = uhp.acp.draft,
+                        terminal = null,
+                        actions = ThreadActions(
+                            onBack = {
+                                surface.hideAcp()
+                                backStack.removeLastOrNull()
+                            },
+                            onDraftChange = surface::setAcpDraft,
+                            onSendDraft = surface::promptAcp,
+                            onSendCommand = surface::sendToThread,
+                            onAnswer = surface::answer,
+                            onKey = surface::sendKeyBar,
+                            onCheckUnconfirmed = {},
+                            onCancelTurn = surface::cancelAcp,
+                            onEndSession = {
+                                surface.closeAcp()
+                                backStack.removeLastOrNull()
+                            },
+                        ),
                     )
                 }
             }

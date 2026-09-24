@@ -109,6 +109,12 @@ class ThreadTest {
     }
 
     @Test
+    fun rejectedSendDropsMine() {
+        val t = PaneTimeline().recordMine("a").recordMine("b").dropLastMine()
+        assertEquals(listOf("a"), t.items.map { (it as TimelineItem.Mine).text })
+    }
+
+    @Test
     fun timelineIsBounded() {
         var t = PaneTimeline()
         repeat(PaneTimeline.MAX_ITEMS + 20) { t = t.recordMine("m$it") }
