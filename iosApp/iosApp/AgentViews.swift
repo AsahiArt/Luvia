@@ -133,25 +133,6 @@ struct AgentsListView: View {
 
     private var agentList: some View {
         List {
-            if model.uhp.attentionCount > 0 {
-                Section {
-                    AttentionBanner(count: model.uhp.attentionCount) {
-                        openWaiting()
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                }
-            } else {
-                Section {
-                    MissionStrip(
-                        working: host.workingAgents,
-                        blocked: host.blockedAgents,
-                        done: host.completedAgents
-                    )
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                }
-            }
             ForEach(grouped, id: \.title) { group in
                 Section(group.title) {
                     ForEach(group.items) { item in
@@ -186,15 +167,6 @@ struct AgentsListView: View {
                     }
                 }
             }
-        }
-    }
-
-    private func openWaiting() {
-        guard let first = model.uhp.agentEntries.first(where: \.isWaiting) else { return }
-        if first.isAcp {
-            model.viewAcp()
-        } else {
-            model.pendingOpenAgentID = first.paneId ?? first.id
         }
     }
 }

@@ -152,7 +152,6 @@ fun AgentListPane(
         onShowLaunchAcp(true)
     }
     val entries = state.agentEntries()
-    val waiting = state.waitingEntries()
     val nowEpochMs = System.currentTimeMillis()
     Box(modifier.fillMaxSize()) {
         PullToRefreshBox(
@@ -165,39 +164,6 @@ fun AgentListPane(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                if (state.attentionCount() > 0) {
-                    item(key = "attention") {
-                        AttentionBanner(
-                            count = state.attentionCount(),
-                            onClick = {
-                                val first = waiting.firstOrNull() ?: return@AttentionBanner
-                                if (first.kind == AgentKind.Acp) onOpenAcp() else first.paneId?.let(onOpenAgent)
-                            },
-                        )
-                    }
-                } else {
-                    item(key = "mission") {
-                        val summary = state.mission?.summary
-                        val detail = summary?.let {
-                            buildString {
-                                val live = state.mission?.rows?.count { row -> row.kind == MissionRowKind.LIVE } ?: 0
-                                append(live)
-                                append(" live")
-                                if (it.tokens > 0) {
-                                    append(" · ")
-                                    append(it.tokens)
-                                    append(" tokens")
-                                }
-                            }
-                        }
-                        MissionStrip(
-                            working = host.workingAgents,
-                            blocked = host.blockedAgents,
-                            done = host.completedAgents,
-                            detail = detail,
-                        )
-                    }
-                }
                 state.errorText?.let { error ->
                     item {
                         Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)

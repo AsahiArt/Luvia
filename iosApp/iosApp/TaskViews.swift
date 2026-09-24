@@ -61,7 +61,7 @@ struct TasksListView: View {
                         Section {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(message)
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(DesignTokens.linkStale)
                                 Text("Your edit is still available. Submit it again if it still applies.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -251,7 +251,7 @@ struct AddTaskSheet: View {
                 if let message = model.uhp.boardChangedMessage {
                     Section {
                         Text(message)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(DesignTokens.linkStale)
                         Text("Your edit is still available. Submit it again if it still applies.")
                             .font(.caption)
                             .foregroundStyle(.secondary)

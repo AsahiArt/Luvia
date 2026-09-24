@@ -247,23 +247,6 @@ private fun ConnectingHostPreview() {
     }
 }
 
-@Preview(name = "Blocked card", showBackground = true)
-@Composable
-private fun BlockedCardPreview() {
-    LuviaTheme {
-        BlockedCard(
-            title = "Blocked — answer",
-            body = "This Agent is waiting for a yes or no.",
-            actions = listOf(
-                BlockedAction("Yes", BlockedActionKind.Allow) {},
-                BlockedAction("No", BlockedActionKind.Reject) {},
-                BlockedAction("Enter") {},
-                BlockedAction("Esc") {},
-            ),
-        )
-    }
-}
-
 @Preview(name = "Workspace pick", showBackground = true)
 @Composable
 private fun WorkspacePickPreview() {
