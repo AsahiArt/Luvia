@@ -214,3 +214,16 @@ Host 列表、配对、每个 Host 的 Role / Push / 编辑连接 / 断开 / 取
 - Now 的"刚完成"：本机查看过或超过 24h 即移出。
 - Now 只给选项作答；自由文本与 slash command 一律进 Thread，降低误发。
 - 多 Host 同名项目不合并展示，Host 是信任边界。
+
+## 9. 实现状态
+
+§7 的 1–5 步均已落地（`a38c10e` → `85d86b9`）；shared 测试、Android `compileDebugKotlin`、iOS 模拟器构建均通过。Kotlin 类型名为 `AgentThread`（避开 `Foundation.Thread`）。
+
+待真机验证：
+
+- pane 转录去重在 TUI 重绘下是否仍有重复行。
+- KeyBar 的 Shift-Tab（`ESC [ Z`）在各 agent 中是否生效。
+- iOS Terminal 全屏覆盖层与 ADR 0001 观察生命周期的配合。
+- iOS `NavigationSplitView` 侧栏内 TabView 与 List 选中行为。
+
+已知缺口：`DoneLedger` 仅驻留内存，重启后"刚完成"会重新出现；Working 状态色仍复用 connecting 蓝，未按 §5 改为中性。
