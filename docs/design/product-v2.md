@@ -227,3 +227,5 @@ Host 列表、配对、每个 Host 的 Role / Push / 编辑连接 / 断开 / 取
 - iOS `NavigationSplitView` 侧栏内 TabView 与 List 选中行为。
 
 已知缺口：`DoneLedger` 仅驻留内存，重启后"刚完成"会重新出现；Working 状态色仍复用 connecting 蓝，未按 §5 改为中性。
+
+后续调整（`3e34895`）：Project 页内不再切换项目；Threads / Changes / Tasks 改为页内底栏，与首页 Now / Projects 底栏同构。未选项目进入时整页显示项目列表。
