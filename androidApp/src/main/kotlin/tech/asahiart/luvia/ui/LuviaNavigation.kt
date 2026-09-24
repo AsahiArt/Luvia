@@ -35,6 +35,7 @@ import tech.asahiart.luvia.HostUhp
 import tech.asahiart.luvia.ui.ConnectionBadge
 import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.HostSection
+import tech.asahiart.luvia.HostUhpState
 import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.AskOption
 import tech.asahiart.luvia.thread.NowState
@@ -62,6 +63,7 @@ private data class AcpRoute(val hostId: String) : NavKey
 fun LuviaNavigation(
     hosts: List<HostUiModel>,
     now: NowState,
+    hostStates: Map<String, HostUhpState>,
     onAnswerNow: (AgentThread, AskOption) -> Unit,
     onMarkViewed: (AgentThread) -> Unit,
     terminalForHost: (String) -> TerminalUiModel?,
@@ -102,9 +104,11 @@ fun LuviaNavigation(
         val twoPane = maxWidth >= 600.dp && maxHeight >= 600.dp
         if (twoPane) {
             Row(Modifier.fillMaxSize()) {
-                NowPane(
+                HomePane(
                     now = now,
-                    hasHosts = hosts.isNotEmpty(),
+                    hosts = hosts,
+                    states = hostStates,
+                    onOpenProject = { hostId, ws -> openProject(backStack, workspace, hostId, ws) },
                     onOpenThread = { thread -> openThread(backStack, workspace, onMarkViewed, thread) },
                     onAnswer = onAnswerNow,
                     onOpenHosts = {
@@ -124,6 +128,7 @@ fun LuviaNavigation(
                         backStack = backStack,
                         hosts = hosts,
                         now = now,
+                        hostStates = hostStates,
                         onAnswerNow = onAnswerNow,
                         onMarkViewed = onMarkViewed,
                         terminalForHost = terminalForHost,
@@ -159,6 +164,7 @@ fun LuviaNavigation(
                 backStack = backStack,
                 hosts = hosts,
                 now = now,
+                hostStates = hostStates,
                 onAnswerNow = onAnswerNow,
                 onMarkViewed = onMarkViewed,
                 terminalForHost = terminalForHost,
@@ -196,6 +202,7 @@ private fun DetailNav(
     backStack: NavBackStack<NavKey>,
     hosts: List<HostUiModel>,
     now: NowState,
+    hostStates: Map<String, HostUhpState>,
     onAnswerNow: (AgentThread, AskOption) -> Unit,
     onMarkViewed: (AgentThread) -> Unit,
     terminalForHost: (String) -> TerminalUiModel?,
@@ -253,9 +260,11 @@ private fun DetailNav(
         entryProvider = entryProvider {
             entry<NowRoute> {
                 if (showList) {
-                    NowPane(
+                    HomePane(
                         now = now,
-                        hasHosts = hosts.isNotEmpty(),
+                        hosts = hosts,
+                        states = hostStates,
+                        onOpenProject = { hostId, ws -> openProject(backStack, workspace, hostId, ws) },
                         onOpenThread = { thread -> openThread(backStack, workspace, onMarkViewed, thread) },
                         onAnswer = onAnswerNow,
                         onOpenHosts = { backStack.add(HostsRoute) },
@@ -357,7 +366,9 @@ private fun DetailNav(
                         agentsContent = { modifier ->
                             AgentsSection(
                                 host = host,
-                                state = uhp,
+                                state = uhp.selectedWorkspaceId?.let { id ->
+                                    uhp.copy(agents = uhp.agents.filter { it.workspaceId == null || it.workspaceId == id })
+                                } ?: uhp,
                                 onRefresh = { onRefreshSection(route.id, HostSection.Agents) },
                                 onOpenAgent = { pane ->
                                     surface.openAgent(pane)
@@ -639,4 +650,17 @@ private fun openThread(
         surface.openAgent(paneId)
         backStack.add(AgentRoute(thread.hostId, paneId))
     }
+}
+
+private fun openProject(
+    backStack: NavBackStack<NavKey>,
+    workspace: (String) -> HostUhp,
+    hostId: String,
+    workspaceId: String?,
+) {
+    val surface = workspace(hostId)
+    if (workspaceId != null) surface.setSelectedWorkspace(workspaceId)
+    surface.setSection(HostSection.Agents)
+    backStack.removeAll { it !is NowRoute }
+    backStack.add(HostRoute(hostId))
 }

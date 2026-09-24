@@ -349,17 +349,16 @@ fun HostDetailPane(
     var confirmUnpair by remember { mutableStateOf(false) }
     var editingConnection by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
-    var chrome by remember { mutableStateOf(section.toChromeTab()) }
-    var moreSurface by remember { mutableStateOf(section.takeIf { it.isMoreSurface }) }
-    var workspaceSegment by remember {
-        mutableStateOf(if (section == HostSection.Tasks) HostSection.Tasks else HostSection.Review)
-    }
+    var tool by remember { mutableStateOf(section.takeIf { it.isMoreSurface }) }
+    var menuOpen by remember { mutableStateOf(false) }
     val visible = sections.ifEmpty { HostSection.entries }
+    val tools = visible.filter { it.isMoreSurface }
+    val segment = when (section) {
+        HostSection.Review, HostSection.Tasks -> section
+        else -> HostSection.Agents
+    }
     LaunchedEffect(section) {
-        if (section == HostSection.Review || section == HostSection.Tasks) {
-            chrome = HostChromeTab.Workspace
-            workspaceSegment = section
-        }
+        if (!section.isMoreSurface) tool = null
     }
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -368,9 +367,9 @@ fun HostDetailPane(
             TopAppBar(
                 title = {
                     Column {
-                        Text(host.name, maxLines = 1)
+                        Text(state?.projectLabel() ?: host.name, maxLines = 1)
                         Text(
-                            host.sessionName ?: host.address,
+                            host.name,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -387,55 +386,37 @@ fun HostDetailPane(
                     if (host.backend.equals("herdr", ignoreCase = true)) {
                         TypeBadge("Herdr", LuviaTheme.extended.live)
                     }
-                    IconButton(
-                        onClick = { showSettings = true },
-                        modifier = Modifier.semantics { contentDescription = "Settings" },
-                    ) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                    Box {
+                        IconButton(
+                            onClick = { menuOpen = true },
+                            modifier = Modifier.semantics { contentDescription = "Project tools" },
+                        ) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = null)
+                        }
+                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            tools.forEach { item ->
+                                DropdownMenuItem(
+                                    text = { Text(item.moreTitle) },
+                                    leadingIcon = { Icon(item.moreIcon(), contentDescription = null) },
+                                    onClick = {
+                                        menuOpen = false
+                                        tool = item
+                                        onSection(item)
+                                    },
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Host settings") },
+                                leadingIcon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                                onClick = {
+                                    menuOpen = false
+                                    showSettings = true
+                                },
+                            )
+                        }
                     }
                 },
             )
-        },
-        bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                HostChromeTab.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = chrome == tab,
-                        onClick = {
-                            chrome = tab
-                            when (tab) {
-                                HostChromeTab.Agents -> {
-                                    moreSurface = null
-                                    onSection(HostSection.Agents)
-                                }
-                                HostChromeTab.Workspace -> {
-                                    moreSurface = null
-                                    onSection(workspaceSegment)
-                                }
-                                HostChromeTab.More -> {
-                                    moreSurface = null
-                                }
-                            }
-                        },
-                        icon = {
-                            if (tab == HostChromeTab.Agents && attentionCount > 0) {
-                                BadgedBox(
-                                    badge = {
-                                        Badge {
-                                            Text("$attentionCount")
-                                        }
-                                    },
-                                ) {
-                                    Icon(tab.barIcon(), contentDescription = null)
-                                }
-                            } else {
-                                Icon(tab.barIcon(), contentDescription = null)
-                            }
-                        },
-                        label = { Text(tab.label) },
-                    )
-                }
-            }
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -447,51 +428,61 @@ fun HostDetailPane(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
             }
-            when (chrome) {
-                HostChromeTab.Agents -> agentsContent(Modifier.weight(1f))
-                HostChromeTab.Workspace -> {
-                    WorkspaceChrome(
-                        state = state,
-                        segment = workspaceSegment,
-                        onSegment = { next ->
-                            workspaceSegment = next
-                            onSection(next)
-                        },
-                        onSelectWorkspace = onSelectWorkspace,
-                        reviewContent = reviewContent,
-                        tasksContent = tasksContent,
+            val open = tool
+            if (open != null) {
+                TextButton(
+                    onClick = {
+                        tool = null
+                        onSection(segment)
+                    },
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                ) { Text("‹ Back to project") }
+                when (open) {
+                    HostSection.Files -> filesContent(Modifier.weight(1f))
+                    HostSection.Search -> searchContent(Modifier.weight(1f))
+                    HostSection.Worktrees -> worktreesContent(Modifier.weight(1f))
+                    HostSection.Automations -> automationsContent(Modifier.weight(1f))
+                    else -> layoutContent(Modifier.weight(1f))
+                }
+            } else {
+                if (state != null && state.projectChoices().size > 1) {
+                    ProjectChips(state = state, onSelect = onSelectWorkspace)
+                }
+                val segments = listOf(HostSection.Agents, HostSection.Review, HostSection.Tasks)
+                    .filter { it == HostSection.Agents || it in visible }
+                SingleChoiceSegmentedButtonRow(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    segments.forEachIndexed { index, item ->
+                        SegmentedButton(
+                            selected = segment == item,
+                            onClick = { onSection(item) },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = segments.size),
+                        ) {
+                            val label = when (item) {
+                                HostSection.Agents -> "Threads"
+                                HostSection.Review -> "Changes"
+                                else -> "Tasks"
+                            }
+                            if (item == HostSection.Agents && attentionCount > 0) {
+                                Text("$label · $attentionCount")
+                            } else {
+                                Text(label)
+                            }
+                        }
+                    }
+                }
+                if (segment != HostSection.Agents && state != null && state.needsProjectPick()) {
+                    EmptyState(
+                        title = "Select a project",
+                        message = "Changes and Tasks follow the project you pick.",
                         modifier = Modifier.weight(1f),
                     )
-                }
-                HostChromeTab.More -> {
-                    val surface = moreSurface
-                    if (surface == null) {
-                        MoreList(
-                            visible = visible.filter { it.isMoreSurface },
-                            onOpen = { item ->
-                                moreSurface = item
-                                onSection(item)
-                            },
-                            onSettings = { showSettings = true },
-                            modifier = Modifier.weight(1f),
-                        )
-                    } else {
-                        when (surface) {
-                            HostSection.Files -> filesContent(Modifier.weight(1f))
-                            HostSection.Search -> searchContent(Modifier.weight(1f))
-                            HostSection.Worktrees -> worktreesContent(Modifier.weight(1f))
-                            HostSection.Automations -> automationsContent(Modifier.weight(1f))
-                            HostSection.Layout -> layoutContent(Modifier.weight(1f))
-                            else -> MoreList(
-                                visible = visible.filter { it.isMoreSurface },
-                                onOpen = { item ->
-                                    moreSurface = item
-                                    onSection(item)
-                                },
-                                onSettings = { showSettings = true },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
+                } else {
+                    when (segment) {
+                        HostSection.Review -> reviewContent(Modifier.weight(1f))
+                        HostSection.Tasks -> tasksContent(Modifier.weight(1f))
+                        else -> agentsContent(Modifier.weight(1f))
                     }
                 }
             }
@@ -538,112 +529,6 @@ fun HostDetailPane(
             onDismiss = { showSettings = false },
         )
     }
-}
-
-private val HostChromeTab.label: String
-    get() = when (this) {
-        HostChromeTab.Agents -> "Agents"
-        HostChromeTab.Workspace -> "Workspace"
-        HostChromeTab.More -> "More"
-    }
-
-private fun HostChromeTab.barIcon(): ImageVector = when (this) {
-    HostChromeTab.Agents -> Icons.Filled.Person
-    HostChromeTab.Workspace -> Icons.Filled.Edit
-    HostChromeTab.More -> Icons.Filled.MoreVert
-}
-
-@Composable
-private fun WorkspaceChrome(
-    state: HostUhpState?,
-    segment: HostSection,
-    onSegment: (HostSection) -> Unit,
-    onSelectWorkspace: (String) -> Unit,
-    reviewContent: @Composable (Modifier) -> Unit,
-    tasksContent: @Composable (Modifier) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier.fillMaxSize()) {
-        if (state != null && state.projectChoices().size != 1) {
-            ProjectChips(state = state, onSelect = onSelectWorkspace)
-        }
-        val segments = listOf(HostSection.Review, HostSection.Tasks)
-        SingleChoiceSegmentedButtonRow(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        ) {
-            segments.forEachIndexed { index, item ->
-                SegmentedButton(
-                    selected = segment == item,
-                    onClick = { onSegment(item) },
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = segments.size),
-                ) {
-                    Text(item.name)
-                }
-            }
-        }
-        if (state != null && state.needsProjectPick()) {
-            EmptyState(
-                title = "Select a project",
-                message = "Review and Tasks use the project you pick, not the TUI focus.",
-                modifier = Modifier.weight(1f),
-            )
-        } else {
-            when (segment) {
-                HostSection.Tasks -> tasksContent(Modifier.weight(1f))
-                else -> reviewContent(Modifier.weight(1f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun MoreList(
-    visible: List<HostSection>,
-    onOpen: (HostSection) -> Unit,
-    onSettings: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val project = visible.filter {
-        it == HostSection.Files || it == HostSection.Search || it == HostSection.Worktrees
-    }
-    val hostGroup = visible.filter {
-        it == HostSection.Automations || it == HostSection.Layout
-    }
-    LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
-        if (project.isNotEmpty()) {
-            item { SectionHeader("Project tools", Modifier.padding(horizontal = 16.dp)) }
-            items(project, key = { it.name }) { item ->
-                MoreRow(item, onOpen)
-            }
-        }
-        if (hostGroup.isNotEmpty()) {
-            item { SectionHeader("Host", Modifier.padding(horizontal = 16.dp)) }
-            items(hostGroup, key = { it.name }) { item ->
-                MoreRow(item, onOpen)
-            }
-        }
-        item { SectionHeader("This device", Modifier.padding(horizontal = 16.dp)) }
-        item {
-            ListItem(
-                headlineContent = { Text("Settings") },
-                supportingContent = { Text("Push, connection, unpair") },
-                leadingContent = { Icon(Icons.Filled.Settings, contentDescription = null) },
-                modifier = Modifier.clickable(onClick = onSettings),
-            )
-        }
-    }
-}
-
-@Composable
-private fun MoreRow(section: HostSection, onOpen: (HostSection) -> Unit) {
-    ListItem(
-        headlineContent = { Text(section.moreTitle) },
-        supportingContent = { Text(section.moreSubtitle) },
-        leadingContent = { Icon(section.moreIcon(), contentDescription = null) },
-        modifier = Modifier
-            .clickable { onOpen(section) }
-            .semantics { contentDescription = section.moreTitle },
-    )
 }
 
 private val HostSection.moreTitle: String

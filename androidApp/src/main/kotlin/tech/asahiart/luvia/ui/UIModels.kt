@@ -28,16 +28,6 @@ data class HostUiModel(
 
 enum class ConnectionBadge { Live, Connecting, Stale, Offline }
 
-enum class HostChromeTab { Agents, Workspace, More }
-
-
-internal fun HostSection.toChromeTab(): HostChromeTab =
-    when (this) {
-        HostSection.Agents -> HostChromeTab.Agents
-        HostSection.Review, HostSection.Tasks -> HostChromeTab.Workspace
-        else -> HostChromeTab.More
-    }
-
 internal val HostSection.isMoreSurface: Boolean
     get() =
         this == HostSection.Files ||

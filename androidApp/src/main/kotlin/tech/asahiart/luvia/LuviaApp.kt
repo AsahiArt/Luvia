@@ -91,9 +91,11 @@ fun LuviaApp(launchIntent: Intent? = null) {
     }
 
     val now by viewModel.now.collectAsStateWithLifecycle()
+    val hostStates by viewModel.hostStates.collectAsStateWithLifecycle()
     LuviaNavigation(
         hosts = hosts,
         now = now,
+        hostStates = hostStates,
         onAnswerNow = viewModel::answer,
         onMarkViewed = viewModel::markViewed,
         terminalForHost = { id -> terminals[id] },

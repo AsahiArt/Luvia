@@ -1,5 +1,6 @@
 package tech.asahiart.luvia
 
+import tech.asahiart.luvia.HostUhpState
 import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.AskOption
 import tech.asahiart.luvia.thread.NowState
@@ -42,6 +43,7 @@ class LuviaViewModel(
 
     val hosts: StateFlow<List<HostRuntime>> = manager.hosts
     val now: StateFlow<NowState> = uhpRegistry.now
+    val hostStates: StateFlow<Map<String, HostUhpState>> = uhpRegistry.states
 
     fun answer(thread: AgentThread, option: AskOption) = uhpRegistry.answer(thread, option)
 
