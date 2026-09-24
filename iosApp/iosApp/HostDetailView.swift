@@ -13,28 +13,24 @@ struct HostDetailView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            TabView(selection: $section) {
-                AgentsSectionView(model: model, host: host, query: $agentQuery)
-                    .tabItem {
-                        Label(HostSection.agents.rawValue, systemImage: HostSection.agents.symbol)
+            VStack(spacing: 0) {
+                Picker("Project", selection: pageBinding) {
+                    ForEach(ProjectPage.allCases) { page in
+                        Text(pageLabel(page)).tag(page)
                     }
-                    .tag(HostSection.agents)
-                    .badge(model.uhp.attentionCount)
-
-                WorkspaceSectionView(model: model, host: host)
-                    .tabItem {
-                        Label(HostSection.workspace.rawValue, systemImage: HostSection.workspace.symbol)
-                    }
-                    .tag(HostSection.workspace)
-
-                MoreSectionView(model: model, host: host)
-                    .tabItem {
-                        Label(HostSection.more.rawValue, systemImage: HostSection.more.symbol)
-                    }
-                    .tag(HostSection.more)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, DesignTokens.Space.m)
+                .padding(.vertical, DesignTokens.Space.s)
+                switch pageBinding.wrappedValue {
+                case .threads:
+                    AgentsSectionView(model: model, host: host, query: $agentQuery)
+                case .changes, .tasks:
+                    WorkspaceSectionView(model: model, host: host, showsSegmentPicker: false)
+                }
             }
             .tint(DesignTokens.accent)
-            .navigationTitle(host.name)
+            .navigationTitle(model.uhp.snapshot?.projectLabel() ?? host.name)
             .navigationBarTitleDisplayMode(model.hasLiveSession ? .large : .inline)
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
@@ -47,12 +43,18 @@ struct HostDetailView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        model.isHostSettingsPresented = true
+                    Menu {
+                        ForEach(visibleTools) { tool in
+                            Button(tool.title, systemImage: tool.symbol) { path.append(tool) }
+                        }
+                        Divider()
+                        Button("Host settings", systemImage: "gearshape") {
+                            model.isHostSettingsPresented = true
+                        }
                     } label: {
-                        Image(systemName: "gearshape")
+                        Image(systemName: "ellipsis.circle")
                     }
-                    .accessibilityLabel("Host settings")
+                    .accessibilityLabel("Project tools")
                 }
             }
             .sheet(isPresented: $model.isHostSettingsPresented) {
@@ -108,8 +110,60 @@ struct HostDetailView: View {
             }
         }
     }
-}
 
+    private enum ProjectPage: String, CaseIterable, Identifiable {
+        case threads, changes, tasks
+        var id: Self { self }
+    }
+
+    private func pageLabel(_ page: ProjectPage) -> String {
+        switch page {
+        case .threads:
+            let count = model.uhp.attentionCount
+            return count > 0 ? "Threads · \(count)" : "Threads"
+        case .changes: return "Changes"
+        case .tasks: return "Tasks"
+        }
+    }
+
+    private var pageBinding: Binding<ProjectPage> {
+        Binding(
+            get: {
+                guard section == .workspace else { return .threads }
+                return model.workspaceSegment == .tasks ? .tasks : .changes
+            },
+            set: { page in
+                switch page {
+                case .threads:
+                    section = .agents
+                case .changes, .tasks:
+                    model.workspaceSegment = page == .tasks ? .tasks : .review
+                    if section == .workspace {
+                        _Concurrency.Task { await model.loadSelectedSection() }
+                    } else {
+                        section = .workspace
+                    }
+                }
+            }
+        )
+    }
+
+    private var visibleTools: [MoreSurface] {
+        let all: [MoreSurface] = [.files, .search, .worktrees, .automations, .layout]
+        guard let snapshot = model.uhp.snapshot, snapshot.connected else { return all }
+        let visible: [LuviaShared.HostSection] = KotlinLists.array(snapshot.visibleSections() as Any)
+        return all.filter { tool in
+            let wanted: LuviaShared.HostSection = switch tool {
+            case .files: .files
+            case .search: .search
+            case .worktrees: .worktrees
+            case .automations: .automations
+            case .layout: .layout
+            }
+            return visible.contains(wanted)
+        }
+    }
+}
 
 private struct HostSettingsSheet: View {
     let host: HostViewState

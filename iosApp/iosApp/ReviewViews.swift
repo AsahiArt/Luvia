@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkspaceSectionView: View {
     @Bindable var model: AppModel
     let host: HostViewState
+    var showsSegmentPicker = true
 
     private var hasContent: Bool {
         model.hasLiveSession || host.hasCachedContent
@@ -27,16 +28,18 @@ struct WorkspaceSectionView: View {
                         onSelect: { model.selectWorkspace($0) }
                     )
                 }
-                Picker("Workspace", selection: $model.workspaceSegment) {
-                    ForEach(WorkspaceSegment.allCases) { segment in
-                        Text(segment.rawValue).tag(segment)
+                if showsSegmentPicker {
+                    Picker("Workspace", selection: $model.workspaceSegment) {
+                        ForEach(WorkspaceSegment.allCases) { segment in
+                            Text(segment.rawValue).tag(segment)
+                        }
                     }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, DesignTokens.Space.m)
-                .padding(.vertical, DesignTokens.Space.s)
-                .onChange(of: model.workspaceSegment) { _, _ in
-                    _Concurrency.Task { await model.loadSelectedSection() }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, DesignTokens.Space.m)
+                    .padding(.vertical, DesignTokens.Space.s)
+                    .onChange(of: model.workspaceSegment) { _, _ in
+                        _Concurrency.Task { await model.loadSelectedSection() }
+                    }
                 }
                 if model.uhp.needsProjectPick {
                     EmptyState(

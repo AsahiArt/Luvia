@@ -357,6 +357,13 @@ public data class HostUhpState(
         return panes + session
     }
 
+    /** [agentEntries] for the picked project; ACP sessions and unscoped panes always show. */
+    public fun projectEntries(): List<AgentEntry> {
+        val id = selectedWorkspaceId?.takeIf { it.isNotBlank() } ?: return agentEntries()
+        val scoped = agents.filter { it.workspaceId != null && it.workspaceId != id }.map { it.paneId }.toSet()
+        return agentEntries().filter { it.paneId == null || it.paneId !in scoped }
+    }
+
     public fun waitingEntries(): List<AgentEntry> =
         agentEntries().filter { it.status == AgentStatus.Blocked }
 

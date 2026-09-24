@@ -13,6 +13,8 @@ final class AppModel {
     @ObservationIgnored nonisolated(unsafe) var uhpTask: _Concurrency.Task<Void, Never>?
     @ObservationIgnored private nonisolated(unsafe) var nowTask: _Concurrency.Task<Void, Never>?
     var now: NowState?
+    var hostStates: [String: HostUhpState] = [:]
+    @ObservationIgnored private nonisolated(unsafe) var statesTask: _Concurrency.Task<Void, Never>?
     @ObservationIgnored var boundUhpHostID: String?
     private var terminalControl: TerminalControl?
     private var wantsTerminalObserve = false
@@ -65,6 +67,12 @@ final class AppModel {
                 await MainActor.run { self?.now = state }
             }
         }
+        statesTask = _Concurrency.Task { [weak self] in
+            for await states in registryRef.states {
+                let map = states as? [String: HostUhpState] ?? [:]
+                await MainActor.run { self?.hostStates = map }
+            }
+        }
         restorePushRegistration()
     }
 
@@ -75,6 +83,7 @@ final class AppModel {
         terminalTask?.cancel()
         uhpTask?.cancel()
         nowTask?.cancel()
+        statesTask?.cancel()
         uhpRegistry.close()
         manager.close()
     }
@@ -554,7 +563,7 @@ final class UhpSurfaceState {
     }
 
     var agentEntries: [AgentListItem] {
-        let entries: [AgentEntry] = KotlinLists.array(snapshot?.agentEntries() as Any)
+        let entries: [AgentEntry] = KotlinLists.array(snapshot?.projectEntries() as Any)
         if entries.isEmpty {
             return agents.map(AgentListItem.init)
         }

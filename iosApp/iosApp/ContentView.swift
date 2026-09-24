@@ -15,11 +15,13 @@ struct ContentView: View {
         @Bindable var model = model
 
         NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
-            NowView(
+            HomeView(
                 model: model,
                 onOpenThread: openThread,
+                onOpenProject: openProject,
                 onOpenHosts: { isHostsPresented = true }
             )
+            .toolbar(.hidden, for: .navigationBar)
         } detail: {
             if let host = model.selectedHost {
                 HostDetailView(
@@ -92,6 +94,16 @@ extension ContentView {
             model.pendingOpenAgentID = pane
         }
         preferredCompactColumn = .detail
+    }
+
+    private func openProject(_ hostID: String, _ workspaceID: String?) {
+        if let workspaceID {
+            model.uhpRegistry.workspace(hostId: hostID).setSelectedWorkspace(id: workspaceID)
+        }
+        model.selectedHostID = hostID
+        model.selectedSection = .agents
+        preferredCompactColumn = .detail
+        hostChromeNonce += 1
     }
 }
 
