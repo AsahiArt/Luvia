@@ -20,7 +20,7 @@ struct WorkspaceSectionView: View {
                     systemImage: "plus.forwardslash.minus"
                 )
             } else {
-                if model.uhp.projectChoices.count != 1 {
+                if showsSegmentPicker, model.uhp.projectChoices.count != 1 {
                     ProjectChips(
                         choices: model.uhp.projectChoices,
                         selectedId: model.uhp.snapshot?.projectWorkspaceId(),

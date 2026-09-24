@@ -13,20 +13,22 @@ struct HostDetailView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            VStack(spacing: 0) {
-                Picker("Project", selection: pageBinding) {
-                    ForEach(ProjectPage.allCases) { page in
-                        Text(pageLabel(page)).tag(page)
+            Group {
+                if model.uhp.needsProjectPick {
+                    ProjectPickerList(model: model)
+                } else {
+                    TabView(selection: pageBinding) {
+                        AgentsSectionView(model: model, host: host, query: $agentQuery)
+                            .tabItem { Label("Threads", systemImage: "bubble.left.and.bubble.right") }
+                            .badge(model.uhp.attentionCount)
+                            .tag(ProjectPage.threads)
+                        WorkspaceSectionView(model: model, host: host, showsSegmentPicker: false)
+                            .tabItem { Label("Changes", systemImage: "plus.forwardslash.minus") }
+                            .tag(ProjectPage.changes)
+                        WorkspaceSectionView(model: model, host: host, showsSegmentPicker: false)
+                            .tabItem { Label("Tasks", systemImage: "checklist") }
+                            .tag(ProjectPage.tasks)
                     }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, DesignTokens.Space.m)
-                .padding(.vertical, DesignTokens.Space.s)
-                switch pageBinding.wrappedValue {
-                case .threads:
-                    AgentsSectionView(model: model, host: host, query: $agentQuery)
-                case .changes, .tasks:
-                    WorkspaceSectionView(model: model, host: host, showsSegmentPicker: false)
                 }
             }
             .tint(DesignTokens.accent)
@@ -114,16 +116,6 @@ struct HostDetailView: View {
     private enum ProjectPage: String, CaseIterable, Identifiable {
         case threads, changes, tasks
         var id: Self { self }
-    }
-
-    private func pageLabel(_ page: ProjectPage) -> String {
-        switch page {
-        case .threads:
-            let count = model.uhp.attentionCount
-            return count > 0 ? "Threads · \(count)" : "Threads"
-        case .changes: return "Changes"
-        case .tasks: return "Tasks"
-        }
     }
 
     private var pageBinding: Binding<ProjectPage> {
@@ -507,3 +499,21 @@ struct JumpToLatestScroll<Content: View>: View {
 }
 
 
+
+/// Shown only when the page was opened without a project (Hosts sheet, notification).
+private struct ProjectPickerList: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        List {
+            Section("Pick a project") {
+                ForEach(model.uhp.projectChoices, id: \.id) { choice in
+                    Button(choice.label) { model.selectWorkspace(choice.id) }
+                        .foregroundStyle(DesignTokens.ink)
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(DesignTokens.canvas.ignoresSafeArea())
+    }
+}

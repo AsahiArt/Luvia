@@ -418,6 +418,44 @@ fun HostDetailPane(
                 },
             )
         },
+        bottomBar = {
+            val pages = listOf(HostSection.Agents, HostSection.Review, HostSection.Tasks)
+                .filter { it == HostSection.Agents || it in visible }
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                pages.forEach { item ->
+                    NavigationBarItem(
+                        selected = tool == null && segment == item,
+                        onClick = {
+                            tool = null
+                            onSection(item)
+                        },
+                        icon = {
+                            val icon = when (item) {
+                                HostSection.Agents -> Icons.Filled.Person
+                                HostSection.Review -> Icons.Filled.Edit
+                                else -> Icons.Filled.CheckCircle
+                            }
+                            if (item == HostSection.Agents && attentionCount > 0) {
+                                BadgedBox(badge = { Badge { Text("$attentionCount") } }) {
+                                    Icon(icon, contentDescription = null)
+                                }
+                            } else {
+                                Icon(icon, contentDescription = null)
+                            }
+                        },
+                        label = {
+                            Text(
+                                when (item) {
+                                    HostSection.Agents -> "Threads"
+                                    HostSection.Review -> "Changes"
+                                    else -> "Tasks"
+                                },
+                            )
+                        },
+                    )
+                }
+            }
+        },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             host.errorMessage?.let { error ->
@@ -445,39 +483,8 @@ fun HostDetailPane(
                     else -> layoutContent(Modifier.weight(1f))
                 }
             } else {
-                if (state != null && state.projectChoices().size > 1) {
-                    ProjectChips(state = state, onSelect = onSelectWorkspace)
-                }
-                val segments = listOf(HostSection.Agents, HostSection.Review, HostSection.Tasks)
-                    .filter { it == HostSection.Agents || it in visible }
-                SingleChoiceSegmentedButtonRow(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    segments.forEachIndexed { index, item ->
-                        SegmentedButton(
-                            selected = segment == item,
-                            onClick = { onSection(item) },
-                            shape = SegmentedButtonDefaults.itemShape(index = index, count = segments.size),
-                        ) {
-                            val label = when (item) {
-                                HostSection.Agents -> "Threads"
-                                HostSection.Review -> "Changes"
-                                else -> "Tasks"
-                            }
-                            if (item == HostSection.Agents && attentionCount > 0) {
-                                Text("$label · $attentionCount")
-                            } else {
-                                Text(label)
-                            }
-                        }
-                    }
-                }
-                if (segment != HostSection.Agents && state != null && state.needsProjectPick()) {
-                    EmptyState(
-                        title = "Select a project",
-                        message = "Changes and Tasks follow the project you pick.",
-                        modifier = Modifier.weight(1f),
-                    )
+                if (state != null && state.needsProjectPick()) {
+                    ProjectPicker(state = state, onSelect = onSelectWorkspace, modifier = Modifier.weight(1f))
                 } else {
                     when (segment) {
                         HostSection.Review -> reviewContent(Modifier.weight(1f))
@@ -1726,3 +1733,25 @@ private fun defaultDeviceLabel(context: Context): String {
     return Build.MODEL.orEmpty()
 }
 
+
+/** Shown only when the page was opened without a project (Hosts sheet, notification). */
+@Composable
+private fun ProjectPicker(state: HostUhpState, onSelect: (String) -> Unit, modifier: Modifier = Modifier) {
+    LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
+        item {
+            Text(
+                "Pick a project",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        }
+        items(state.projectChoices(), key = { it.id }) { choice ->
+            Text(
+                choice.label,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.fillMaxWidth().clickable { onSelect(choice.id) }.padding(vertical = 14.dp),
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+        }
+    }
+}
