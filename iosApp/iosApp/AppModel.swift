@@ -103,7 +103,7 @@ final class AppModel {
         switch onEnum(of: manager.beginPairing(deviceLabel: deviceLabel, role: role)) {
         case .ok(let ok):
             guard let draft = ok.value else {
-                return .failure(UserFacingError(message: "Could not start pairing."))
+                return .failure(UserFacingError(message: "无法开始配对。"))
             }
             return .success(draft)
         case .err(let err):
@@ -129,7 +129,7 @@ final class AppModel {
             switch onEnum(of: outcome) {
             case .ok(let ok):
                 guard let profile = ok.value else {
-                    return .failure(UserFacingError(message: "Pairing did not return a host."))
+                    return .failure(UserFacingError(message: "配对没有返回电脑。"))
                 }
                 selectedHostID = profile.id
                 selectedSection = .agents
@@ -295,7 +295,8 @@ final class AppModel {
                         self?.terminalControl?.close()
                         self?.terminalControl = ok.value
                         self?.holdsTerminalControl = true
-                        if self?.terminalStatus?.contains("control") == true {
+                        if self?.terminalStatus?.contains("观察仍然有效") == true
+                            || self?.terminalStatus?.localizedCaseInsensitiveContains("control") == true {
                             self?.terminalStatus = nil
                         }
                     case .err(let err):
@@ -366,7 +367,7 @@ final class AppModel {
         guard let locator else {
             stopTerminal()
             terminalText = ""
-            terminalStatus = "This pane has no live terminal."
+            terminalStatus = "这个窗格没有正在运行的终端。"
             return
         }
         stopTerminal()
@@ -392,6 +393,25 @@ final class AppModel {
         }
     }
 
+    /// Fullscreen terminal for a pane. Passing nil keeps the current agent pane.
+    func openTerminal(paneId: String?) {
+        if let paneId {
+            uhp.selectedAgentID = paneId
+        }
+        wantsTerminalObserve = true
+        startTerminal(paneId: paneId ?? uhp.selectedAgentID)
+    }
+
+    func releaseTerminalControl() {
+        terminalControl?.close()
+        terminalControl = nil
+        holdsTerminalControl = false
+        if terminalStatus?.contains("观察仍然有效") == true
+            || terminalStatus?.localizedCaseInsensitiveContains("control") == true {
+            terminalStatus = nil
+        }
+    }
+
     private func stopTerminal() {
         terminalTask?.cancel()
         terminalTask = nil
@@ -405,7 +425,7 @@ final class AppModel {
             terminalControl?.close()
             terminalControl = nil
             holdsTerminalControl = false
-            terminalStatus = "\(FailureText.describe(failure)) Observe still works."
+            terminalStatus = "\(FailureText.describe(failure)) 观察仍然有效。"
         } else {
             terminalStatus = FailureText.describe(failure)
         }
@@ -418,13 +438,13 @@ final class AppModel {
             terminalText = wrapped.frame.text
             terminalAnsi = wrapped.frame.ansi
             if holdsTerminalControl {
-                terminalStatus = wrapped.frame.truncated ? "Output truncated." : nil
+                terminalStatus = wrapped.frame.truncated ? "输出被截断了。" : nil
             } else if wrapped.frame.truncated, terminalStatus == nil {
-                terminalStatus = "Output truncated."
+                terminalStatus = "输出被截断了。"
             }
         case .resyncing(_):
             if holdsTerminalControl {
-                terminalStatus = "Resyncing…"
+                terminalStatus = "正在重新同步…"
             }
         case .failed(let wrapped):
             applyControlFailure(wrapped.failure)

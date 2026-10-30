@@ -324,10 +324,10 @@ final class TerminalCanvasHostView: UIView {
         textView.showsVerticalScrollIndicator = false
         textView.showsHorizontalScrollIndicator = false
         textView.textContainerInset = UIEdgeInsets(
-            top: DesignTokens.Space.m,
-            left: DesignTokens.Space.m,
-            bottom: DesignTokens.Space.m,
-            right: DesignTokens.Space.m
+            top: TerminalPalette.inset,
+            left: TerminalPalette.inset,
+            bottom: TerminalPalette.inset,
+            right: TerminalPalette.inset
         )
         textView.textContainer.lineFragmentPadding = 0
         textView.textContainer.lineBreakMode = .byClipping
@@ -341,7 +341,7 @@ final class TerminalCanvasHostView: UIView {
         textView.overrideUserInterfaceStyle = .dark
         textView.adjustsFontForContentSizeCategory = false
         textView.dataDetectorTypes = []
-        textView.accessibilityLabel = "Terminal output"
+        textView.accessibilityLabel = "终端输出"
         zoomView.addSubview(textView)
     }
 
@@ -372,8 +372,8 @@ private let terminalCanvasFont: UIFont =
     UIFont(name: TerminalFont.postScriptName, size: TerminalFont.referenceSize)
     ?? UIFont.monospacedSystemFont(ofSize: TerminalFont.referenceSize, weight: .regular)
 
-private let terminalCanvasBackground = UIColor(DesignTokens.Terminal.background)
-private let terminalCanvasForeground = UIColor(DesignTokens.Terminal.foreground)
+private let terminalCanvasBackground = UIColor(TerminalPalette.background)
+private let terminalCanvasForeground = UIColor(TerminalPalette.foreground)
 
 private func makeTerminalAttributedString(text: String, parseANSI: Bool) -> NSAttributedString {
     let attributes: [NSAttributedString.Key: Any] = [

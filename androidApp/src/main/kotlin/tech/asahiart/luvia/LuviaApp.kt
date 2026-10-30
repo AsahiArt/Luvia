@@ -21,7 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import tech.asahiart.luvia.ui.LuviaNavigation
+import tech.asahiart.luvia.ui.ChatFirstApp
 import tech.asahiart.luvia.ui.theme.prewarmTerminalFont
 
 @Composable
@@ -36,8 +36,6 @@ fun LuviaApp(launchIntent: Intent? = null) {
         }
     }
     val runtimes by viewModel.hosts.collectAsStateWithLifecycle()
-    val pairing by viewModel.pairing.collectAsStateWithLifecycle()
-    val terminals by viewModel.terminals.collectAsStateWithLifecycle()
     val pushRegistration by viewModel.pushRegistration.collectAsStateWithLifecycle()
     val notifications = remember { StatusNotificationController(context) }
     var askedNotificationPermission by rememberSaveable { mutableStateOf(false) }
@@ -48,9 +46,6 @@ fun LuviaApp(launchIntent: Intent? = null) {
         askedNotificationPermission = true
         if (granted) notificationPermissionEpoch++
     }
-    val surfaces by viewModel.surfaces.collectAsStateWithLifecycle()
-    val hosts = runtimes.toSortedUi(surfaces.mapValues { it.value.attentionCount() })
-
     LaunchedEffect(runtimes, notificationPermissionEpoch) {
         val online = runtimes.firstOrNull { it.link is HostLink.Online }
         if (online == null) {
@@ -90,38 +85,9 @@ fun LuviaApp(launchIntent: Intent? = null) {
         onDispose { notifications.dismiss() }
     }
 
-    val now by viewModel.now.collectAsStateWithLifecycle()
-    val hostStates by viewModel.hostStates.collectAsStateWithLifecycle()
-    LuviaNavigation(
-        hosts = hosts,
-        now = now,
-        hostStates = hostStates,
-        onAnswerNow = viewModel::answer,
-        onMarkViewed = viewModel::markViewed,
-        terminalForHost = { id -> terminals[id] },
-        workspace = viewModel::workspace,
-        onRefreshSection = viewModel::refreshSection,
-        pairing = pairing,
-        openHostId = launchIntent?.getStringExtra(StatusNotificationController.EXTRA_HOST_ID),
-        openFirstBlocked = launchIntent?.getBooleanExtra(StatusNotificationController.EXTRA_OPEN_BLOCKED, false) == true,
-        onBeginPairing = viewModel::beginPairing,
-        onCompletePairing = { raw, host, port, user, onSuccess ->
-            viewModel.completePairing(raw, host, port, user, onSuccess)
-        },
-        onCancelPairing = viewModel::cancelPairing,
-        onClearPairingDraft = viewModel::clearPairingDraft,
-        onClearPairingError = viewModel::clearPairingError,
-        onConnect = viewModel::connect,
-        onDisconnect = viewModel::disconnect,
-        onRefresh = viewModel::refresh,
-        onRefreshAll = viewModel::refreshAll,
-        onUnpair = viewModel::unpair,
-        onUpdateConnection = viewModel::updateConnection,
-        onRequestControl = viewModel::requestControl,
-        onSendTerminalText = viewModel::sendTerminalText,
-        onSendTerminalKey = viewModel::sendTerminalKey,
-        onStopTerminal = viewModel::stopTerminal,
-        onSelectTerminalPane = { id, pane -> viewModel.ensureTerminal(id, pane) },
+    ChatFirstApp(
+        viewModel = viewModel,
+        launchIntent = launchIntent,
         pushEnabled = pushRegistration != null,
         hasPushDistributor = PushRegistrar.hasDistributor(context),
         onSetPushEnabled = { enabled -> viewModel.setWakeEnabled(enabled, context) },

@@ -1,6 +1,6 @@
 # Luvia v2 产品设计
 
-Status: accepted (2026-09-24)。取代 `docs/design/redesign.md` 的 IA 与视觉部分；不改信任模型（SSH pinned、`luvia-host` 持有凭据）、ADR 0001–0003、`CONTEXT.md` 的对象树。
+Status: superseded (2026-10-30) by [ADR 0004](../adr/0004-chat-first-native-ui.md) and the wow CONCLUSION (structure A: Pair → session list → chat → top-bar fullscreen terminal). The sections below are the historical v2 IA (Now / Projects, warm orange). They no longer describe the phone UI. Trust model (SSH pinned, `luvia-host` holds credentials), ADR 0001–0003, and `CONTEXT.md` are unchanged. ADR 0004 records which parts of ADR 0001’s screen list this document’s IA no longer owns.
 
 ---
 

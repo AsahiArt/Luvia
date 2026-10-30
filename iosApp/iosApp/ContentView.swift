@@ -1,112 +1,275 @@
 import LuviaShared
 import SwiftUI
-import UIKit
 
 struct ContentView: View {
     @Bindable var model: AppModel
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var lastBlockedTotal = 0
-    @State private var preferredCompactColumn = NavigationSplitViewColumn.sidebar
-    @State private var pairingLandsOnHost = false
-    @State private var hostChromeNonce = 0
-    @State private var isHostsPresented = false
+    @Namespace private var glass
+    @State private var stage = "sessions"
+    @State private var terminalReturn = "sessions"
+    @State private var threadID: String?
+    @State private var filter: SessionFilter = .all
+    @State private var showSettings = false
+    @State private var showNewSession = false
+    @State private var cwd = ""
+    @State private var confirmUnpair = false
 
     var body: some View {
-        @Bindable var model = model
-
-        NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
-            HomeView(
-                model: model,
-                onOpenThread: openThread,
-                onOpenProject: openProject,
-                onOpenHosts: { isHostsPresented = true }
-            )
-            .toolbar(.hidden, for: .navigationBar)
-        } detail: {
-            if let host = model.selectedHost {
-                HostDetailView(
-                    host: host,
-                    section: $model.selectedSection,
-                    model: model,
-                    compactColumn: preferredCompactColumn,
-                    chromeNonce: hostChromeNonce
-                )
-                .id(host.id)
-            } else {
-                ContentUnavailableView(
-                    "Nothing selected",
-                    systemImage: "sparkles",
-                    description: Text("Pick an Agent from Now.")
-                )
-            }
-        }
-        .onChange(of: model.selectedSection) { _, _ in
-            model.handleSectionChange()
-        }
-        .onChange(of: model.selectedHostID) { _, _ in
-            model.handleSectionChange()
-        }
-        .onChange(of: model.hosts) { _, hosts in
-            let total = hosts.reduce(0) { $0 + $1.blockedAgents }
-            if scenePhase == .active, total > lastBlockedTotal {
-                UINotificationFeedbackGenerator().notificationOccurred(.warning)
-            }
-            lastBlockedTotal = total
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
-                lastBlockedTotal = model.hosts.reduce(0) { $0 + $1.blockedAgents }
-            }
-        }
-        .sheet(isPresented: $isHostsPresented) {
-            HostsSheet(model: model) { id in
-                model.selectedHostID = id
-                preferredCompactColumn = .detail
-                hostChromeNonce += 1
-            }
-        }
-        .sheet(isPresented: $model.isPairingPresented, onDismiss: {
-            if pairingLandsOnHost {
-                preferredCompactColumn = .detail
-                pairingLandsOnHost = false
-            } else {
-                // Same-value .sidebar writes are ignored; bounce so compact
-                // actually shows Hosts after Cancel from the Hosts list.
-                preferredCompactColumn = .detail
-                _Concurrency.Task { @MainActor in
-                    await _Concurrency.Task.yield()
-                    preferredCompactColumn = .sidebar
+        LuviaGlassContainer {
+            ZStack {
+                underlying
+                    .opacity(stage == "terminal" ? 0.45 : 1)
+                    .allowsHitTesting(stage != "terminal")
+                if stage == "terminal" {
+                    TerminalPageView(
+                        model: model,
+                        panes: panes,
+                        selectedPaneID: model.uhp.selectedAgentID,
+                        pendingDecisions: pending.count,
+                        onBack: closeTerminal,
+                        onSelectPane: { model.openTerminal(paneId: $0) },
+                        glass: glass
+                    )
+                    .transition(.scale(scale: 0.9, anchor: .top).combined(with: .opacity))
                 }
             }
-        }) {
-            PairHostView(model: model, onPaired: { pairingLandsOnHost = true })
+        }
+        .animation(.spring(response: 0.42, dampingFraction: 0.86), value: stage)
+        .onAppear {
+            model.connectHostsOnce()
+            if model.hosts.isEmpty { stage = "pair" }
+        }
+        .onChange(of: model.hosts.map(\.id)) { _, ids in
+            if ids.isEmpty, stage == "sessions" { stage = "pair" }
+            if model.selectedHostID == nil || !ids.contains(model.selectedHostID ?? "") {
+                if let first = model.hosts.first {
+                    model.select(first)
+                }
+            }
+        }
+        .onChange(of: model.pendingOpenAgentID) { _, id in
+            guard let id else { return }
+            if let thread = allThreads.first(where: { $0.id == id || $0.paneId == id }) {
+                open(thread)
+                model.pendingOpenAgentID = nil
+            }
+        }
+        .sheet(isPresented: $showSettings) { settings }
+        .sheet(isPresented: $showNewSession) { newSession }
+        .confirmationDialog("取消配对这台电脑？", isPresented: $confirmUnpair, titleVisibility: .visible) {
+            Button("取消配对", role: .destructive) {
+                guard let id = model.selectedHostID else { return }
+                _Concurrency.Task { await model.unpair(id) }
+            }
+            Button("取消", role: .cancel) {}
         }
     }
-}
 
-extension ContentView {
-    private func openThread(_ thread: AgentThread) {
+    @ViewBuilder
+    private var underlying: some View {
+        switch stage == "terminal" ? terminalReturn : stage {
+        case "pair":
+            PairingView(
+                model: model,
+                onPaired: { stage = "sessions" },
+                onClose: model.hosts.isEmpty ? nil : { stage = "sessions" }
+            )
+        case "chat":
+            if let thread = openThread {
+                ChatView(
+                    model: model,
+                    thread: thread,
+                    items: timeline(thread),
+                    queueIndex: queueIndex(thread),
+                    queueTotal: max(pending.count, thread.ask.map { Int($0.total) } ?? 1),
+                    onBack: { stage = "sessions" },
+                    onTerminal: { openTerminal(thread.paneId) },
+                    glass: glass
+                )
+            } else {
+                ContentUnavailableView("会话不在了", systemImage: "bubble.left", description: Text("回到列表。"))
+                    .onTapGesture { stage = "sessions" }
+            }
+        default:
+            SessionListView(
+                model: model,
+                threads: visibleThreads,
+                pending: pending,
+                filter: filter,
+                onFilter: { filter = $0 },
+                onOpen: open,
+                onAnswer: { thread, option in
+                    model.uhpRegistry.answer(thread: thread, option: option)
+                },
+                onPair: { stage = "pair" },
+                onNewSession: {
+                    model.hostUhp()?.loadAcpAgents()
+                    showNewSession = true
+                },
+                onTerminal: { openTerminal(openThread?.paneId) },
+                onSettings: { showSettings = true },
+                glass: glass
+            )
+        }
+    }
+
+    private var allThreads: [AgentThread] {
+        guard let id = model.selectedHostID, let state = model.hostStates[id] else { return [] }
+        let raw: [AgentThread] = KotlinLists.array(state.threads(hostId: id) as Any)
+        return KotlinLists.array(SessionListKt.sortSessions(threads: raw) as Any)
+    }
+
+    private var visibleThreads: [AgentThread] {
+        KotlinLists.array(SessionListKt.filterSessions(threads: allThreads, filter: filter) as Any)
+    }
+
+    private var pending: [AgentThread] {
+        KotlinLists.array(SessionListKt.filterSessions(threads: allThreads, filter: .needsYou) as Any)
+    }
+
+    private var openThread: AgentThread? {
+        allThreads.first { $0.id == threadID }
+    }
+
+    private var panes: [(id: String, title: String)] {
+        guard let host = model.selectedHost else { return [] }
+        return host.paneTerminalIds.keys.sorted().map { id in
+            (id, host.agents.first { $0.id == id }?.name ?? id)
+        }
+    }
+
+    private func timeline(_ thread: AgentThread) -> [TimelineItem] {
+        KotlinLists.array(model.hostUhp()?.timeline(thread: thread) as Any)
+    }
+
+    private func queueIndex(_ thread: AgentThread) -> Int {
+        if let index = pending.firstIndex(where: { $0.id == thread.id }) {
+            return index + 1
+        }
+        if let ask = thread.ask {
+            return Int(ask.index)
+        }
+        return 1
+    }
+
+    private func open(_ thread: AgentThread) {
+        if let host = model.hosts.first(where: { $0.id == thread.hostId }) {
+            model.select(host)
+        }
         model.uhpRegistry.markViewed(thread: thread)
-        model.selectedHostID = thread.hostId
         if thread.kind == .acp {
-            model.uhpRegistry.workspace(hostId: thread.hostId).viewAcp()
+            model.hostUhp()?.viewAcp()
         } else if let pane = thread.paneId {
-            model.pendingOpenAgentID = pane
+            model.hostUhp()?.openAgent(paneId: pane)
         }
-        preferredCompactColumn = .detail
+        threadID = thread.id
+        stage = "chat"
     }
 
-    private func openProject(_ hostID: String, _ workspaceID: String?) {
-        if let workspaceID {
-            model.uhpRegistry.workspace(hostId: hostID).setSelectedWorkspace(id: workspaceID)
+    private func openTerminal(_ paneId: String?) {
+        if stage != "terminal" { terminalReturn = stage }
+        model.openTerminal(paneId: paneId)
+        stage = "terminal"
+    }
+
+    private func closeTerminal() {
+        model.setTerminalVisible(false)
+        stage = terminalReturn
+    }
+
+    private var settings: some View {
+        NavigationStack {
+            SettingsForm(model: model, onUnpair: { confirmUnpair = true })
         }
-        model.selectedHostID = hostID
-        model.selectedSection = .agents
-        preferredCompactColumn = .detail
-        hostChromeNonce += 1
+    }
+
+    private var newSession: some View {
+        NavigationStack {
+            List {
+                Section {
+                    TextField("目录", text: $cwd)
+                } footer: {
+                    Text("在这台电脑上启动 ACP agent。主机上的 agent 仍在电脑上创建。留空则用当前工作区。")
+                }
+                let agents: [AcpAgentKind] = KotlinLists.array(model.hostStates[model.selectedHostID ?? ""]?.acp.agents as Any)
+                if agents.isEmpty {
+                    Text("还没有 ACP agent")
+                }
+                ForEach(agents, id: \.id) { agent in
+                    Button(agent.available ? agent.name : "\(agent.name) 不可用") {
+                        model.hostUhp()?.setLaunchAcpCwd(cwd: cwd)
+                        model.hostUhp()?.setLaunchAcpAgent(id: agent.id)
+                        model.hostUhp()?.launchAcp()
+                        showNewSession = false
+                    }
+                    .disabled(!agent.available)
+                }
+            }
+            .navigationTitle("新会话")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { showNewSession = false }
+                }
+            }
+        }
     }
 }
 
-#Preview {
-    ContentView(model: AppModel())
+private struct SettingsForm: View {
+    @Bindable var model: AppModel
+    var onUnpair: () -> Void
+    @State private var alias = ""
+    @State private var addresses = ""
+    @State private var port = ""
+    @State private var user = ""
+
+    var body: some View {
+        Form {
+            if let host = model.selectedHost {
+                Section(connectionLabel(host.connection)) {
+                    TextField("名称", text: $alias)
+                    TextField("地址", text: $addresses, axis: .vertical)
+                    TextField("SSH 端口", text: $port)
+                    TextField("用户", text: $user)
+                    Button("保存连接") {
+                        let id = host.id
+                        let alias = alias
+                        let addresses = addresses
+                        let port = port
+                        let user = user
+                        _Concurrency.Task {
+                            _ = await model.updateConnection(
+                                hostID: id,
+                                alias: alias,
+                                hosts: addresses,
+                                port: port,
+                                username: user
+                            )
+                        }
+                    }
+                }
+                Section {
+                    Button("刷新") { _Concurrency.Task { await model.refresh(host.id) } }
+                    Button("连接") { model.connect(host.id) }
+                    Button("断开") { model.disconnect(host.id) }
+                    Toggle("唤醒这台手机", isOn: Binding(
+                        get: { model.isPushEnabled },
+                        set: { model.setWakeForApprovals($0) }
+                    ))
+                }
+                Section {
+                    Button("取消配对", role: .destructive, action: onUnpair)
+                }
+            }
+        }
+        .navigationTitle(model.selectedHost?.name ?? "电脑")
+        .onAppear(perform: load)
+    }
+
+    private func load() {
+        guard let host = model.selectedHost else { return }
+        alias = host.name
+        addresses = host.addresses.joined(separator: "\n")
+        port = String(host.sshPort)
+        user = host.username
+    }
 }
