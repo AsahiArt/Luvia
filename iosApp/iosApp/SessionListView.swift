@@ -36,6 +36,7 @@ struct SessionListView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .tint(.blue)
                 Spacer()
                 Text(">_")
                     .font(.system(.body, design: .monospaced).weight(.bold))
@@ -48,6 +49,7 @@ struct SessionListView: View {
                         .font(.title3.weight(.semibold))
                         .frame(width: 36, height: 36)
                 }
+                .tint(.blue)
                 .accessibilityLabel("新会话")
             }
             .padding(.horizontal, 16)
@@ -140,6 +142,7 @@ struct SessionListView: View {
                 ForEach(Array(options.prefix(2).enumerated()), id: \.offset) { _, option in
                     Button(option.label) { onAnswer(thread, option) }
                         .buttonStyle(.bordered)
+                        .tint(.blue)
                         .disabled(model.selectedHost?.isController != true)
                 }
             }
