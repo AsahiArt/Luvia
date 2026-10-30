@@ -80,7 +80,6 @@ struct LuviaApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(model: model)
-                .tint(DesignTokens.accent)
                 .onAppear { appDelegate.bind(model) }
         }
     }
