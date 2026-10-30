@@ -341,7 +341,7 @@ final class TerminalCanvasHostView: UIView {
         textView.overrideUserInterfaceStyle = .dark
         textView.adjustsFontForContentSizeCategory = false
         textView.dataDetectorTypes = []
-        textView.accessibilityLabel = "Terminal output"
+        textView.accessibilityLabel = "终端输出"
         zoomView.addSubview(textView)
     }
 

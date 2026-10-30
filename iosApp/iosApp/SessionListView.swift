@@ -23,15 +23,15 @@ struct SessionListView: View {
                     ForEach(model.hosts) { item in
                         Button(item.name) { model.select(item) }
                     }
-                    Button("Pair a computer", action: onPair)
+                    Button("配对电脑", action: onPair)
                     if host != nil {
-                        Button("Computer settings", action: onSettings)
+                        Button("电脑设置", action: onSettings)
                     }
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(host?.name ?? "No computer")
+                        Text(host?.name ?? "没有电脑")
                             .font(.headline)
-                        Text(host?.address ?? "Pair a computer")
+                        Text(host?.address ?? "配对一台电脑")
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                     }
@@ -48,19 +48,19 @@ struct SessionListView: View {
                         .font(.title3.weight(.semibold))
                         .frame(width: 36, height: 36)
                 }
-                .accessibilityLabel("New session")
+                .accessibilityLabel("新会话")
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
             if !pending.isEmpty {
                 Button(action: { onFilter(.needsYou) }) {
                     HStack {
-                        Text("\(pending.count) waiting for a reply")
+                        Text("等你决定 · \(pending.count)")
                         Spacer()
-                        Text("Show")
+                        Text("查看")
                     }
                     .padding(14)
-                    .luviaGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous), tint: ChatPalette.tertiary)
+                    .luviaGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous), tint: .blue)
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 16)
@@ -68,10 +68,10 @@ struct SessionListView: View {
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack {
-                    filterChip("All", .all)
-                    filterChip("Needs you", .needsYou)
-                    filterChip("Running", .running)
-                    filterChip("Idle", .idle)
+                    filterChip("全部", .all)
+                    filterChip("等你决定", .needsYou)
+                    filterChip("运行中", .running)
+                    filterChip("空闲", .idle)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
@@ -81,9 +81,9 @@ struct SessionListView: View {
             }
             if threads.isEmpty {
                 ContentUnavailableView(
-                    host == nil ? "Pair a computer" : "No sessions",
+                    host == nil ? "配对一台电脑" : "没有会话",
                     systemImage: "bubble.left.and.bubble.right",
-                    description: Text("New sessions use +. Pane agents still start on the computer.")
+                    description: Text("新会话用顶栏 +。电脑上的 agent 仍由主机创建。")
                 )
             } else {
                 List(threads, id: \.id) { thread in
@@ -146,22 +146,31 @@ struct SessionListView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .luviaGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), tint: ChatPalette.tertiary)
+        .luviaGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), tint: .blue)
     }
 
     private func filterChip(_ title: String, _ value: SessionFilter) -> some View {
         Button(title) { onFilter(value) }
             .buttonStyle(.bordered)
-            .tint(filter == value ? ChatPalette.seed : .secondary)
+            .tint(filter == value ? .blue : .secondary)
     }
 }
 
 func sessionLabel(_ status: AgentStatus) -> String {
     switch status {
-    case .idle: "Idle"
-    case .working: "Running"
-    case .blocked: "Needs you"
-    case .done: "Done"
-    default: "Unknown"
+    case .idle: "空闲"
+    case .working: "运行中"
+    case .blocked: "等你决定"
+    case .done: "已完成"
+    default: "未知"
+    }
+}
+
+func connectionLabel(_ badge: HostConnectionBadge) -> String {
+    switch badge {
+    case .live: "在线"
+    case .connecting: "连接中"
+    case .stale: "重连"
+    case .offline: "离线"
     }
 }

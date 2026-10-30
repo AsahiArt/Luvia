@@ -35,6 +35,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import tech.asahiart.luvia.R
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.unit.dp
@@ -190,8 +192,8 @@ fun ChatFirstApp(
                 val thread = openThread
                 if (thread == null) {
                     Column(Modifier.fillMaxSize().padding(24.dp)) {
-                        Text("That session is no longer in the list.")
-                        TextButton(onClick = { stage = "sessions" }) { Text("Back to sessions") }
+                        Text(stringResource(R.string.session_gone))
+                        TextButton(onClick = { stage = "sessions" }) { Text(stringResource(R.string.back_to_sessions)) }
                     }
                 } else {
                     val workspace = viewModel.workspace(thread.hostId)
@@ -290,9 +292,9 @@ fun ChatFirstApp(
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(onDismissRequest = { showNewSession = false }, sheetState = sheetState) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
-                Text("New session", style = MaterialTheme.typography.headlineSmall)
+                Text(stringResource(R.string.new_session), style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    "Starts an ACP agent on this computer. Pane agents are still created on the host.",
+                    stringResource(R.string.new_session_body),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 6.dp, bottom = 12.dp),
                 )
@@ -300,9 +302,9 @@ fun ChatFirstApp(
                 OutlinedTextField(
                     value = cwd,
                     onValueChange = { cwd = it },
-                    label = { Text("Directory") },
+                    label = { Text(stringResource(R.string.directory)) },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Uses the open workspace if empty") },
+                    placeholder = { Text(stringResource(R.string.directory_hint)) },
                 )
                 val agents = state?.acp?.agents.orEmpty()
                 if (state?.acp?.agentsLoading == true && agents.isEmpty()) {
@@ -320,11 +322,11 @@ fun ChatFirstApp(
                         enabled = agent.available && !awaitingAcp,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(if (agent.available) agent.name else "${agent.name} unavailable")
+                        Text(if (agent.available) agent.name else stringResource(R.string.agent_unavailable, agent.name))
                     }
                 }
                 if (agents.isEmpty() && state?.acp?.agentsLoading != true) {
-                    Text("No ACP agents reported yet.")
+                    Text(stringResource(R.string.no_acp_agents))
                 }
                 state?.acp?.errorText?.let {
                     Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
@@ -353,17 +355,17 @@ fun ChatFirstApp(
     if (confirmUnpair && selected != null) {
         AlertDialog(
             onDismissRequest = { confirmUnpair = false },
-            title = { Text("Unpair ${selected.name}?") },
-            text = { Text("This phone drops the device key for that computer.") },
+            title = { Text(stringResource(R.string.unpair_title, selected.name)) },
+            text = { Text(stringResource(R.string.unpair_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.unpair(selected.id)
                     confirmUnpair = false
                     showSettings = false
-                }) { Text("Unpair") }
+                }) { Text(stringResource(R.string.unpair)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmUnpair = false }) { Text("Cancel") }
+                TextButton(onClick = { confirmUnpair = false }) { Text(stringResource(R.string.cancel)) }
             },
         )
     }
@@ -391,13 +393,13 @@ private fun HostSettingsSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
             Text(host.name, style = MaterialTheme.typography.headlineSmall)
-            Text(host.connection.name, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(host.connection.label(), color = MaterialTheme.colorScheme.onSurfaceVariant)
             host.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.height(12.dp))
-            OutlinedTextField(alias, { alias = it }, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(addresses, { addresses = it }, label = { Text("Addresses") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(port, { port = it }, label = { Text("SSH port") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(user, { user = it }, label = { Text("User") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(alias, { alias = it }, label = { Text(stringResource(R.string.name)) }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(addresses, { addresses = it }, label = { Text(stringResource(R.string.addresses)) }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(port, { port = it }, label = { Text(stringResource(R.string.ssh_port)) }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(user, { user = it }, label = { Text(stringResource(R.string.user)) }, modifier = Modifier.fillMaxWidth())
             Button(
                 onClick = {
                     onSave(alias, addresses, port, user)
@@ -405,21 +407,21 @@ private fun HostSettingsSheet(
                 },
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                 shape = RoundedCornerShape(20.dp),
-            ) { Text("Save connection") }
-            TextButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) { Text("Refresh") }
-            TextButton(onClick = onConnect, modifier = Modifier.fillMaxWidth()) { Text("Connect") }
-            TextButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) { Text("Disconnect") }
+            ) { Text(stringResource(R.string.save_connection)) }
+            TextButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.refresh)) }
+            TextButton(onClick = onConnect, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.connect)) }
+            TextButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.disconnect)) }
             if (hasPushDistributor) {
                 androidx.compose.foundation.layout.Row(
                     Modifier.fillMaxWidth().padding(vertical = 8.dp),
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                 ) {
-                    Text("Wake this phone", modifier = Modifier.weight(1f))
+                    Text(stringResource(R.string.wake_phone), modifier = Modifier.weight(1f))
                     Switch(checked = pushEnabled, onCheckedChange = onSetPushEnabled)
                 }
             }
             TextButton(onClick = onUnpair, modifier = Modifier.fillMaxWidth()) {
-                Text("Unpair", color = MaterialTheme.colorScheme.error)
+                Text(stringResource(R.string.unpair), color = MaterialTheme.colorScheme.error)
             }
             Spacer(Modifier.height(24.dp))
         }

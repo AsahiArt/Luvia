@@ -31,6 +31,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import tech.asahiart.luvia.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
@@ -64,28 +66,28 @@ fun TerminalScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Back to chat", tint = extended.terminalFg)
+                Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.back_to_chat), tint = extended.terminalFg)
             }
             Column(Modifier.weight(1f)) {
                 Text(
-                    model?.title ?: "Terminal",
+                    model?.title ?: stringResource(R.string.terminal),
                     color = extended.terminalFg,
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
                     when (model?.control) {
-                        TerminalControl.Controlling -> "Controlling"
-                        TerminalControl.Requesting -> "Requesting control"
-                        TerminalControl.Conflict -> "Control held elsewhere"
-                        TerminalControl.Observing, null -> "Observing"
+                        TerminalControl.Controlling -> stringResource(R.string.terminal_controlling)
+                        TerminalControl.Requesting -> stringResource(R.string.terminal_requesting)
+                        TerminalControl.Conflict -> stringResource(R.string.terminal_conflict)
+                        TerminalControl.Observing, null -> stringResource(R.string.terminal_observing)
                     },
                     color = extended.terminalFg.copy(alpha = 0.7f),
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
             if (pendingDecisions > 0) {
-                Text(
-                    "$pendingDecisions waiting",
+                    Text(
+                    stringResource(R.string.pending_chip, pendingDecisions),
                     modifier = Modifier
                         .clip(RoundedCornerShape(14.dp))
                         .background(MaterialTheme.colorScheme.tertiaryContainer)
@@ -97,11 +99,11 @@ fun TerminalScreen(
             if (model?.canControl == true && model.control != TerminalControl.Requesting) {
                 if (controlling) {
                     FilledTonalButton(onClick = onReleaseControl, modifier = Modifier.padding(start = 8.dp)) {
-                        Text("Release")
+                        Text(stringResource(R.string.release_control))
                     }
                 } else {
                     Button(onClick = onRequestControl, modifier = Modifier.padding(start = 8.dp)) {
-                        Text("Take control")
+                        Text(stringResource(R.string.take_control))
                     }
                 }
             }
@@ -137,7 +139,7 @@ fun TerminalScreen(
                 }
             }
         }
-        val message = model?.conflictMessage ?: model?.errorText
+        val message = (model?.conflictMessage ?: model?.errorText)?.let(::localizeUiMessage)
         if (!message.isNullOrBlank()) {
             Text(
                 message,
@@ -160,7 +162,7 @@ fun TerminalScreen(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             if (lines.isEmpty()) {
-                Text("Waiting for output.", color = extended.terminalFg.copy(alpha = 0.6f), fontFamily = LuviaTheme.mono)
+                Text(stringResource(R.string.waiting_output), color = extended.terminalFg.copy(alpha = 0.6f), fontFamily = LuviaTheme.mono)
             } else {
                 lines.forEach { line ->
                     Text(line, fontFamily = LuviaTheme.mono, style = MaterialTheme.typography.bodySmall)
@@ -177,9 +179,9 @@ fun TerminalScreen(
             KeyChip("Esc") { onSendKey(TerminalKey.Escape) }
             KeyChip("Tab") { onSendKey(TerminalKey.Tab) }
             KeyChip("Ctrl-C") { onSendKey(TerminalKey.CtrlC) }
-            KeyChip("Up") { onSendKey(TerminalKey.Up) }
-            KeyChip("Down") { onSendKey(TerminalKey.Down) }
-            KeyChip("Enter") { onSendKey(TerminalKey.Enter) }
+            KeyChip("上") { onSendKey(TerminalKey.Up) }
+            KeyChip("下") { onSendKey(TerminalKey.Down) }
+            KeyChip("回车") { onSendKey(TerminalKey.Enter) }
         }
         if (controlling) {
             Row(
@@ -211,7 +213,7 @@ fun TerminalScreen(
                     },
                     modifier = Modifier.padding(start = 8.dp),
                 ) {
-                    Text("Send")
+                    Text(stringResource(R.string.send))
                 }
             }
         } else {

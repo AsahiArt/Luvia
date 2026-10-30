@@ -42,6 +42,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import tech.asahiart.luvia.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -95,7 +97,7 @@ fun ChatScreen(
     ) {
         Row(Modifier.fillMaxWidth().height(64.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
             }
             Column(Modifier.weight(1f)) {
                 Text(thread.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -131,7 +133,7 @@ fun ChatScreen(
                     is TimelineItem.Thought -> ThoughtRow(item.text)
                     is TimelineItem.Tool -> ToolTrail(item.call)
                     is TimelineItem.Plan -> PlanBlock(item.entries)
-                    is TimelineItem.Status -> StatusLine(item.status?.sessionLabel() ?: item.stopReason?.name ?: "Update")
+                    is TimelineItem.Status -> StatusLine(item.status?.sessionLabel() ?: stringResource(R.string.status_update))
                     is TimelineItem.Unconfirmed -> UnconfirmedRow(item.text)
                     is TimelineItem.AskCard -> Unit
                 }
@@ -157,7 +159,7 @@ fun ChatScreen(
                 }
             },
             enabled = !isObserver && !sending && draft.isNotBlank(),
-            hint = if (isObserver) "Observer can read, not send" else "Message",
+            hint = if (isObserver) stringResource(R.string.observer_cannot_send) else stringResource(R.string.message_hint),
         )
     }
 }
@@ -193,7 +195,11 @@ private fun ThoughtRow(text: String) {
             .clickable { open = !open }
             .padding(vertical = 4.dp),
     ) {
-        Text(if (open) "Thought" else "Thought · tap to expand", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            if (open) stringResource(R.string.thought) else stringResource(R.string.thought_collapsed),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         if (open) {
             Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -219,7 +225,7 @@ private fun ToolTrail(call: AcpToolCall) {
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(call.title.ifBlank { kind.name }, style = MaterialTheme.typography.titleSmall)
+            Text(call.title.ifBlank { kind.shortLabel() }, style = MaterialTheme.typography.titleSmall)
             call.kind?.let {
                 Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -287,7 +293,7 @@ private fun TestMeter(passed: Int, total: Int, failedStatus: Boolean) {
             }
         }
         if (cells > 32) {
-            Text("${cells - 32} more", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.more_cells, cells - 32), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -302,7 +308,7 @@ private fun PlanBlock(entries: List<AcpPlanEntry>) {
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("Plan", style = MaterialTheme.typography.labelLarge)
+        Text(stringResource(R.string.plan), style = MaterialTheme.typography.labelLarge)
         entries.forEach { entry ->
             Text("· ${entry.content}", style = MaterialTheme.typography.bodyMedium)
         }
@@ -327,10 +333,10 @@ private fun UnconfirmedRow(text: String) {
             .background(MaterialTheme.colorScheme.errorContainer)
             .padding(12.dp),
     ) {
-        Text("Unconfirmed", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onErrorContainer)
+        Text(stringResource(R.string.unconfirmed), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onErrorContainer)
         Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onErrorContainer)
         Text(
-            "The result was lost. This is not sent again.",
+            stringResource(R.string.unconfirmed_detail),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onErrorContainer,
         )
@@ -367,7 +373,7 @@ private fun DecisionCard(
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
             )
             Text(
-                ask.question ?: "A decision is waiting",
+                ask.question ?: stringResource(R.string.decision_waiting),
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
             )
@@ -391,7 +397,7 @@ private fun DecisionCard(
                         Text(option.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                         if (option.recommended || option == recommended) {
                             Text(
-                                "Agent recommends",
+                                stringResource(R.string.agent_recommends),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer,
                             )
@@ -401,7 +407,7 @@ private fun DecisionCard(
                         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (option.tone == AskTone.Destructive) {
-                        Text("This option rejects the request.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.option_rejects), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
@@ -411,7 +417,7 @@ private fun DecisionCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    if (enabled) "Pick one, then continue." else "Observer can't answer.",
+                    if (enabled) stringResource(R.string.add_note) else stringResource(R.string.observer_cannot_answer),
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onTertiaryContainer,
@@ -421,7 +427,7 @@ private fun DecisionCard(
                     enabled = enabled && selected != null,
                     shape = RoundedCornerShape(20.dp),
                 ) {
-                    Text("Select and continue")
+                    Text(stringResource(R.string.select_and_continue))
                 }
             }
         }
@@ -462,7 +468,7 @@ private fun Composer(
             },
         )
         IconButton(onClick = onSend, enabled = enabled) {
-            Icon(Icons.Filled.Send, contentDescription = "Send", tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+            Icon(Icons.Filled.Send, contentDescription = stringResource(R.string.send), tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
         }
     }
 }

@@ -38,6 +38,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import tech.asahiart.luvia.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
@@ -89,20 +91,22 @@ fun SessionListScreen(
                     Spacer(Modifier.width(8.dp))
                     Column {
                         Text(
-                            selected?.name ?: "No computer",
+                            selected?.name ?: stringResource(R.string.no_computer),
                             style = MaterialTheme.typography.titleMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            selected?.address?.takeIf { it.isNotBlank() } ?: selected?.connection?.name ?: "Pair a computer",
+                            selected?.address?.takeIf { it.isNotBlank() }
+                                ?: selected?.connection?.label()
+                                ?: stringResource(R.string.pair_a_computer),
                             fontFamily = LuviaTheme.mono,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                         )
                     }
-                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Switch computer")
+                    Icon(Icons.Filled.KeyboardArrowDown, contentDescription = stringResource(R.string.switch_computer))
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     hosts.forEach { host ->
@@ -115,7 +119,7 @@ fun SessionListScreen(
                         )
                     }
                     DropdownMenuItem(
-                        text = { Text("Pair a computer") },
+                        text = { Text(stringResource(R.string.pair_computer)) },
                         onClick = {
                             menu = false
                             onPair()
@@ -123,7 +127,7 @@ fun SessionListScreen(
                     )
                     if (selected != null) {
                         DropdownMenuItem(
-                            text = { Text("Computer settings") },
+                            text = { Text(stringResource(R.string.computer_settings)) },
                             onClick = {
                                 menu = false
                                 onOpenSettings()
@@ -144,7 +148,7 @@ fun SessionListScreen(
                 color = MaterialTheme.colorScheme.primary,
             )
             IconButton(onClick = onNewSession) {
-                Icon(Icons.Filled.Add, contentDescription = "New session")
+                Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.new_session))
             }
         }
         val waitingCount = pendingReplyCount(threads)
@@ -160,22 +164,22 @@ fun SessionListScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "$waitingCount waiting for a reply",
+                    stringResource(R.string.needs_you_banner, waitingCount),
                     modifier = Modifier.weight(1f),
                     color = MaterialTheme.colorScheme.onTertiaryContainer,
                     style = MaterialTheme.typography.titleSmall,
                 )
-                Text("Show", color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text(stringResource(R.string.show), color = MaterialTheme.colorScheme.onTertiaryContainer)
             }
         }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            FilterChip(filter == SessionFilter.All, { onFilter(SessionFilter.All) }, { Text("All") })
-            FilterChip(filter == SessionFilter.NeedsYou, { onFilter(SessionFilter.NeedsYou) }, { Text("Needs you") })
-            FilterChip(filter == SessionFilter.Running, { onFilter(SessionFilter.Running) }, { Text("Running") })
-            FilterChip(filter == SessionFilter.Idle, { onFilter(SessionFilter.Idle) }, { Text("Idle") })
+            FilterChip(filter == SessionFilter.All, { onFilter(SessionFilter.All) }, { Text(stringResource(R.string.filter_all)) })
+            FilterChip(filter == SessionFilter.NeedsYou, { onFilter(SessionFilter.NeedsYou) }, { Text(stringResource(R.string.filter_needs_you)) })
+            FilterChip(filter == SessionFilter.Running, { onFilter(SessionFilter.Running) }, { Text(stringResource(R.string.filter_running)) })
+            FilterChip(filter == SessionFilter.Idle, { onFilter(SessionFilter.Idle) }, { Text(stringResource(R.string.filter_idle)) })
         }
         if (pending.isNotEmpty() && filter != SessionFilter.Idle && filter != SessionFilter.Running) {
             val pagerState = rememberPagerState(pageCount = { pending.size })
@@ -202,11 +206,15 @@ fun SessionListScreen(
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text(
-                    if (selected == null) "Pair a computer to see sessions." else "No sessions for this filter.",
+                    if (selected == null) {
+                        stringResource(R.string.empty_pair_first)
+                    } else {
+                        stringResource(R.string.empty_filter)
+                    },
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    "New sessions use the + button. Pane agents still start on the computer.",
+                    stringResource(R.string.empty_sessions_hint),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
                 )

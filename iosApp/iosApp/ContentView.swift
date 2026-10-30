@@ -34,7 +34,6 @@ struct ContentView: View {
             }
         }
         .animation(.spring(response: 0.42, dampingFraction: 0.86), value: stage)
-        .tint(ChatPalette.seed)
         .onAppear {
             model.connectHostsOnce()
             if model.hosts.isEmpty { stage = "pair" }
@@ -56,12 +55,12 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showSettings) { settings }
         .sheet(isPresented: $showNewSession) { newSession }
-        .confirmationDialog("Unpair this computer?", isPresented: $confirmUnpair, titleVisibility: .visible) {
-            Button("Unpair", role: .destructive) {
+        .confirmationDialog("取消配对这台电脑？", isPresented: $confirmUnpair, titleVisibility: .visible) {
+            Button("取消配对", role: .destructive) {
                 guard let id = model.selectedHostID else { return }
                 _Concurrency.Task { await model.unpair(id) }
             }
-            Button("Cancel", role: .cancel) {}
+            Button("取消", role: .cancel) {}
         }
     }
 
@@ -87,7 +86,7 @@ struct ContentView: View {
                     glass: glass
                 )
             } else {
-                ContentUnavailableView("Session missing", systemImage: "bubble.left", description: Text("Back to the list."))
+                ContentUnavailableView("会话不在了", systemImage: "bubble.left", description: Text("回到列表。"))
                     .onTapGesture { stage = "sessions" }
             }
         default:
@@ -187,16 +186,16 @@ struct ContentView: View {
         NavigationStack {
             List {
                 Section {
-                    TextField("Directory", text: $cwd)
+                    TextField("目录", text: $cwd)
                 } footer: {
-                    Text("Starts an ACP agent. Pane agents are still created on the computer. An empty directory uses the open workspace.")
+                    Text("在这台电脑上启动 ACP agent。主机上的 agent 仍在电脑上创建。留空则用当前工作区。")
                 }
                 let agents: [AcpAgentKind] = KotlinLists.array(model.hostStates[model.selectedHostID ?? ""]?.acp.agents as Any)
                 if agents.isEmpty {
-                    Text("No ACP agents reported yet.")
+                    Text("还没有 ACP agent")
                 }
                 ForEach(agents, id: \.id) { agent in
-                    Button(agent.available ? agent.name : "\(agent.name) unavailable") {
+                    Button(agent.available ? agent.name : "\(agent.name) 不可用") {
                         model.hostUhp()?.setLaunchAcpCwd(cwd: cwd)
                         model.hostUhp()?.setLaunchAcpAgent(id: agent.id)
                         model.hostUhp()?.launchAcp()
@@ -205,10 +204,10 @@ struct ContentView: View {
                     .disabled(!agent.available)
                 }
             }
-            .navigationTitle("New session")
+            .navigationTitle("新会话")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { showNewSession = false }
+                    Button("关闭") { showNewSession = false }
                 }
             }
         }
@@ -226,12 +225,12 @@ private struct SettingsForm: View {
     var body: some View {
         Form {
             if let host = model.selectedHost {
-                Section(host.connection.rawValue) {
-                    TextField("Name", text: $alias)
-                    TextField("Addresses", text: $addresses, axis: .vertical)
-                    TextField("SSH port", text: $port)
-                    TextField("User", text: $user)
-                    Button("Save connection") {
+                Section(connectionLabel(host.connection)) {
+                    TextField("名称", text: $alias)
+                    TextField("地址", text: $addresses, axis: .vertical)
+                    TextField("SSH 端口", text: $port)
+                    TextField("用户", text: $user)
+                    Button("保存连接") {
                         let id = host.id
                         let alias = alias
                         let addresses = addresses
@@ -249,20 +248,20 @@ private struct SettingsForm: View {
                     }
                 }
                 Section {
-                    Button("Refresh") { _Concurrency.Task { await model.refresh(host.id) } }
-                    Button("Connect") { model.connect(host.id) }
-                    Button("Disconnect") { model.disconnect(host.id) }
-                    Toggle("Wake this phone", isOn: Binding(
+                    Button("刷新") { _Concurrency.Task { await model.refresh(host.id) } }
+                    Button("连接") { model.connect(host.id) }
+                    Button("断开") { model.disconnect(host.id) }
+                    Toggle("唤醒这台手机", isOn: Binding(
                         get: { model.isPushEnabled },
                         set: { model.setWakeForApprovals($0) }
                     ))
                 }
                 Section {
-                    Button("Unpair", role: .destructive, action: onUnpair)
+                    Button("取消配对", role: .destructive, action: onUnpair)
                 }
             }
         }
-        .navigationTitle(model.selectedHost?.name ?? "Computer")
+        .navigationTitle(model.selectedHost?.name ?? "电脑")
         .onAppear(perform: load)
     }
 

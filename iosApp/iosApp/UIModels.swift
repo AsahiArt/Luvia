@@ -718,25 +718,25 @@ enum FailureText {
         case .protocolError(let value):
             return pairingAware(value.reason)
         case .unknownMajor(let value):
-            return "Unsupported protocol \(value.name) \(value.major)"
+            return "不支持的协议 \(value.name) \(value.major)"
         case .capabilityMissing(let value):
-            return "Host does not support \(value.method)"
+            return "主机不支持 \(value.method)"
         case .remote(let value):
             return value.message
         case .indeterminateMutation(let value):
-            return "Unconfirmed change (\(value.method))"
+            return "改动未确认（\(value.method)）"
         case .bridge(let value):
             return value.reason
         case .transport(let value):
             return value.reason
         case .closed(_):
-            return "Connection closed"
+            return "连接已断开"
         case .revisionConflict(let value):
             return value.message
         case .contentRevisionConflict(_):
-            return "The agent screen changed. Refresh and send the keys again."
+            return "agent 的画面变了。刷新后再发按键。"
         case .agentPromptBusy(_):
-            return "The agent is still handling a previous message. Wait for it to finish."
+            return "agent 还在处理上一条消息。等它完成。"
         case .forbidden(let value):
             return value.message
         case .notFound(let value):
@@ -758,7 +758,7 @@ enum FailureText {
             if message.localizedCaseInsensitiveContains("observe") {
                 return message
             }
-            return "\(message) Observe still works."
+            return "\(message) 观察仍然有效。"
         case .frameTooLarge(let value):
             return value.message
         case .serverBusy(let value):
@@ -767,18 +767,18 @@ enum FailureText {
     }
 
     static func pairingAware(_ reason: String) -> String {
-        let draftNote = " The draft is still valid."
+        let draftNote = " 草稿仍然有效。"
         if reason == "pairing code is for a different device key" {
-            return "This pairing code is for a different Device key. Run the command from the previous step on the Host, then scan the pairing code it prints." + draftNote
+            return "这条配对码属于另一把设备密钥。请在电脑上运行上一步的命令，再扫描它打印的码。" + draftNote
         }
         if reason == "pairing code must start with luvia1:" {
-            return "This is not a luvia1: pairing code. Scan or paste a luvia1: code." + draftNote
+            return "这不是 luvia1: 配对码。请扫描或粘贴一条 luvia1: 码。" + draftNote
         }
         if reason == "pairing code has no host key fingerprints" {
-            return "This pairing code has an empty host key (hk) set. Generate a new pairing code on the Host." + draftNote
+            return "这条配对码没有主机密钥，不能信任。请在电脑上重新生成。" + draftNote
         }
         if reason.hasPrefix("pairing code") {
-            return "This pairing code is malformed. Scan again or paste a different luvia1: code." + draftNote
+            return "这条配对码格式不对。再扫一次，或粘贴另一条 luvia1: 码。" + draftNote
         }
         return reason
     }
@@ -797,13 +797,13 @@ enum FailureText {
         }
         let lower = raw.lowercased()
         if lower.contains("host key") || lower.contains("re-pair") {
-            return "Host key changed. Re-pair this Device."
+            return "主机密钥变了。请重新配对。"
         }
         if lower.contains("authentication")
             || lower.contains("public-key")
             || lower.contains("permission denied")
         {
-            return "SSH refused. Check this Device's Grant on the Host."
+            return "SSH 拒绝了这台设备。请在主机上检查授权。"
         }
         if lower.contains("timed out")
             || lower.contains("timeout")
@@ -817,7 +817,7 @@ enum FailureText {
             || lower.contains("unknown host")
             || lower.contains("host is down")
         {
-            return "No address reachable. Check network or Tailscale."
+            return "没有能连上的地址。检查网络或 Tailscale。"
         }
         return raw
     }

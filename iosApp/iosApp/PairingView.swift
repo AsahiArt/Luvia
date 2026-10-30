@@ -9,7 +9,6 @@ struct PairingView: View {
     @State private var label = UIDevice.current.name
     @State private var role: HostRole = .controller
     @State private var draft: PairingDraft?
-    @State private var shortCode = ""
     @State private var longCode = ""
     @State private var error: String?
     @State private var busy = false
@@ -26,12 +25,12 @@ struct PairingView: View {
                     start
                 }
             }
-            .navigationTitle("Pair a computer")
+            .navigationTitle("配对电脑")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if let onClose {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Close") {
+                        Button("关闭") {
                             onClose()
                         }
                     }
@@ -45,7 +44,7 @@ struct PairingView: View {
                     scanning = false
                 },
                 onUnavailable: {
-                    error = "Camera is unavailable."
+                    error = "相机不可用。"
                     scanning = false
                 }
             )
@@ -56,19 +55,19 @@ struct PairingView: View {
     private var start: some View {
         Form {
             Section {
-                TextField("Device name", text: $label)
-                Picker("Role", selection: $role) {
-                    Text("Controller").tag(HostRole.controller)
-                    Text("Observer").tag(HostRole.observer)
+                TextField("设备名称", text: $label)
+                Picker("角色", selection: $role) {
+                    Text("控制者").tag(HostRole.controller)
+                    Text("观察者").tag(HostRole.observer)
                 }
             } footer: {
-                Text("The computer runs luvia-host pair and prints a luvia1 code. The 6-digit tiles are a preview until the host grows a short code.")
+                Text("在电脑上运行 luvia-host pair，得到一条 luvia1: 码。")
             }
             if let error {
                 Section { Text(error).foregroundStyle(.red) }
             }
             Section {
-                Button("Start pairing") { begin() }
+                Button("开始配对") { begin() }
                     .disabled(label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
@@ -86,15 +85,15 @@ struct PairingView: View {
                         VStack(spacing: 8) {
                             Text(String(format: "%d:%02d", remaining / 60, remaining % 60))
                                 .font(.system(.title2, design: .monospaced).weight(.semibold))
-                                .foregroundStyle(ChatPalette.pairBlue)
-                            Text("Short code is a preview")
+                                .foregroundStyle(Color.blue)
+                            Text("电脑终端显示的配对码")
                                 .font(.caption)
                                 .foregroundStyle(.white.opacity(0.7))
                             shortTiles
                         }
                     }
                     .padding(18)
-                    .luviaGlass(in: RoundedRectangle(cornerRadius: 36, style: .continuous), tint: ChatPalette.pairBlue)
+                    .luviaGlass(in: RoundedRectangle(cornerRadius: 36, style: .continuous), tint: Color.blue)
                     fingerprintRow(
                         draft,
                         matches: decoded?.deviceKeyFingerprint == draft.deviceKeyFingerprint,
@@ -120,14 +119,14 @@ struct PairingView: View {
                         }
                     }
                     commandRow(draft.command)
-                    TextField("luvia1 code", text: $longCode, axis: .vertical)
+                    TextField("luvia1: 码", text: $longCode, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(.footnote, design: .monospaced))
                     if let error {
                         Text(error).foregroundStyle(.red).font(.footnote)
                     }
                     if remaining == 0 {
-                        Text("Preview window elapsed. The luvia1 code still pairs.")
+                        Text("倒计时结束。仍可用下面的 luvia1: 码配对。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -137,60 +136,48 @@ struct PairingView: View {
             .background(ChatPalette.pairBackground.ignoresSafeArea())
             .safeAreaInset(edge: .bottom) {
                 HStack(spacing: 10) {
-                    Button("Scan") { scanning = true }
+                    Button("改用扫码") { scanning = true }
                         .buttonStyle(.bordered)
-                    Button(busy ? "Pairing…" : "Confirm pairing") {
+                    Button(busy ? "正在配对…" : "确认配对") {
                         confirm(draft)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(ChatPalette.pairBlue)
+                    .tint(Color.blue)
                     .disabled(busy || longCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 .padding()
-                .luviaGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), tint: ChatPalette.pairBlue)
+                .luviaGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), tint: Color.blue)
                 .padding(.horizontal, 12)
             }
         }
     }
 
     private var shortTiles: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<6, id: \.self) { index in
-                let char = character(at: index)
-                Text(char)
-                    .font(.system(size: 28, weight: .bold, design: .monospaced))
-                    .frame(width: 42, height: 56)
-                    .background(
-                        index == max(shortCode.count - 1, 0) && !char.isEmpty
-                            ? ChatPalette.pairBlue
-                            : Color.white.opacity(0.08),
-                        in: RoundedRectangle(cornerRadius: index % 2 == 0 ? 22 : 12, style: .continuous)
-                    )
-                    .foregroundStyle(.white)
+        TimelineView(.periodic(from: started, by: 0.45)) { context in
+            let slot = Int(context.date.timeIntervalSince(started) / 0.45) % 6
+            HStack(spacing: 6) {
+                ForEach(0..<6, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: index % 2 == 0 ? 22 : 12, style: .continuous)
+                        .fill(index == slot ? Color.blue : Color.white.opacity(0.08))
+                        .frame(width: 42, height: 56)
+                        .overlay {
+                            if index == slot {
+                                Circle()
+                                    .fill(Color.white.opacity(0.85))
+                                    .frame(width: 8, height: 8)
+                            }
+                        }
+                }
             }
         }
-        .background {
-            TextField("", text: $shortCode)
-                .keyboardType(.asciiCapable)
-                .textInputAutocapitalization(.characters)
-                .autocorrectionDisabled()
-                .foregroundStyle(.clear)
-                .onChange(of: shortCode) { _, value in
-                    shortCode = String(value.uppercased().filter(\.isLetterOrNumber).prefix(6))
-                }
-        }
-    }
-
-    private func character(at index: Int) -> String {
-        guard index < shortCode.count else { return "" }
-        let stringIndex = shortCode.index(shortCode.startIndex, offsetBy: index)
-        return String(shortCode[stringIndex])
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("电脑终端显示的配对码")
     }
 
     private func fingerprintRow(_ draft: PairingDraft, matches: Bool, hostKey: String?) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Fingerprint").font(.caption).foregroundStyle(.secondary)
+                Text("核对指纹").font(.caption).foregroundStyle(.secondary)
                 Text(draft.deviceKeyFingerprint).font(.system(.footnote, design: .monospaced))
                 if let hostKey {
                     Text(hostKey).font(.system(.caption2, design: .monospaced)).foregroundStyle(.secondary)
@@ -200,7 +187,7 @@ struct PairingView: View {
             if matches {
                 Image(systemName: "checkmark")
                     .padding(8)
-                    .background(ChatPalette.pairBlue, in: Circle())
+                    .background(Color.blue, in: Circle())
                     .foregroundStyle(.white)
             }
         }
@@ -215,7 +202,7 @@ struct PairingView: View {
                 .font(.system(.caption2, design: .monospaced))
                 .lineLimit(3)
             Spacer()
-            Button(copied ? "Copied" : "Copy") {
+            Button(copied ? "已复制" : "复制") {
                 UIPasteboard.general.string = command
                 copied = true
             }
@@ -287,7 +274,7 @@ private struct PairOrb: View {
                     y: center.y + CGFloat(sin(angle)) * distance
                 )
                 let rect = CGRect(x: point.x - 2, y: point.y - 2, width: 4, height: 4)
-                context.fill(Path(ellipseIn: rect), with: .color(ChatPalette.pairBlue.opacity(0.85)))
+                context.fill(Path(ellipseIn: rect), with: .color(Color.blue.opacity(0.85)))
             }
             var ring = Path()
             ring.addArc(
@@ -297,7 +284,7 @@ private struct PairOrb: View {
                 endAngle: .degrees(-90 + 360 * Double(progress)),
                 clockwise: false
             )
-            context.stroke(ring, with: .color(ChatPalette.pairBlue), lineWidth: 6)
+            context.stroke(ring, with: .color(Color.blue), lineWidth: 6)
         }
     }
 }

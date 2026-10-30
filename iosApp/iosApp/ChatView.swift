@@ -21,7 +21,7 @@ struct ChatView: View {
                 Button(action: onBack) {
                     Image(systemName: "chevron.left")
                 }
-                .accessibilityLabel("Back")
+                .accessibilityLabel("返回")
                 VStack(alignment: .leading) {
                     Text(thread.title).font(.headline).lineLimit(1)
                     Text(sessionLabel(thread.status)).font(.caption).foregroundStyle(.secondary)
@@ -77,20 +77,20 @@ struct ChatView: View {
             ThoughtBlock(text: row.text)
         case .tool(let row):
             ToolTrailView(call: row.call, canAsk: model.selectedHost?.isController == true) {
-                send("Please fix this failure:\n\($0)")
+                send("请修这个失败：\n\($0)")
             }
         case .plan(let row):
             PlanBlock(entries: KotlinLists.array(row.entries as Any))
         case .status(let row):
-            Text(row.status.map(sessionLabel) ?? row.stopReason.map { "\($0)" } ?? "Update")
+            Text(row.status.map(sessionLabel) ?? "更新")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
         case .unconfirmed(let row):
             VStack(alignment: .leading, spacing: 4) {
-                Text("Unconfirmed").font(.headline)
+                Text("未确认").font(.headline)
                 Text(row.text)
-                Text("The result was lost. This is not sent again.")
+                Text("结果丢了，不会再次发送。")
                     .font(.caption)
             }
             .padding(12)
@@ -105,9 +105,10 @@ struct ChatView: View {
         HStack {
             if mine { Spacer(minLength: 48) }
             Text(text)
+                .foregroundStyle(mine ? Color.white : Color.primary)
                 .padding(12)
                 .background(
-                    mine ? ChatPalette.seed.opacity(0.18) : Color.primary.opacity(0.06),
+                    mine ? Color.blue : Color.primary.opacity(0.06),
                     in: RoundedRectangle(cornerRadius: 20, style: .continuous)
                 )
             if !mine { Spacer(minLength: 48) }
@@ -120,7 +121,7 @@ struct ChatView: View {
         return VStack(alignment: .leading, spacing: 10) {
             Capsule().fill(Color.primary.opacity(0.25)).frame(width: 36, height: 4).frame(maxWidth: .infinity)
             Text("\(queueIndex) / \(queueTotal)").font(.caption.weight(.semibold))
-            Text(ask.question ?? "A decision is waiting").font(.title3.weight(.semibold))
+            Text(ask.question ?? "有一个决定在等你").font(.title3.weight(.semibold))
             ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                 let picked = optionID(option) == (selectedOptionID ?? recommended.map(optionID))
                 Button {
@@ -131,7 +132,7 @@ struct ChatView: View {
                             Text(option.label).font(.headline)
                             Spacer()
                             if option.recommended || optionID(option) == recommended.map(optionID) {
-                                Text("Agent recommends").font(.caption2)
+                                Text("agent 推荐").font(.caption2)
                             }
                         }
                         if let consequence = option.consequence, !consequence.isEmpty {
@@ -143,28 +144,28 @@ struct ChatView: View {
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(picked ? ChatPalette.tertiary : .clear, lineWidth: 2)
+                            .stroke(picked ? Color.blue : .clear, lineWidth: 2)
                     )
                 }
                 .buttonStyle(.plain)
             }
-            Button("Select and continue") {
+            Button("选定并继续") {
                 let choice = options.first { optionID($0) == (selectedOptionID ?? recommended.map(optionID)) }
                 if let choice {
                     model.uhpRegistry.answer(thread: thread, option: choice)
                 }
             }
             .buttonStyle(.borderedProminent)
-            .tint(ChatPalette.tertiary)
+            .tint(.blue)
             .disabled(model.selectedHost?.isController != true)
         }
         .padding(16)
-        .luviaGlass(in: RoundedRectangle(cornerRadius: 32, style: .continuous), tint: ChatPalette.tertiary)
+        .luviaGlass(in: RoundedRectangle(cornerRadius: 32, style: .continuous), tint: .blue)
     }
 
     private var composer: some View {
         HStack {
-            TextField(model.selectedHost?.isController == true ? "Message" : "Observer can read, not send", text: $draft, axis: .vertical)
+            TextField(model.selectedHost?.isController == true ? "消息" : "观察者只能看，不能发", text: $draft, axis: .vertical)
                 .focused($composerFocused)
             Button {
                 send(draft)
@@ -206,7 +207,7 @@ private struct ThoughtBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Button(open ? "Thought" : "Thought · tap to expand") { open.toggle() }
+            Button(open ? "思考" : "思考 · 轻点展开") { open.toggle() }
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if open {
@@ -235,18 +236,24 @@ struct ToolTrailView: View {
                 Text(call.title).font(.subheadline.weight(.semibold))
             }
             if !lines.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(lines.prefix(40).enumerated()), id: \.offset) { index, line in
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("\(index + 1)").font(.caption2.monospaced()).foregroundStyle(.secondary).frame(width: 24, alignment: .trailing)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.prefix(40).enumerated()), id: \.offset) { _, line in
+                        HStack(spacing: 0) {
+                            Rectangle()
+                                .fill(diffBar(line))
+                                .frame(width: 4)
                             Text(line)
                                 .font(.caption.monospaced())
-                                .foregroundStyle(line.hasPrefix("+") ? Color.green : line.hasPrefix("-") ? Color.red : Color.primary)
+                                .foregroundStyle(Color.primary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(diffFill(line))
                         }
                     }
                 }
-                .padding(8)
-                .background(Color.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Color(.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             if let meter {
                 VStack(alignment: .leading, spacing: 6) {
@@ -257,13 +264,13 @@ struct ToolTrailView: View {
                         ForEach(0..<max(cells, 0), id: \.self) { index in
                             let bad = cells > 0 && index >= cells - min(cells, failed)
                             RoundedRectangle(cornerRadius: 1)
-                                .fill(bad ? Color.red : ChatPalette.seed)
+                                .fill(bad ? Color.red : Color.blue)
                                 .frame(width: 6, height: 14)
                         }
                     }
                 }
                 if failedCount(meter) > 0 && canAsk {
-                    Button("Ask the agent to fix") {
+                    Button("交给 claude 修") {
                         onFix(call.summary ?? call.title)
                     }
                     .font(.caption)
@@ -281,20 +288,32 @@ struct ToolTrailView: View {
 
     private func chipTitle(_ kind: ToolTrailKind) -> String {
         switch kind {
-        case .read: "Read"
-        case .edit: "Edit"
-        case .run: "Run"
-        default: "Tool"
+        case .read: "读"
+        case .edit: "改"
+        case .run: "跑"
+        default: "工具"
         }
     }
 
     private func chipColor(_ kind: ToolTrailKind) -> Color {
         switch kind {
         case .read: .secondary
-        case .edit: ChatPalette.seed
+        case .edit: .blue
         case .run: .red
         default: .gray
         }
+    }
+
+    private func diffBar(_ line: String) -> Color {
+        if line.hasPrefix("+") { return .green }
+        if line.hasPrefix("-") { return .red }
+        return .clear
+    }
+
+    private func diffFill(_ line: String) -> Color {
+        if line.hasPrefix("+") { return Color.green.opacity(0.14) }
+        if line.hasPrefix("-") { return Color.red.opacity(0.14) }
+        return .clear
     }
 }
 
@@ -303,7 +322,7 @@ private struct PlanBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Plan").font(.caption.weight(.semibold))
+            Text("计划").font(.caption.weight(.semibold))
             ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
                 Text("· \(entry.content)").font(.subheadline)
             }

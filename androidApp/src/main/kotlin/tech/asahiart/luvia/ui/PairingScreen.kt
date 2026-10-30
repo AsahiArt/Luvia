@@ -24,8 +24,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -59,7 +63,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -72,6 +76,7 @@ import tech.asahiart.luvia.HostRole
 import tech.asahiart.luvia.Outcome
 import tech.asahiart.luvia.PairingCodes
 import tech.asahiart.luvia.PairingUiState
+import tech.asahiart.luvia.R
 import tech.asahiart.luvia.ui.theme.LuviaTheme
 
 private val TileShapes = listOf(
@@ -91,6 +96,7 @@ fun PairingScreen(
     onCancel: () -> Unit,
     onClearError: () -> Unit,
     onBack: (() -> Unit)?,
+    initialLongCode: String = "",
 ) {
     val draft = pairing.draft
     Column(
@@ -105,12 +111,12 @@ fun PairingScreen(
                     onCancel()
                     onBack()
                 }) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                    Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                 }
             } else {
                 Spacer(Modifier.width(12.dp))
             }
-            Text("Pair a computer", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.pair_new_computer), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
         }
         if (draft == null) {
             PairingStart(
@@ -124,6 +130,7 @@ fun PairingScreen(
                 pairing = pairing,
                 onComplete = onComplete,
                 onClearError = onClearError,
+                initialLongCode = initialLongCode,
             )
         }
     }
@@ -136,7 +143,7 @@ private fun PairingStart(
     onBegin: (String, HostRole) -> Unit,
     onClearError: () -> Unit,
 ) {
-    var label by remember { mutableStateOf(Build.MODEL.ifBlank { "phone" }) }
+    var label by remember { mutableStateOf(Build.MODEL.ifBlank { "手机" }) }
     var role by remember { mutableStateOf(HostRole.Controller) }
     Column(
         Modifier
@@ -147,7 +154,7 @@ private fun PairingStart(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
-            "This phone gets a device key. The computer runs the command and gives back a luvia1 code.",
+            stringResource(R.string.pair_intro),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -157,13 +164,13 @@ private fun PairingStart(
                 label = it
                 onClearError()
             },
-            label = { Text("Device name") },
+            label = { Text(stringResource(R.string.device_name)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            RoleChip("Controller", role == HostRole.Controller) { role = HostRole.Controller }
-            RoleChip("Observer", role == HostRole.Observer) { role = HostRole.Observer }
+            RoleChip(stringResource(R.string.role_controller), role == HostRole.Controller) { role = HostRole.Controller }
+            RoleChip(stringResource(R.string.role_observer), role == HostRole.Observer) { role = HostRole.Observer }
         }
         if (error != null) {
             Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
@@ -174,7 +181,7 @@ private fun PairingStart(
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = RoundedCornerShape(28.dp),
         ) {
-            Text("Start pairing")
+            Text(stringResource(R.string.start_pairing))
         }
     }
 }
@@ -193,10 +200,10 @@ private fun PairingRitual(
     pairing: PairingUiState,
     onComplete: (String) -> Unit,
     onClearError: () -> Unit,
+    initialLongCode: String,
 ) {
     val draft = pairing.draft ?: return
-    var shortCode by remember { mutableStateOf("") }
-    var longCode by remember { mutableStateOf("") }
+    var longCode by remember { mutableStateOf(initialLongCode) }
     var scanning by remember { mutableStateOf(false) }
     var copied by remember { mutableStateOf(false) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -220,7 +227,7 @@ private fun PairingRitual(
     if (scanning) {
         Dialog(onDismissRequest = { scanning = false }) {
             Column(Modifier.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(28.dp)).padding(12.dp)) {
-                Text("Scan the luvia1 code", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.scan_luvia_code), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
                 QrScanner(
                     onQrCode = { raw ->
@@ -230,7 +237,7 @@ private fun PairingRitual(
                     },
                     modifier = Modifier.fillMaxWidth().height(280.dp).clip(RoundedCornerShape(20.dp)),
                 )
-                TextButton(onClick = { scanning = false }) { Text("Close") }
+                TextButton(onClick = { scanning = false }) { Text(stringResource(R.string.close)) }
             }
         }
     }
@@ -250,7 +257,7 @@ private fun PairingRitual(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Pinned SSH handshake",
+                        stringResource(R.string.handshake),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.weight(1f),
@@ -270,20 +277,18 @@ private fun PairingRitual(
                     )
                 }
                 Text(
-                    "Short code is a preview. The computer still prints a luvia1 code.",
+                    stringResource(R.string.pair_code_caption),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
-                ShortCodeTiles(shortCode) { next ->
-                    shortCode = next
-                }
+                ShortCodeTiles()
                 if (remaining == 0L) {
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Preview window elapsed. The luvia1 code below still pairs.",
+                        stringResource(R.string.pair_window_elapsed),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                         textAlign = TextAlign.Center,
@@ -301,7 +306,7 @@ private fun PairingRitual(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Fingerprint", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.fingerprint), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
                         draft.deviceKeyFingerprint,
                         fontFamily = LuviaTheme.mono,
@@ -309,7 +314,7 @@ private fun PairingRitual(
                     )
                     decoded?.hostKeyFingerprints?.firstOrNull()?.let { hostKey ->
                         Text(
-                            "Host key $hostKey",
+                            stringResource(R.string.host_key, hostKey),
                             fontFamily = LuviaTheme.mono,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -321,7 +326,7 @@ private fun PairingRitual(
                         Modifier.size(32.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Filled.Check, contentDescription = "Fingerprint matches", tint = MaterialTheme.colorScheme.onPrimary)
+                        Icon(Icons.Filled.Check, contentDescription = stringResource(R.string.fingerprint_match), tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 }
             }
@@ -332,7 +337,7 @@ private fun PairingRitual(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text(code.hostLabel.ifBlank { "Computer" }, style = MaterialTheme.typography.titleMedium)
+                        Text(code.hostLabel.ifBlank { stringResource(R.string.computer) }, style = MaterialTheme.typography.titleMedium)
                         Text(
                             address,
                             fontFamily = LuviaTheme.mono,
@@ -369,7 +374,7 @@ private fun PairingRitual(
                     clipboard.setText(AnnotatedString(draft.command))
                     copied = true
                 }) {
-                    Text(if (copied) "Copied" else "Copy")
+                    Text(if (copied) stringResource(R.string.copied) else stringResource(R.string.copy))
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -379,13 +384,13 @@ private fun PairingRitual(
                     longCode = it
                     onClearError()
                 },
-                label = { Text("luvia1 code") },
+                label = { Text(stringResource(R.string.luvia_code)) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                 minLines = 2,
             )
             pairing.errorMessage?.let { message ->
                 Text(
-                    message,
+                    localizeUiMessage(message),
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(12.dp),
                     style = MaterialTheme.typography.bodyMedium,
@@ -408,7 +413,7 @@ private fun PairingRitual(
                 modifier = Modifier.height(56.dp),
                 shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp, topEnd = 8.dp, bottomEnd = 8.dp),
             ) {
-                Text("Scan")
+                Text(stringResource(R.string.scan))
             }
             Button(
                 onClick = { onComplete(longCode.trim()) },
@@ -423,7 +428,7 @@ private fun PairingRitual(
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
                 } else {
-                    Text("Confirm pairing")
+                    Text(stringResource(R.string.confirm_pair))
                 }
             }
         }
@@ -431,40 +436,30 @@ private fun PairingRitual(
 }
 
 @Composable
-private fun ShortCodeTiles(code: String, onCode: (String) -> Unit) {
-    BasicTextField(
-        value = code,
-        onValueChange = { raw ->
-            val cleaned = raw.uppercase().filter { it.isLetterOrDigit() }.take(6)
-            onCode(cleaned)
-        },
-        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-        decorationBox = {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                repeat(6) { index ->
-                    if (index == 3) Spacer(Modifier.width(10.dp))
-                    val char = code.getOrNull(index)?.toString() ?: ""
-                    val filled = index == code.lastIndex && char.isNotEmpty()
-                    Box(
-                        Modifier
-                            .padding(horizontal = 3.dp)
-                            .size(width = 46.dp, height = 60.dp)
-                            .clip(TileShapes[index])
-                            .background(if (filled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            char,
-                            fontFamily = LuviaTheme.mono,
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = if (filled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-                }
-            }
-        },
+private fun ShortCodeTiles() {
+    val pulse by rememberInfiniteTransition(label = "pair-code").animateFloat(
+        initialValue = 0f,
+        targetValue = 6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "pair-slot",
     )
+    val hot = pulse.toInt().coerceIn(0, 5)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        repeat(6) { index ->
+            if (index == 3) Spacer(Modifier.width(10.dp))
+            val filled = index == hot
+            Box(
+                Modifier
+                    .padding(horizontal = 3.dp)
+                    .size(width = 46.dp, height = 60.dp)
+                    .clip(TileShapes[index])
+                    .background(if (filled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface),
+            )
+        }
+    }
 }
 
 @Composable

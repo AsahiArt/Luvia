@@ -17,25 +17,25 @@ struct TerminalPageView: View {
         VStack(spacing: 0) {
             HStack {
                 Button(action: onBack) {
-                    Label("Back to chat", systemImage: "chevron.left")
+                    Label("回到对话", systemImage: "chevron.left")
                         .labelStyle(.iconOnly)
                 }
                 VStack(alignment: .leading) {
-                    Text("Terminal").font(.headline)
-                    Text(model.holdsTerminalControl ? "Controlling" : "Observing")
+                    Text("终端").font(.headline)
+                    Text(model.holdsTerminalControl ? "已接管" : "观察中")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
                 if pendingDecisions > 0 {
-                    Text("\(pendingDecisions) waiting")
+                    Text("\(pendingDecisions) 条待决定")
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .luviaGlass(in: Capsule(), tint: ChatPalette.tertiary)
+                        .luviaGlass(in: Capsule(), tint: .blue)
                 }
                 if model.selectedHost?.isController == true {
-                    Button(model.holdsTerminalControl ? "Release" : "Take control") {
+                    Button(model.holdsTerminalControl ? "释放" : "接管") {
                         if model.holdsTerminalControl {
                             model.releaseTerminalControl()
                         } else {
@@ -43,7 +43,7 @@ struct TerminalPageView: View {
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(ChatPalette.seed)
+                    .tint(.blue)
                 }
             }
             .padding(.horizontal, 12)
@@ -56,7 +56,7 @@ struct TerminalPageView: View {
                         ForEach(panes, id: \.id) { pane in
                             Button(pane.title) { onSelectPane(pane.id) }
                                 .buttonStyle(.bordered)
-                                .tint(pane.id == selectedPaneID ? ChatPalette.seed : .secondary)
+                                .tint(pane.id == selectedPaneID ? .blue : .secondary)
                         }
                     }
                     .padding(.horizontal, 12)
@@ -81,18 +81,18 @@ struct TerminalPageView: View {
                     key("Esc", .escape)
                     key("Tab", .tab)
                     key("Ctrl-C", .ctrlC)
-                    key("Up", .up)
-                    key("Down", .down)
-                    key("Enter", .enter)
+                    key("上", .up)
+                    key("下", .down)
+                    key("回车", .enter)
                 }
                 .padding(.horizontal, 12)
             }
             if model.holdsTerminalControl {
                 HStack {
-                    TextField("Input", text: $literal)
+                    TextField("输入", text: $literal)
                         .font(.system(.body, design: .monospaced))
                         .textFieldStyle(.roundedBorder)
-                    Button("Send") {
+                    Button("发送") {
                         let text = literal
                         literal = ""
                         _Concurrency.Task { await model.sendTerminal(text) }
