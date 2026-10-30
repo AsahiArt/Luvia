@@ -49,12 +49,20 @@ public data class AskOption(
     public val label: String,
     public val tone: AskTone,
     public val action: AskAction,
+    /** What choosing this option costs or changes, when the host actually said so. */
+    public val consequence: String? = null,
+    public val recommended: Boolean = false,
 )
 
-/** A decision an Agent is waiting on. [question] is null when nothing cached explains it. */
+/**
+ * A decision an Agent is waiting on. [question] is null when nothing cached explains it.
+ * [index] and [total] describe a queue of decisions. They default to a single card.
+ */
 public data class Ask(
     public val question: String?,
     public val options: List<AskOption>,
+    public val index: Int = 1,
+    public val total: Int = 1,
 )
 
 public fun HostUhpState.threads(hostId: String): List<AgentThread> {

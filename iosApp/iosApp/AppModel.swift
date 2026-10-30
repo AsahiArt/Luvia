@@ -392,6 +392,24 @@ final class AppModel {
         }
     }
 
+    /// Fullscreen terminal for a pane. Passing nil keeps the current agent pane.
+    func openTerminal(paneId: String?) {
+        if let paneId {
+            uhp.selectedAgentID = paneId
+        }
+        wantsTerminalObserve = true
+        startTerminal(paneId: paneId ?? uhp.selectedAgentID)
+    }
+
+    func releaseTerminalControl() {
+        terminalControl?.close()
+        terminalControl = nil
+        holdsTerminalControl = false
+        if terminalStatus?.localizedCaseInsensitiveContains("control") == true {
+            terminalStatus = nil
+        }
+    }
+
     private func stopTerminal() {
         terminalTask?.cancel()
         terminalTask = nil

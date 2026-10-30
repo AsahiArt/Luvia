@@ -305,6 +305,15 @@ class LuviaViewModel(
         }
     }
 
+    /** Drops exclusive control and leaves observe running. */
+    fun releaseControl(hostId: String) {
+        controls.remove(hostId)?.close()
+        _terminals.update { map ->
+            val current = map[hostId] ?: return@update map
+            map + (hostId to current.copy(control = TerminalControlState.Observing, conflictMessage = null))
+        }
+    }
+
     fun sendTerminalKey(hostId: String, key: TerminalKey) {
         val control = controls[hostId] ?: return
         viewModelScope.launch {
