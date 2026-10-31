@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -121,6 +122,35 @@ class HostManagerTest {
     }
 
     @Test
+    fun completePairingDropsHostWhenConnectFails() = runTest {
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-hm-rollback-${Random.nextLong()}.json"
+        val store = HostStore(path.toString(), backgroundScope)
+        val vault = UnreadableVault()
+        val manager = HostManager(store, vault, backgroundScope)
+        val fingerprint = "SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"
+        val draft =
+            PairingDraft(
+                deviceLabel = "phone",
+                role = HostRole.Controller,
+                authorizedKeysLine = "ssh-ed25519 AAAA",
+                deviceKeyFingerprint = fingerprint,
+                command = "luvia-host pair",
+                privateKeyOpenssh = "not-a-key",
+            )
+        val body =
+            """{"v":1,"id":"fail-test","dk":"$fingerprint","name":"FailTest","user":"misaka","port":2222,"addrs":["192.168.1.70"],"hk":["$fingerprint"],"role":"controller"}"""
+        val encoded = "luvia1:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
+        val result = manager.completePairing(draft, encoded)
+        advanceUntilIdle()
+        val err = result as Outcome.Err
+        assertFalse(err.failure.isPairingSetupFailure())
+        assertTrue(store.current().hosts.isEmpty(), "failed pairing must not leave a host")
+        assertTrue(vault.deviceIds().isEmpty(), "failed pairing must drop the device key")
+        assertTrue(manager.hosts.value.none { it.profile.id == "fail-test" })
+        manager.close()
+    }
+
+    @Test
     fun parseConnectionAddressesSplitsHostList() {
         assertEquals(
             listOf("192.168.1.8", "studio.local"),
@@ -129,6 +159,26 @@ class HostManagerTest {
         assertEquals(emptyList(), parseConnectionAddresses("  , \n"))
     }
 
+}
+
+private class UnreadableVault : DeviceKeyVault {
+    private var saved = false
+
+    override fun save(deviceId: String, privateKeyOpenssh: String) {
+        saved = true
+    }
+
+    override fun credential(deviceId: String): DeviceCredential? = null
+
+    override fun delete(deviceId: String) {
+        saved = false
+    }
+
+    override fun deviceIds(): List<String> = if (saved) listOf(deviceIdPlaceholder) else emptyList()
+
+    private companion object {
+        const val deviceIdPlaceholder: String = "saved"
+    }
 }
 
 private class ThrowingVault : DeviceKeyVault {

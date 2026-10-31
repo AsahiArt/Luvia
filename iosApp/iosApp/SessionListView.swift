@@ -13,11 +13,13 @@ struct SessionListView: View {
     var onNewSession: () -> Void
     var onTerminal: () -> Void
     var onSettings: () -> Void
+    var showsChrome: Bool = true
     var glass: Namespace.ID
 
     var body: some View {
         let host = model.selectedHost
         VStack(spacing: 0) {
+            if showsChrome {
             HStack(spacing: 8) {
                 Menu {
                     ForEach(model.hosts) { item in
@@ -31,13 +33,18 @@ struct SessionListView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(host?.name ?? "没有电脑")
                             .font(.headline)
-                        Text(host?.address ?? "配对一台电脑")
+                        Text(hostSubtitle(host))
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                     }
                 }
                 .tint(.blue)
                 Spacer()
+                if let host, host.connection != .live {
+                    Button("重试") { model.connect(host.id) }
+                        .buttonStyle(.bordered)
+                        .tint(.blue)
+                }
                 Text(">_")
                     .font(.system(.body, design: .monospaced).weight(.bold))
                     .padding(.horizontal, 12)
@@ -54,7 +61,8 @@ struct SessionListView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
-            if !pending.isEmpty {
+            }
+            if showsChrome && !pending.isEmpty {
                 Button(action: { onFilter(.needsYou) }) {
                     HStack {
                         Text("等你决定 · \(pending.count)")
@@ -68,6 +76,7 @@ struct SessionListView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
             }
+            if showsChrome {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack {
                     filterChip("全部", .all)
@@ -78,7 +87,8 @@ struct SessionListView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
-            if !pending.isEmpty && filter != .running && filter != .idle {
+            }
+            if showsChrome && !pending.isEmpty && filter != .running && filter != .idle {
                 stackedDecisions
             }
             if threads.isEmpty {
@@ -96,7 +106,7 @@ struct SessionListView: View {
                             HStack {
                                 Text(thread.title).font(.headline)
                                 Spacer()
-                                Text(sessionLabel(thread.status))
+                                Text(rowStatus(thread))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -116,6 +126,13 @@ struct SessionListView: View {
                 .scrollContentBackground(.hidden)
             }
         }
+    }
+
+    private func rowStatus(_ thread: AgentThread) -> String {
+        if model.selectedHost?.connection == .live {
+            return sessionLabel(thread.status)
+        }
+        return "缓存"
     }
 
     private var stackedDecisions: some View {
@@ -172,8 +189,16 @@ func sessionLabel(_ status: AgentStatus) -> String {
 func connectionLabel(_ badge: HostConnectionBadge) -> String {
     switch badge {
     case .live: "在线"
-    case .connecting: "连接中"
-    case .stale: "重连"
-    case .offline: "离线"
+    case .connecting: "重连中"
+    case .stale, .offline: "离线"
     }
+}
+
+func hostSubtitle(_ host: HostViewState?) -> String {
+    guard let host else { return "配对一台电脑" }
+    if host.connection == .live {
+        return host.address.isEmpty ? "在线" : host.address
+    }
+    if host.address.isEmpty { return connectionLabel(host.connection) }
+    return "\(connectionLabel(host.connection)) · \(host.address)"
 }

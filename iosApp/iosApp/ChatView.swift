@@ -9,14 +9,20 @@ struct ChatView: View {
     var queueTotal: Int
     var onBack: () -> Void
     var onTerminal: () -> Void
+    var showsChrome: Bool = true
     var glass: Namespace.ID
 
     @State private var draft = ""
     @State private var selectedOptionID: String?
     @FocusState private var composerFocused: Bool
 
+    private var hostOffline: Bool {
+        model.selectedHost?.connection != .live
+    }
+
     var body: some View {
         VStack(spacing: 0) {
+            if showsChrome {
             HStack {
                 Button(action: onBack) {
                     Image(systemName: "chevron.left")
@@ -24,9 +30,14 @@ struct ChatView: View {
                 .accessibilityLabel("返回")
                 VStack(alignment: .leading) {
                     Text(thread.title).font(.headline).lineLimit(1)
-                    Text(sessionLabel(thread.status)).font(.caption).foregroundStyle(.secondary)
+                    Text(headerStatus).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
+                if hostOffline, let host = model.selectedHost {
+                    Button("重试") { model.connect(host.id) }
+                        .buttonStyle(.bordered)
+                        .tint(.blue)
+                }
                 Text(">_")
                     .font(.system(.body, design: .monospaced).weight(.bold))
                     .padding(.horizontal, 12)
@@ -36,6 +47,16 @@ struct ChatView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            if hostOffline, let host = model.selectedHost {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(connectionLabel(host.connection)).font(.headline)
+                    Text("缓存").font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+            }
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
@@ -52,11 +73,20 @@ struct ChatView: View {
                     }
                 }
             }
-            if let ask = thread.ask {
+            if showsChrome, let ask = thread.ask {
                 decision(ask)
             }
-            composer
+            if showsChrome {
+                composer
+            }
         }
+    }
+
+    private var headerStatus: String {
+        if hostOffline, let host = model.selectedHost {
+            return "\(connectionLabel(host.connection)) · 缓存"
+        }
+        return sessionLabel(thread.status)
     }
 
     private var visibleItems: [TimelineItem] {
