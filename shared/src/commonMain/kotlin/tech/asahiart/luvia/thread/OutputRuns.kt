@@ -48,11 +48,29 @@ internal fun reflow(text: String): String {
             continue
         }
         if (open && !startsBlock(line)) {
-            paragraphs.last().append(' ').append(line.trim())
+            val next = line.trim()
+            val builder = paragraphs.last()
+            if (needsJoinSpace(builder, next)) builder.append(' ')
+            builder.append(next)
         } else {
             paragraphs += StringBuilder(line.trim())
             open = true
         }
     }
     return paragraphs.joinToString("\n")
+}
+
+/** English wraps need a space. CJK hard-wraps must not gain one in the middle of a word. */
+private fun needsJoinSpace(current: StringBuilder, next: String): Boolean {
+    if (current.isEmpty() || next.isEmpty()) return false
+    val left = current.last()
+    val right = next.first()
+    if (left.isWhitespace() || right.isWhitespace()) return false
+    if (isCjk(left) || isCjk(right)) return false
+    return true
+}
+
+private fun isCjk(ch: Char): Boolean {
+    val code = ch.code
+    return code in 0x4E00..0x9FFF || code in 0x3400..0x4DBF || code in 0x3000..0x303F || code in 0xFF00..0xFFEF
 }

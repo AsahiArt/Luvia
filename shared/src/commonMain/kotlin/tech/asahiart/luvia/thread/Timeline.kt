@@ -24,14 +24,20 @@ public sealed class TimelineItem {
 
     public data class AskCard(public override val id: String, public val ask: Ask) : TimelineItem()
 
-    public data class Status(public override val id: String, public val status: AgentStatus?, public val stopReason: AcpStopReason? = null) : TimelineItem()
+    public data class Status(
+        public override val id: String,
+        public val status: AgentStatus?,
+        public val stopReason: AcpStopReason? = null,
+        public val label: String? = null,
+    ) : TimelineItem()
 
     public data class Unconfirmed(public override val id: String, public val text: String) : TimelineItem()
 }
 
 /**
  * Timeline for a pane Agent, built from Transcript reads, local sends and status changes.
- * Never infers tools or plans from Transcript text.
+ * Tool-call lines and status/cost bars are split out of the TUI text. Plans and permissions
+ * still come only from the host, never from prose.
  */
 public data class PaneTimeline(
     public val items: List<TimelineItem> = emptyList(),
@@ -42,11 +48,30 @@ public data class PaneTimeline(
     /** Keeps Nerd Font glyphs; the Thread screen renders them with the terminal font. */
     public fun ingestTranscript(text: String): PaneTimeline {
         val lines = parseAnsi(text).joinToString("") { it.text }.lines().map { it.trimEnd() }.dropLastWhile { it.isBlank() }
-        val fresh = lines.drop(overlap(lastLines, lines))
-        val chunk = fresh.dropWhile { it.isBlank() }.joinToString("\n")
-        val next = copy(lastLines = lines)
-        if (chunk.isBlank()) return next
-        return next.append { TimelineItem.Output(it, chunk) }
+        val fresh = lines.drop(overlap(lastLines, lines)).dropWhile { it.isBlank() }
+        var next = copy(lastLines = lines)
+        if (fresh.isEmpty() || fresh.all { it.isBlank() }) return next
+        for (piece in splitPaneTranscript(fresh)) {
+            next =
+                when (piece) {
+                    is PanePiece.Prose -> next.append { TimelineItem.Output(it, piece.text) }
+                    is PanePiece.Tool ->
+                        next.append { id ->
+                            TimelineItem.Tool(
+                                id,
+                                AcpToolCall(
+                                    toolCallId = id,
+                                    title = piece.title,
+                                    kind = piece.kind,
+                                    status = piece.status,
+                                    summary = piece.detail,
+                                ),
+                            )
+                        }
+                    is PanePiece.Status -> next.append { TimelineItem.Status(it, null, label = piece.text) }
+                }
+        }
+        return next
     }
 
     public fun recordMine(text: String): PaneTimeline = append { TimelineItem.Mine(it, text) }

@@ -131,23 +131,41 @@ final class AppModel {
                 guard let profile = ok.value else {
                     return .failure(UserFacingError(message: "配对没有返回电脑。"))
                 }
-                selectedHostID = profile.id
-                selectedSection = .agents
-                bindUhp(hostID: profile.id)
-                hostUhp()?.shown()
-                if !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || !port.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    || !user.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                {
-                    _ = await updateConnection(
-                        hostID: profile.id,
-                        alias: profile.alias,
-                        hosts: host,
-                        port: port,
-                        username: user
+                let reach = try await manager.awaitCurrentConnect(
+                    hostId: profile.id,
+                    timeoutMs: 45_000
+                )
+                switch onEnum(of: reach) {
+                case .ok:
+                    selectedHostID = profile.id
+                    selectedSection = .agents
+                    bindUhp(hostID: profile.id)
+                    hostUhp()?.shown()
+                    if !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || !port.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || !user.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    {
+                        _ = await updateConnection(
+                            hostID: profile.id,
+                            alias: profile.alias,
+                            hosts: host,
+                            port: port,
+                            username: user
+                        )
+                    }
+                    return .success(profile)
+                case .err(let err):
+                    let addresses: [String] = KotlinLists.array(profile.addresses as Any)
+                    return .failure(
+                        UserFacingError(
+                            message: PairingConnectKt.pairingConnectMessage(
+                                failure: err.failure,
+                                addresses: addresses,
+                                port: profile.sshPort
+                            )
+                        )
                     )
                 }
-                return .success(profile)
             case .err(let err):
                 return .failure(UserFacingError(message: FailureText.describe(err.failure)))
             }

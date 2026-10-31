@@ -388,14 +388,14 @@ private fun PairingRitual(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                 minLines = 2,
             )
-            pairing.errorMessage?.let { message ->
-                Text(
-                    localizeUiMessage(message),
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(12.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
+        }
+        pairing.errorMessage?.let { message ->
+            Text(
+                localizeUiMessage(message),
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
         Row(
             Modifier
@@ -416,8 +416,8 @@ private fun PairingRitual(
                 Text(stringResource(R.string.scan))
             }
             Button(
-                onClick = { onComplete(longCode.trim()) },
-                enabled = longCode.isNotBlank() && !pairing.completing,
+                onClick = { if (!pairing.completing) onComplete(longCode.trim()) },
+                enabled = longCode.isNotBlank(),
                 modifier = Modifier.weight(1f).height(56.dp),
                 shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp, topEnd = 28.dp, bottomEnd = 28.dp),
             ) {
@@ -427,6 +427,8 @@ private fun PairingRitual(
                         strokeWidth = 2.dp,
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.pairing_connecting))
                 } else {
                     Text(stringResource(R.string.confirm_pair))
                 }

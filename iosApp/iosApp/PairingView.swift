@@ -122,9 +122,6 @@ struct PairingView: View {
                     TextField("luvia1: 码", text: $longCode, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(.footnote, design: .monospaced))
-                    if let error {
-                        Text(error).foregroundStyle(.red).font(.footnote)
-                    }
                     if remaining == 0 {
                         Text("倒计时结束。仍可用下面的 luvia1: 码配对。")
                             .font(.footnote)
@@ -135,15 +132,33 @@ struct PairingView: View {
             }
             .background(ChatPalette.pairBackground.ignoresSafeArea())
             .safeAreaInset(edge: .bottom) {
-                HStack(spacing: 10) {
-                    Button("改用扫码") { scanning = true }
-                        .buttonStyle(.bordered)
-                    Button(busy ? "正在配对…" : "确认配对") {
-                        confirm(draft)
+                VStack(alignment: .leading, spacing: 8) {
+                    if let error {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.blue)
-                    .disabled(busy || longCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    HStack(spacing: 10) {
+                        Button("改用扫码") { scanning = true }
+                            .buttonStyle(.bordered)
+                        Button {
+                            if !busy { confirm(draft) }
+                        } label: {
+                            if busy {
+                                HStack(spacing: 8) {
+                                    ProgressView().controlSize(.small).tint(.white)
+                                    Text("连接中")
+                                }
+                            } else {
+                                Text("确认配对")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color.blue)
+                        .disabled(longCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
                 }
                 .padding()
                 .luviaGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), tint: Color.blue)

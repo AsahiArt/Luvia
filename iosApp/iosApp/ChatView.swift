@@ -70,7 +70,7 @@ struct ChatView: View {
     private func timelineRow(_ item: TimelineItem) -> some View {
         switch onEnum(of: item) {
         case .output(let row):
-            bubble(row.text, mine: false)
+            outputBlocks(row.text)
         case .mine(let row):
             bubble(row.text, mine: true)
         case .thought(let row):
@@ -82,10 +82,7 @@ struct ChatView: View {
         case .plan(let row):
             PlanBlock(entries: KotlinLists.array(row.entries as Any))
         case .status(let row):
-            Text(row.status.map(sessionLabel) ?? "更新")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
+            statusBar(statusTitle(label: row.label, status: row.status))
         case .unconfirmed(let row):
             VStack(alignment: .leading, spacing: 4) {
                 Text("未确认").font(.headline)
@@ -98,6 +95,46 @@ struct ChatView: View {
             .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         case .askCard:
             EmptyView()
+        }
+    }
+
+    private func outputBlocks(_ text: String) -> some View {
+        let runs: [OutputRun] = KotlinLists.array(OutputRunsKt.outputRuns(text: text) as Any)
+        return VStack(alignment: .leading, spacing: 8) {
+            if runs.isEmpty {
+                bubble(text, mine: false)
+            } else {
+                ForEach(Array(runs.enumerated()), id: \.offset) { _, run in
+                    if run.mono {
+                        Text(run.text)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(Color.primary)
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    } else {
+                        bubble(run.text, mine: false)
+                    }
+                }
+            }
+        }
+    }
+
+    private func statusTitle(label: String?, status: AgentStatus?) -> String {
+        if let label, !label.isEmpty {
+            return label
+        }
+        return status.map(sessionLabel) ?? "更新"
+    }
+
+    private func statusBar(_ title: String) -> some View {
+        HStack(spacing: 8) {
+            Rectangle().fill(Color.secondary.opacity(0.35)).frame(height: 1)
+            Text(title)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            Rectangle().fill(Color.secondary.opacity(0.35)).frame(height: 1)
         }
     }
 
@@ -233,7 +270,9 @@ struct ToolTrailView: View {
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .luviaGlass(in: Capsule(), tint: chipColor(kind))
-                Text(call.title).font(.subheadline.weight(.semibold))
+                Text(call.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(4)
             }
             if !lines.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
