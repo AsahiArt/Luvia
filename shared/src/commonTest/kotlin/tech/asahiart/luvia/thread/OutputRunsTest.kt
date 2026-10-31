@@ -24,6 +24,15 @@ class OutputRunsTest {
     }
 
     @Test
+    fun chineseHardWrapDoesNotInsertASpace() {
+        val runs = outputRuns("用户同意清理 bun、uv、Gradle 和日\n志等约 22GB 的安全缓存。")
+        assertEquals(
+            listOf(OutputRun("用户同意清理 bun、uv、Gradle 和日志等约 22GB 的安全缓存。", mono = false)),
+            runs,
+        )
+    }
+
+    @Test
     fun fencedCodeKeepsLinesAndDropsFences() {
         val runs = outputRuns("```\nval a = 1\nval b = 2\n```")
         assertEquals(listOf(OutputRun("val a = 1\nval b = 2", mono = true)), runs)

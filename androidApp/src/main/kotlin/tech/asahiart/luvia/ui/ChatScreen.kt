@@ -56,6 +56,7 @@ import tech.asahiart.luvia.AcpToolCall
 import tech.asahiart.luvia.AcpToolStatus
 import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.Ask
+import tech.asahiart.luvia.thread.outputRuns
 import tech.asahiart.luvia.thread.AskOption
 import tech.asahiart.luvia.thread.AskTone
 import tech.asahiart.luvia.thread.TimelineItem
@@ -128,12 +129,13 @@ fun ChatScreen(
         ) {
             items(visible, key = { it.id }) { item ->
                 when (item) {
-                    is TimelineItem.Output -> Bubble(item.text, mine = false)
+                    is TimelineItem.Output -> OutputBlocks(item.text)
                     is TimelineItem.Mine -> Bubble(item.text, mine = true)
                     is TimelineItem.Thought -> ThoughtRow(item.text)
                     is TimelineItem.Tool -> ToolTrail(item.call)
                     is TimelineItem.Plan -> PlanBlock(item.entries)
-                    is TimelineItem.Status -> StatusLine(item.status?.sessionLabel() ?: stringResource(R.string.status_update))
+                    is TimelineItem.Status ->
+                        StatusLine(item.label?.takeIf { it.isNotBlank() } ?: item.status?.sessionLabel() ?: stringResource(R.string.status_update))
                     is TimelineItem.Unconfirmed -> UnconfirmedRow(item.text)
                     is TimelineItem.AskCard -> Unit
                 }
@@ -162,6 +164,34 @@ fun ChatScreen(
             hint = if (isObserver) stringResource(R.string.observer_cannot_send) else stringResource(R.string.message_hint),
         )
     }
+}
+
+@Composable
+private fun OutputBlocks(text: String) {
+    val runs = outputRuns(text)
+    if (runs.isEmpty()) {
+        Bubble(text, mine = false)
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        runs.forEach { run ->
+            if (run.mono) MonoBlock(run.text) else Bubble(run.text, mine = false)
+        }
+    }
+}
+
+@Composable
+private fun MonoBlock(text: String) {
+    Text(
+        text,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        fontFamily = LuviaTheme.mono,
+        style = MaterialTheme.typography.bodySmall,
+    )
 }
 
 @Composable
@@ -225,7 +255,12 @@ private fun ToolTrail(call: AcpToolCall) {
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(call.title.ifBlank { kind.shortLabel() }, style = MaterialTheme.typography.titleSmall)
+            Text(
+                call.title.ifBlank { kind.shortLabel() },
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
             call.kind?.let {
                 Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -319,7 +354,16 @@ private fun PlanBlock(entries: List<AcpPlanEntry>) {
 private fun StatusLine(label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(1f).height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
-        Text(label, modifier = Modifier.padding(horizontal = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val meter = label.contains('$') || label.contains('↑') || label.contains('↓') || label.startsWith("Session")
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 8.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontFamily = if (meter) LuviaTheme.mono else null,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
         Box(Modifier.weight(1f).height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
     }
 }

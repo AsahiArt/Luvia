@@ -1,6 +1,7 @@
 package tech.asahiart.luvia.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -35,9 +36,14 @@ import androidx.compose.ui.res.stringResource
 import tech.asahiart.luvia.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import tech.asahiart.luvia.TerminalKey
+import tech.asahiart.luvia.prefersDarkInk
 import tech.asahiart.luvia.ui.theme.LuviaTheme
 
 @Composable
@@ -124,17 +130,11 @@ fun TerminalScreen(
                         panes.lastIndex -> RoundedCornerShape(topStart = 6.dp, bottomStart = 6.dp, topEnd = 20.dp, bottomEnd = 20.dp)
                         else -> RoundedCornerShape(6.dp)
                     }
-                    val colors = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh
-                    val ink = if (selected) MaterialTheme.colorScheme.onPrimary else extended.terminalFg
-                    Text(
-                        pane.title,
-                        modifier = Modifier
-                            .clip(shape)
-                            .background(colors)
-                            .clickable { onSelectPane(pane.paneId) }
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        color = ink,
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    TerminalChip(
+                        label = pane.title,
+                        selected = selected,
+                        shape = shape,
+                        onClick = { onSelectPane(pane.paneId) },
                     )
                 }
             }
@@ -176,12 +176,12 @@ fun TerminalScreen(
                 .padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            KeyChip("Esc") { onSendKey(TerminalKey.Escape) }
-            KeyChip("Tab") { onSendKey(TerminalKey.Tab) }
-            KeyChip("Ctrl-C") { onSendKey(TerminalKey.CtrlC) }
-            KeyChip("上") { onSendKey(TerminalKey.Up) }
-            KeyChip("下") { onSendKey(TerminalKey.Down) }
-            KeyChip("回车") { onSendKey(TerminalKey.Enter) }
+            TerminalChip("Esc", selected = false, shape = RoundedCornerShape(14.dp)) { onSendKey(TerminalKey.Escape) }
+            TerminalChip("Tab", selected = false, shape = RoundedCornerShape(14.dp)) { onSendKey(TerminalKey.Tab) }
+            TerminalChip("Ctrl-C", selected = false, shape = RoundedCornerShape(14.dp)) { onSendKey(TerminalKey.CtrlC) }
+            TerminalChip("上", selected = false, shape = RoundedCornerShape(14.dp)) { onSendKey(TerminalKey.Up) }
+            TerminalChip("下", selected = false, shape = RoundedCornerShape(14.dp)) { onSendKey(TerminalKey.Down) }
+            TerminalChip("回车", selected = false, shape = RoundedCornerShape(14.dp)) { onSendKey(TerminalKey.Enter) }
         }
         if (controlling) {
             Row(
@@ -223,17 +223,27 @@ fun TerminalScreen(
 }
 
 @Composable
-private fun KeyChip(label: String, onClick: () -> Unit) {
+private fun TerminalChip(
+    label: String,
+    selected: Boolean,
+    shape: Shape,
+    onClick: () -> Unit,
+) {
+    val fill = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh
+    val ink = if (prefersDarkInk(fill.red, fill.green, fill.blue)) Color(0xFF14201E) else Color(0xFFF7FBF9)
     Text(
         label,
         modifier = Modifier
             .padding(vertical = 6.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clip(shape)
+            .background(fill)
+            .border(if (selected) 2.dp else 1.dp, ink.copy(alpha = if (selected) 1f else 0.55f), shape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        color = LuviaTheme.extended.terminalFg,
+            .semantics { this.selected = selected }
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        color = ink,
         fontFamily = LuviaTheme.mono,
+        fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
         style = MaterialTheme.typography.labelLarge,
     )
 }

@@ -54,9 +54,9 @@ struct TerminalPageView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(panes, id: \.id) { pane in
-                            Button(pane.title) { onSelectPane(pane.id) }
-                                .buttonStyle(.bordered)
-                                .tint(pane.id == selectedPaneID ? .blue : .secondary)
+                            terminalChip(pane.title, selected: pane.id == selectedPaneID) {
+                                onSelectPane(pane.id)
+                            }
                         }
                     }
                     .padding(.horizontal, 12)
@@ -77,7 +77,7 @@ struct TerminalPageView: View {
             )
             .background(TerminalPalette.background)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack {
+                HStack(spacing: 6) {
                     key("Esc", .escape)
                     key("Tab", .tab)
                     key("Ctrl-C", .ctrlC)
@@ -86,6 +86,7 @@ struct TerminalPageView: View {
                     key("回车", .enter)
                 }
                 .padding(.horizontal, 12)
+                .padding(.vertical, 6)
             }
             if model.holdsTerminalControl {
                 HStack {
@@ -109,10 +110,27 @@ struct TerminalPageView: View {
     }
 
     private func key(_ title: String, _ value: TerminalKey) -> some View {
-        Button(title) {
+        terminalChip(title, selected: false) {
             _Concurrency.Task { await model.sendTerminalKey(value) }
         }
-        .buttonStyle(.bordered)
-        .tint(TerminalPalette.foreground)
+    }
+
+    private func terminalChip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(selected ? .bold : .semibold))
+                .foregroundStyle(selected ? Color.white : Color(hex: "14201E"))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(selected ? Color.blue : Color(hex: "E7EEEC"), in: Capsule())
+                .overlay(
+                    Capsule().stroke(
+                        selected ? Color.white : Color(hex: "14201E").opacity(0.45),
+                        lineWidth: selected ? 2 : 1
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : AccessibilityTraits())
     }
 }

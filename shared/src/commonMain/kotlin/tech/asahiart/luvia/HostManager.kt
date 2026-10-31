@@ -17,9 +17,11 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 public sealed class HostLink {
     public object Idle : HostLink()
@@ -68,6 +70,7 @@ public class HostManager(
     private val live: MutableMap<String, LiveHost> = mutableMapOf()
     private val links: MutableMap<String, HostLink> = mutableMapOf()
     private val connectJobs: MutableMap<String, Job> = mutableMapOf()
+    private val connectWatches: MutableStateFlow<Map<String, ConnectWatch>> = MutableStateFlow(emptyMap())
     private var catalogHosts: List<HostProfile> = emptyList()
     private val hostsState: MutableStateFlow<List<HostRuntime>> =
         MutableStateFlow(emptyList())
@@ -232,6 +235,7 @@ public class HostManager(
             )
         if (vault.credential(hostId) == null) {
             val failed = HostLink.Failed(missingKey)
+            finishConnectWatch(hostId, beginConnectWatch(hostId), fail(missingKey))
             links[hostId] = failed
             val current = hostsState.value
             if (current.any { it.profile.id == hostId }) {
@@ -248,12 +252,45 @@ public class HostManager(
             }
             return
         }
+        val generation = beginConnectWatch(hostId)
         mgrScope.launch {
             mutex.withLock {
                 connectJobs.remove(hostId)?.cancel()
-                connectJobs[hostId] = mgrScope.launch { connectLoop(hostId) }
+                connectJobs[hostId] = mgrScope.launch { connectLoop(hostId, generation) }
             }
         }
+    }
+
+    /**
+     * Waits until the connect started by [connect] finishes its first attempt, or [timeoutMs] elapses.
+     * A retryable SSH failure still unblocks the caller; the connect loop may keep retrying.
+     */
+    public suspend fun awaitCurrentConnect(
+        hostId: String,
+        timeoutMs: Long = 45_000,
+    ): Outcome<Unit> {
+        val generation = connectWatches.value[hostId]?.generation
+        if (generation == null) {
+            return if (currentLink(hostId) is HostLink.Online) {
+                ok(Unit)
+            } else {
+                fail(Failure.Transport("connect timeout"))
+            }
+        }
+        val settled =
+            withTimeoutOrNull(timeoutMs) {
+                connectWatches.first { watches ->
+                    val watch = watches[hostId]
+                    watch != null && watch.generation == generation && watch.result != null
+                }
+            }
+        val watch = connectWatches.value[hostId]
+        val attempt = if (watch != null && watch.generation == generation) watch.result else null
+        if (attempt is Outcome.Ok) return ok(Unit)
+        if (attempt is Outcome.Err) return fail(attempt.failure)
+        if (currentLink(hostId) is HostLink.Online) return ok(Unit)
+        if (settled == null) return fail(Failure.Transport("connect timeout"))
+        return fail(Failure.Transport("connect timeout"))
     }
 
     public fun disconnect(hostId: String) {
@@ -300,6 +337,21 @@ public class HostManager(
     public fun session(hostId: String): LuviaSession? = live[hostId]?.session
 
 
+    private fun beginConnectWatch(hostId: String): Long {
+        val generation = (connectWatches.value[hostId]?.generation ?: 0L) + 1L
+        connectWatches.value = connectWatches.value + (hostId to ConnectWatch(generation, null))
+        return generation
+    }
+
+    private fun finishConnectWatch(hostId: String, generation: Long, result: Outcome<Unit>) {
+        val current = connectWatches.value[hostId] ?: return
+        if (current.generation != generation) return
+        connectWatches.value = connectWatches.value + (hostId to current.copy(result = result))
+    }
+
+    private fun currentLink(hostId: String): HostLink? =
+        hostsState.value.firstOrNull { it.profile.id == hostId }?.link
+
     public fun close() {
         connectJobs.values.forEach { it.cancel() }
         connectJobs.clear()
@@ -310,11 +362,19 @@ public class HostManager(
         job.cancel()
     }
 
-    private suspend fun connectLoop(hostId: String) {
+    private suspend fun connectLoop(hostId: String, generation: Long) {
         var attempt = 0
         while (job.isActive) {
             setLink(hostId, HostLink.Connecting)
             val outcome = connectOnce(hostId)
+            finishConnectWatch(
+                hostId,
+                generation,
+                when (outcome) {
+                    is Outcome.Ok -> ok(Unit)
+                    is Outcome.Err -> fail(outcome.failure)
+                },
+            )
             when (outcome) {
                 is Outcome.Ok -> {
                     attempt = 0
@@ -740,6 +800,11 @@ private fun CachedTopology.toSnapshot(): SessionSnapshot =
         panes = emptyList(),
         agents = agents,
     )
+
+private data class ConnectWatch(
+    val generation: Long,
+    val result: Outcome<Unit>? = null,
+)
 
 private fun isRetryable(failure: Failure): Boolean {
     return when (failure) {

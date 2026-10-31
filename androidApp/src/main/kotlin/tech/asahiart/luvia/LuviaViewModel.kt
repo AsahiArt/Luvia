@@ -112,8 +112,28 @@ class LuviaViewModel(
                     )
             ) {
                 is Outcome.Ok -> {
-                    _pairing.value = PairingUiState(pairedHostId = result.value.id)
-                    onSuccess()
+                    val profile = result.value
+                    when (
+                        val reach =
+                            manager.awaitCurrentConnect(profile.id)
+                    ) {
+                        is Outcome.Ok -> {
+                            _pairing.value = PairingUiState(pairedHostId = profile.id)
+                            onSuccess()
+                        }
+                        is Outcome.Err ->
+                            _pairing.update {
+                                it.copy(
+                                    completing = false,
+                                    errorMessage =
+                                        pairingConnectMessage(
+                                            reach.failure,
+                                            profile.addresses,
+                                            profile.sshPort,
+                                        ),
+                                )
+                            }
+                    }
                 }
                 is Outcome.Err ->
                     _pairing.update {

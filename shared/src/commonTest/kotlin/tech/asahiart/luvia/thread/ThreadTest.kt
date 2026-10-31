@@ -109,6 +109,40 @@ class ThreadTest {
     }
 
     @Test
+    fun transcriptSplitsProseToolsAndCost() {
+        val raw =
+            "Session title auto · grok\n" +
+                "10:43 PM\n" +
+                "用户同意清理缓存。\n" +
+                "这一段换行\n" +
+                "还在同一段。\n" +
+                "\n" +
+                "% read\n" +
+                "  ~/.local/share/chezmoi → 22 lines\n" +
+                "• " + "$" + ": tmp=mktemp\n" +
+                "EXIT; curl → done · 23.4s\n" +
+                "↑75k " + "$" + "0.279\n" +
+                "准备开始执行清理。\n"
+        val items = PaneTimeline().ingestTranscript(raw).items
+        assertIs<TimelineItem.Status>(items[0])
+        assertEquals("Session title auto · grok · 10:43 PM", (items[0] as TimelineItem.Status).label)
+        val prose = items[1] as TimelineItem.Output
+        assertTrue(prose.text.contains("用户同意清理缓存。"))
+        assertTrue(prose.text.contains("这一段换行\n还在同一段。"))
+        val read = items[2] as TimelineItem.Tool
+        assertEquals("read", read.call.kind)
+        assertEquals("% read", read.call.title)
+        assertTrue(read.call.summary!!.contains("chezmoi"))
+        val shell = items[3] as TimelineItem.Tool
+        assertEquals("bash", shell.call.kind)
+        assertTrue(shell.call.summary!!.contains("EXIT"))
+        val cost = items[4] as TimelineItem.Status
+        assertEquals("↑75k \$0.279", cost.label)
+        assertEquals("准备开始执行清理。", (items[5] as TimelineItem.Output).text)
+        assertEquals(6, items.size)
+    }
+
+    @Test
     fun transcriptKeepsNerdGlyphs() {
         val t = PaneTimeline().ingestTranscript("\u001B[32m\uE0A0 main\u001B[0m \u25CF ok\n")
         assertEquals("\uE0A0 main \u25CF ok", (t.items.single() as TimelineItem.Output).text)
