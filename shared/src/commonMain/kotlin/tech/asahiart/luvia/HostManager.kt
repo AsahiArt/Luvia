@@ -81,6 +81,10 @@ public class HostManager(
 
 
     public val hosts: StateFlow<List<HostRuntime>> = hostsState.asStateFlow()
+
+    /** Last successfully connected host, for cold start. Null when nothing is paired. */
+    public fun preferredHostId(): String? =
+        preferredStartupHost(hostsState.value.map { it.profile })?.id
     public val pushRegistration: StateFlow<PushRegistration?> = pushRegistrationState.asStateFlow()
     internal val busEvents: SharedFlow<Pair<String, BusEvent>> = busEventsFlow.asSharedFlow()
 
@@ -173,7 +177,13 @@ public class HostManager(
             )
         store.upsert(profile)
         connect(profile.id)
-        return ok(profile)
+        when (val reach = awaitCurrentConnect(profile.id)) {
+            is Outcome.Ok -> return ok(profile)
+            is Outcome.Err -> {
+                unpair(profile.id)
+                return fail(reach.failure)
+            }
+        }
     }
 
     public suspend fun updateConnection(

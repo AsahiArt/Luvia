@@ -56,6 +56,7 @@ fun TerminalScreen(
     onReleaseControl: () -> Unit,
     onSendText: (String) -> Unit,
     onSendKey: (TerminalKey) -> Unit,
+    statusOverride: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val extended = LuviaTheme.extended
@@ -139,7 +140,7 @@ fun TerminalScreen(
                 }
             }
         }
-        val message = (model?.conflictMessage ?: model?.errorText)?.let(::localizeUiMessage)
+        val message = statusOverride ?: (model?.conflictMessage ?: model?.errorText)?.let(::localizeUiMessage)
         if (!message.isNullOrBlank()) {
             Text(
                 message,
@@ -148,12 +149,16 @@ fun TerminalScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        val lines = terminalDisplayLines(
-            text = model?.text.orEmpty(),
-            isAnsi = model?.isAnsi == true,
-            defaultForeground = extended.terminalFg,
-            defaultBackground = extended.terminalBg,
-        )
+        val lines = if (statusOverride != null) {
+            emptyList()
+        } else {
+            terminalDisplayLines(
+                text = model?.text.orEmpty(),
+                isAnsi = model?.isAnsi == true,
+                defaultForeground = extended.terminalFg,
+                defaultBackground = extended.terminalBg,
+            )
+        }
         Column(
             Modifier
                 .weight(1f)

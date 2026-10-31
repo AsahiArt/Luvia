@@ -29,11 +29,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import tech.asahiart.luvia.R
@@ -43,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.LuviaViewModel
+import tech.asahiart.luvia.resolveStartupHost
 import tech.asahiart.luvia.toSortedUi
 import tech.asahiart.luvia.StatusNotificationController
 import tech.asahiart.luvia.thread.AgentThread
@@ -71,7 +76,8 @@ fun ChatFirstApp(
     val hosts = runtimes.toSortedUi(hostStates.mapValues { it.value.attentionCount() })
 
     var stage by rememberSaveable { mutableStateOf(if (hosts.isEmpty()) "pair" else "sessions") }
-    var hostId by rememberSaveable { mutableStateOf(hosts.firstOrNull()?.id) }
+    var hostId by rememberSaveable { mutableStateOf<String?>(null) }
+    var startupApplied by rememberSaveable { mutableStateOf(false) }
     var threadId by rememberSaveable { mutableStateOf<String?>(null) }
     var filterName by rememberSaveable { mutableStateOf(SessionFilter.All.name) }
     var terminalReturn by rememberSaveable { mutableStateOf("sessions") }
@@ -80,7 +86,9 @@ fun ChatFirstApp(
     var confirmUnpair by rememberSaveable { mutableStateOf(false) }
     var awaitingAcp by rememberSaveable { mutableStateOf(false) }
     val filter = runCatching { SessionFilter.valueOf(filterName) }.getOrDefault(SessionFilter.All)
-    val selected = hosts.firstOrNull { it.id == hostId } ?: hosts.firstOrNull()
+    val profiles = runtimes.map { it.profile }
+    val resolvedId = if (startupApplied) hostId else resolveStartupHost(profiles, hostId)?.id ?: hostId
+    val selected = hosts.firstOrNull { it.id == resolvedId } ?: hosts.firstOrNull()
     val state = selected?.let { hostStates[it.id] }
     val allThreads = sortSessions(state?.threads(selected.id).orEmpty())
     val threads = filterSessions(allThreads, filter)
@@ -88,22 +96,32 @@ fun ChatFirstApp(
     val openBlocked = launchIntent?.getBooleanExtra(StatusNotificationController.EXTRA_OPEN_BLOCKED, false) == true
     var consumedLaunch by rememberSaveable { mutableStateOf(false) }
 
+    LaunchedEffect(profiles.map { it.id }) {
+        if (startupApplied || profiles.isEmpty()) return@LaunchedEffect
+        hostId = resolveStartupHost(profiles, hostId)?.id
+        startupApplied = true
+    }
     LaunchedEffect(hosts.map { it.id }.joinToString()) {
-        if (selected == null) {
-            hostId = hosts.firstOrNull()?.id
-            if (hosts.isEmpty() && stage != "pair") stage = "pair"
-        }
+        if (selected == null && hosts.isEmpty() && stage != "pair") stage = "pair"
     }
     LaunchedEffect(selected?.id) {
         val host = selected ?: return@LaunchedEffect
         val id = host.id
-        hostId = id
-        if (host.connection == ConnectionBadge.Offline || !host.connected) {
-            viewModel.connect(id)
-        }
+        if (startupApplied) hostId = id
+        viewModel.autoConnect(id)
         viewModel.refresh(id)
         viewModel.workspace(id).shown()
         viewModel.workspace(id).loadAcpAgents()
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, selected?.id) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) {
+                selected?.id?.let(viewModel::autoConnect)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     LaunchedEffect(launchIntent, allThreads, consumedLaunch) {
         if (consumedLaunch) return@LaunchedEffect
@@ -175,7 +193,7 @@ fun ChatFirstApp(
 
     val underlying = if (stage == "terminal") terminalReturn else stage
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
-        when (underlying) {
+        if (stage != "terminal") when (underlying) {
             "pair" -> PairingScreen(
                 pairing = pairing,
                 onBegin = viewModel::beginPairing,
@@ -222,6 +240,8 @@ fun ChatFirstApp(
                         onOpenTerminal = { openTerminal(thread.paneId) },
                         sending = state?.agentDetail?.sending == true,
                         isObserver = selected?.isObserver == true,
+                        connection = selected?.connection,
+                        onRetry = { selected?.id?.let(viewModel::connect) },
                     )
                 }
             }
@@ -231,7 +251,10 @@ fun ChatFirstApp(
                 threads = threads,
                 filter = filter,
                 onFilter = { filterName = it.name },
-                onSelectHost = { hostId = it },
+                onSelectHost = {
+                    startupApplied = true
+                    hostId = it
+                },
                 onPair = {
                     viewModel.cancelPairing()
                     stage = "pair"
@@ -244,6 +267,7 @@ fun ChatFirstApp(
                     showNewSession = true
                 },
                 onOpenTerminal = { openTerminal(openThread?.paneId) },
+                onRetry = { selected?.id?.let(viewModel::connect) },
             )
         }
         if (stage == "terminal") {
@@ -277,12 +301,18 @@ fun ChatFirstApp(
                 onReleaseControl = { id?.let { viewModel.releaseControl(it) } },
                 onSendText = { text -> id?.let { viewModel.sendTerminalText(it, text) } },
                 onSendKey = { key -> id?.let { viewModel.sendTerminalKey(it, key) } },
+                statusOverride = when (selected?.connection) {
+                    ConnectionBadge.Connecting -> stringResource(R.string.link_reconnecting)
+                    ConnectionBadge.Live, null -> null
+                    else -> stringResource(R.string.link_offline)
+                },
             )
         }
     }
 
     LaunchedEffect(pairing.pairedHostId) {
         val id = pairing.pairedHostId ?: return@LaunchedEffect
+        startupApplied = true
         hostId = id
         stage = "sessions"
         viewModel.clearPairingDraft()
@@ -393,7 +423,7 @@ private fun HostSettingsSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
             Text(host.name, style = MaterialTheme.typography.headlineSmall)
-            Text(host.connection.label(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(host.connection.chromeLabel(), color = MaterialTheme.colorScheme.onSurfaceVariant)
             host.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(alias, { alias = it }, label = { Text(stringResource(R.string.name)) }, modifier = Modifier.fillMaxWidth())

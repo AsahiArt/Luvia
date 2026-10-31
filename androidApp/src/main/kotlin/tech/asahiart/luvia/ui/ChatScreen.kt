@@ -82,7 +82,10 @@ fun ChatScreen(
     terminalModifier: Modifier = Modifier,
     sending: Boolean,
     isObserver: Boolean,
+    connection: ConnectionBadge? = null,
+    onRetry: () -> Unit = {},
 ) {
+    val offline = connection != null && connection != ConnectionBadge.Live
     val listState = rememberLazyListState()
     var draft by remember(thread.id) { mutableStateOf(initialDraft) }
     val visible = items.filterNot { it is TimelineItem.AskCard }
@@ -102,12 +105,20 @@ fun ChatScreen(
             }
             Column(Modifier.weight(1f)) {
                 Text(thread.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val detail = if (offline && connection != null) {
+                    connection.chromeLabel() + " · " + stringResource(R.string.cached)
+                } else {
+                    listOfNotNull(thread.projectLabel, thread.status.sessionLabel()).joinToString(" · ")
+                }
                 Text(
-                    listOfNotNull(thread.projectLabel, thread.status.sessionLabel()).joinToString(" · "),
+                    detail,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
+            }
+            if (offline) {
+                TextButton(onClick = onRetry) { Text(stringResource(R.string.retry)) }
             }
             Text(
                 ">_",
@@ -120,6 +131,16 @@ fun ChatScreen(
                 color = MaterialTheme.colorScheme.primary,
             )
             Spacer(Modifier.width(8.dp))
+        }
+        if (offline && connection != null) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text(connection.chromeLabel(), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    stringResource(R.string.cached),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         LazyColumn(
             state = listState,

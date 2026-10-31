@@ -40,6 +40,7 @@ class LuviaViewModel(
     private val controls = mutableMapOf<String, SharedTerminalControl>()
     private val identities = mutableMapOf<String, TerminalIdentity>()
     private val triedTerminals = mutableMapOf<String, MutableSet<String>>()
+    private val suppressAutoConnect = mutableSetOf<String>()
 
     val hosts: StateFlow<List<HostRuntime>> = manager.hosts
     val now: StateFlow<NowState> = uhpRegistry.now
@@ -113,31 +114,16 @@ class LuviaViewModel(
             ) {
                 is Outcome.Ok -> {
                     val profile = result.value
-                    when (
-                        val reach =
-                            manager.awaitCurrentConnect(profile.id)
-                    ) {
-                        is Outcome.Ok -> {
-                            _pairing.value = PairingUiState(pairedHostId = profile.id)
-                            onSuccess()
-                        }
-                        is Outcome.Err ->
-                            _pairing.update {
-                                it.copy(
-                                    completing = false,
-                                    errorMessage =
-                                        pairingConnectMessage(
-                                            reach.failure,
-                                            profile.addresses,
-                                            profile.sshPort,
-                                        ),
-                                )
-                            }
-                    }
+                    suppressAutoConnect.remove(profile.id)
+                    _pairing.value = PairingUiState(pairedHostId = profile.id)
+                    onSuccess()
                 }
                 is Outcome.Err ->
                     _pairing.update {
-                        it.copy(completing = false, errorMessage = result.failure.pairingMessage())
+                        it.copy(
+                            completing = false,
+                            errorMessage = pairingFailureCopy(result.failure, rawCode.trim()),
+                        )
                     }
             }
         }
@@ -175,10 +161,21 @@ class LuviaViewModel(
     }
 
     fun connect(hostId: String) {
+        suppressAutoConnect.remove(hostId)
         manager.connect(hostId)
     }
 
+    fun autoConnect(hostId: String) {
+        if (hostId in suppressAutoConnect) return
+        val runtime = manager.hosts.value.firstOrNull { it.profile.id == hostId } ?: return
+        when (hostChrome(runtime.link, runtime.freshness)) {
+            HostChrome.Live, HostChrome.Reconnecting -> return
+            HostChrome.Offline -> manager.connect(hostId)
+        }
+    }
+
     fun disconnect(hostId: String) {
+        suppressAutoConnect.add(hostId)
         stopTerminal(hostId)
         manager.disconnect(hostId)
     }
@@ -557,6 +554,16 @@ internal fun List<HostRuntime>.toSortedUi(
             }.thenBy { it.first },
         )
         .map { it.second }
+
+private fun pairingFailureCopy(failure: Failure, rawCode: String): String {
+    if (failure.isPairingSetupFailure()) return failure.pairingMessage()
+    val decoded = PairingCodes.decode(rawCode)
+    return if (decoded is Outcome.Ok) {
+        pairingConnectMessage(failure, decoded.value.addresses, decoded.value.sshPort)
+    } else {
+        failure.pairingMessage()
+    }
+}
 
 private fun isGoneTerminal(failure: Failure): Boolean =
     failure is Failure.TerminalGone ||

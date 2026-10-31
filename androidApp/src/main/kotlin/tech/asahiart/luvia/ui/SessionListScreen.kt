@@ -36,6 +36,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
@@ -65,6 +66,7 @@ fun SessionListScreen(
     onAnswer: (AgentThread, AskOption) -> Unit,
     onNewSession: () -> Unit,
     onOpenTerminal: () -> Unit,
+    onRetry: () -> Unit = {},
     terminalModifier: Modifier = Modifier,
 ) {
     var menu by remember { mutableStateOf(false) }
@@ -97,9 +99,7 @@ fun SessionListScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            selected?.address?.takeIf { it.isNotBlank() }
-                                ?: selected?.connection?.label()
-                                ?: stringResource(R.string.pair_a_computer),
+                            hostSubtitle(selected),
                             fontFamily = LuviaTheme.mono,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -137,6 +137,9 @@ fun SessionListScreen(
                 }
             }
             Spacer(Modifier.weight(1f))
+            if (selected != null && selected.connection != ConnectionBadge.Live) {
+                TextButton(onClick = onRetry) { Text(stringResource(R.string.retry)) }
+            }
             Text(
                 ">_",
                 modifier = terminalModifier
@@ -222,7 +225,11 @@ fun SessionListScreen(
         } else {
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
                 items(threads, key = { it.id }) { thread ->
-                    SessionRow(thread, selected?.connection == ConnectionBadge.Live && thread.status == tech.asahiart.luvia.AgentStatus.Working) {
+                    SessionRow(
+                        thread,
+                        selected?.connection == ConnectionBadge.Live && thread.status == tech.asahiart.luvia.AgentStatus.Working,
+                        cached = selected != null && selected.connection != ConnectionBadge.Live,
+                    ) {
                         onOpenThread(thread)
                     }
                 }
@@ -243,7 +250,18 @@ private fun ConnectionDot(connection: ConnectionBadge?) {
 }
 
 @Composable
-private fun SessionRow(thread: AgentThread, wavy: Boolean, onClick: () -> Unit) {
+private fun hostSubtitle(selected: HostUiModel?): String {
+    if (selected == null) return stringResource(R.string.pair_a_computer)
+    if (selected.connection == ConnectionBadge.Live) {
+        return selected.address.takeIf { it.isNotBlank() } ?: selected.connection.chromeLabel()
+    }
+    val status = selected.connection.chromeLabel()
+    val address = selected.address
+    return if (address.isBlank()) status else "$status · $address"
+}
+
+@Composable
+private fun SessionRow(thread: AgentThread, wavy: Boolean, cached: Boolean = false, onClick: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -252,7 +270,11 @@ private fun SessionRow(thread: AgentThread, wavy: Boolean, onClick: () -> Unit) 
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(thread.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(thread.status.sessionLabel(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                if (cached) stringResource(R.string.cached) else thread.status.sessionLabel(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         val subtitle = listOfNotNull(thread.projectLabel, thread.agentType).joinToString(" · ")
         if (subtitle.isNotBlank()) {

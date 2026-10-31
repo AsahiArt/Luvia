@@ -63,6 +63,14 @@ internal fun ConnectionBadge.label(): String =
     }
 
 @Composable
+internal fun ConnectionBadge.chromeLabel(): String =
+    when (this) {
+        ConnectionBadge.Live -> stringResource(R.string.link_live)
+        ConnectionBadge.Connecting -> stringResource(R.string.link_reconnecting)
+        ConnectionBadge.Stale, ConnectionBadge.Offline -> stringResource(R.string.link_offline)
+    }
+
+@Composable
 internal fun ToolTrailKind.shortLabel(): String =
     when (this) {
         ToolTrailKind.Read -> stringResource(R.string.tool_read)

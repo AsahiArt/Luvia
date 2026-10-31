@@ -18,7 +18,9 @@ final class AppModel {
     @ObservationIgnored var boundUhpHostID: String?
     private var terminalControl: TerminalControl?
     private var wantsTerminalObserve = false
-    @ObservationIgnored private var autoConnectedHosts = Set<String>()
+    @ObservationIgnored private var autoConnectAttempted = Set<String>()
+    @ObservationIgnored private var suppressAutoConnect = Set<String>()
+    private var preferredStartupHostID: String?
     private let liveActivity = LiveActivityController()
     private var liveActivityHostID: String?
     private var liveActivityBlockedAgents = 0
@@ -56,8 +58,10 @@ final class AppModel {
         let managerRef = manager
         hostsTask = _Concurrency.Task { [weak self] in
             for await runtimes in managerRef.hosts {
+                let preferred = managerRef.preferredHostId()
                 let states = KotlinLists.array(runtimes as Any).map(HostViewState.init)
                 await MainActor.run {
+                    self?.preferredStartupHostID = preferred
                     self?.replaceHosts(states)
                 }
             }
@@ -97,6 +101,7 @@ final class AppModel {
         uhp.reset(hostID: host.id)
         bindUhp(hostID: host.id)
         hostUhp()?.shown()
+        autoConnectIfNeeded(force: true)
     }
 
     func beginPairing(deviceLabel: String, role: HostRole) -> Result<PairingDraft, UserFacingError> {
@@ -131,43 +136,27 @@ final class AppModel {
                 guard let profile = ok.value else {
                     return .failure(UserFacingError(message: "配对没有返回电脑。"))
                 }
-                let reach = try await manager.awaitCurrentConnect(
-                    hostId: profile.id,
-                    timeoutMs: 45_000
-                )
-                switch onEnum(of: reach) {
-                case .ok:
-                    selectedHostID = profile.id
-                    selectedSection = .agents
-                    bindUhp(hostID: profile.id)
-                    hostUhp()?.shown()
-                    if !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || !port.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || !user.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    {
-                        _ = await updateConnection(
-                            hostID: profile.id,
-                            alias: profile.alias,
-                            hosts: host,
-                            port: port,
-                            username: user
-                        )
-                    }
-                    return .success(profile)
-                case .err(let err):
-                    let addresses: [String] = KotlinLists.array(profile.addresses as Any)
-                    return .failure(
-                        UserFacingError(
-                            message: PairingConnectKt.pairingConnectMessage(
-                                failure: err.failure,
-                                addresses: addresses,
-                                port: profile.sshPort
-                            )
-                        )
+                selectedHostID = profile.id
+                selectedSection = .agents
+                suppressAutoConnect.remove(profile.id)
+                autoConnectAttempted.insert(profile.id)
+                bindUhp(hostID: profile.id)
+                hostUhp()?.shown()
+                if !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !port.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !user.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                {
+                    _ = await updateConnection(
+                        hostID: profile.id,
+                        alias: profile.alias,
+                        hosts: host,
+                        port: port,
+                        username: user
                     )
                 }
+                return .success(profile)
             case .err(let err):
-                return .failure(UserFacingError(message: FailureText.describe(err.failure)))
+                return .failure(UserFacingError(message: pairingOutcomeMessage(err.failure, rawCode: rawCode)))
             }
         } catch {
             return .failure(UserFacingError(message: error.localizedDescription))
@@ -204,10 +193,13 @@ final class AppModel {
 
 
     func connect(_ hostId: String) {
+        suppressAutoConnect.remove(hostId)
+        autoConnectAttempted.insert(hostId)
         manager.connect(hostId: hostId)
     }
 
     func disconnect(_ hostId: String) {
+        suppressAutoConnect.insert(hostId)
         wantsTerminalObserve = false
         stopTerminal()
         manager.disconnect(hostId: hostId)
@@ -256,21 +248,47 @@ final class AppModel {
         _Concurrency.Task { await self.loadSelectedSection() }
     }
 
-    /// Now is live across Hosts: connect each paired Host once per launch, never again after a manual disconnect.
-    func connectHostsOnce() {
-        for host in hosts where autoConnectedHosts.insert(host.id).inserted {
-            if host.connection == .stale || host.connection == .offline { connect(host.id) }
-        }
-    }
-
-    func autoConnectIfNeeded() {
+    /// Cold start and foreground: connect the selected host once until it is live.
+    /// A manual disconnect stays down until the next foreground or an explicit retry.
+    func autoConnectIfNeeded(force: Bool = false) {
         guard let host = selectedHost else { return }
+        if suppressAutoConnect.contains(host.id) { return }
         switch host.connection {
         case .live, .connecting:
             return
         case .stale, .offline:
-            connect(host.id)
+            if !force && !autoConnectAttempted.insert(host.id).inserted { return }
+            autoConnectAttempted.insert(host.id)
+            manager.connect(hostId: host.id)
         }
+    }
+
+    private func pairingOutcomeMessage(_ failure: Failure, rawCode: String) -> String {
+        if isPairingSetupFailure(failure) {
+            return FailureText.describe(failure)
+        }
+        switch onEnum(of: PairingCodes.shared.decode(raw: rawCode)) {
+        case .ok(let ok):
+            guard let code = ok.value else { return FailureText.describe(failure) }
+            let addresses: [String] = KotlinLists.array(code.addresses as Any)
+            return PairingConnectKt.pairingConnectMessage(
+                failure: failure,
+                addresses: addresses,
+                port: code.sshPort
+            )
+        case .err:
+            return FailureText.describe(failure)
+        }
+    }
+
+    private func isPairingSetupFailure(_ failure: Failure) -> Bool {
+        if case .protocolError(let value) = onEnum(of: failure) {
+            let reason = value.reason
+            return reason.contains("pairing code")
+                || reason.contains("device key")
+                || reason.contains("Could not store the device key")
+        }
+        return false
     }
 
     func sendTerminal(_ text: String) async {
@@ -349,10 +367,11 @@ final class AppModel {
         if let selectedHostID, !states.contains(where: { $0.id == selectedHostID }) {
             self.selectedHostID = nil
         }
-        if selectedHostID == nil {
-            selectedHostID = states.first?.id
+        if selectedHostID == nil || !states.contains(where: { $0.id == selectedHostID }) {
+            selectedHostID = preferredStartupHostID ?? states.first?.id
         }
         refreshCaps()
+        autoConnectIfNeeded()
         if let id = selectedHostID {
             bindUhp(hostID: id)
         }
@@ -382,6 +401,12 @@ final class AppModel {
             return
         }
         let locator = paneId.flatMap { host.locator(for: $0) } ?? host.terminalLocator
+        if host.connection != .live {
+            stopTerminal()
+            terminalText = ""
+            terminalStatus = connectionLabel(host.connection)
+            return
+        }
         guard let locator else {
             stopTerminal()
             terminalText = ""

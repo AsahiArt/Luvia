@@ -36,4 +36,13 @@ class PairingConnectTest {
         assertEquals("Host key changed. Re-pair this Host.", pairingConnectMessage(mismatch, listOf("10.0.0.1"), 22))
         assertFalse(Failure.Transport("public-key authentication failed").isUnreachableTransport())
     }
+
+    @Test
+    fun setupFailuresStayOnThePairingCopy() {
+        assertTrue(Failure.ProtocolError("pairing code must start with luvia1:").isPairingSetupFailure())
+        assertTrue(Failure.ProtocolError("pairing code is for a different device key").isPairingSetupFailure())
+        assertTrue(Failure.ProtocolError("Could not store the device key on this device.").isPairingSetupFailure())
+        assertFalse(Failure.Transport("connect timeout").isPairingSetupFailure())
+        assertFalse(Failure.ProtocolError("Device key for this host is gone. Re-pair the host to restore access.").isPairingSetupFailure())
+    }
 }

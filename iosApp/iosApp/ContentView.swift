@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var showNewSession = false
     @State private var cwd = ""
     @State private var confirmUnpair = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         LuviaGlassContainer {
@@ -35,16 +36,14 @@ struct ContentView: View {
         }
         .animation(.spring(response: 0.42, dampingFraction: 0.86), value: stage)
         .onAppear {
-            model.connectHostsOnce()
+            model.autoConnectIfNeeded()
             if model.hosts.isEmpty { stage = "pair" }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { model.autoConnectIfNeeded(force: true) }
         }
         .onChange(of: model.hosts.map(\.id)) { _, ids in
             if ids.isEmpty, stage == "sessions" { stage = "pair" }
-            if model.selectedHostID == nil || !ids.contains(model.selectedHostID ?? "") {
-                if let first = model.hosts.first {
-                    model.select(first)
-                }
-            }
         }
         .onChange(of: model.pendingOpenAgentID) { _, id in
             guard let id else { return }
@@ -83,6 +82,7 @@ struct ContentView: View {
                     queueTotal: max(pending.count, thread.ask.map { Int($0.total) } ?? 1),
                     onBack: { stage = "sessions" },
                     onTerminal: { openTerminal(thread.paneId) },
+                    showsChrome: stage != "terminal",
                     glass: glass
                 )
             } else {
@@ -107,6 +107,7 @@ struct ContentView: View {
                 },
                 onTerminal: { openTerminal(openThread?.paneId) },
                 onSettings: { showSettings = true },
+                showsChrome: stage != "terminal",
                 glass: glass
             )
         }
