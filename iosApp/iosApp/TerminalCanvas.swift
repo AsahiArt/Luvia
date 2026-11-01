@@ -331,6 +331,7 @@ final class FailureOutlineView: UIView {
         let inset = textView.textContainerInset
         let wanted = Set(lineIndexes)
         var start = 0
+        var line = 0
         var run: [CGRect] = []
         func flush() {
             guard let first = run.first else { return }
@@ -362,6 +363,7 @@ final class FailureOutlineView: UIView {
             } else if !run.isEmpty {
                 flush()
             }
+            line += 1
             if newline.location == NSNotFound { break }
             start = newline.location + newline.length
         }
