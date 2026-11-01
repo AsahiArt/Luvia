@@ -26,8 +26,25 @@ struct ContentView: View {
                         panes: panes,
                         selectedPaneID: model.uhp.selectedAgentID,
                         pendingDecisions: pending.count,
+                        waitingTitle: pending.first?.title,
+                        waitingDetail: pending.first?.ask?.question,
+                        canAskFix: model.selectedHost?.isController == true && model.selectedHost?.connection == .live,
                         onBack: closeTerminal,
                         onSelectPane: { model.openTerminal(paneId: $0) },
+                        onAskFix: { excerpt in
+                            let text = "请修这个失败：\n\(excerpt)"
+                            guard let uhp = model.hostUhp() else { return }
+                            let pane = model.uhp.selectedAgentID
+                            let agentPane = allThreads.first { $0.kind == .pane && $0.paneId == pane }?.paneId
+                                ?? allThreads.first { $0.kind == .pane }?.paneId
+                            if let agentPane, uhp.promptPane(paneId: agentPane, text: text) {
+                                return
+                            }
+                            if allThreads.contains(where: { $0.kind == .acp }) {
+                                uhp.setAcpDraft(text: text)
+                                uhp.promptAcp()
+                            }
+                        },
                         glass: glass
                     )
                     .transition(.scale(scale: 0.9, anchor: .top).combined(with: .opacity))
@@ -146,6 +163,9 @@ struct ContentView: View {
 
     private var panes: [(id: String, title: String)] {
         guard let host = model.selectedHost else { return [] }
+        if !host.terminalPanes.isEmpty {
+            return host.terminalPanes.map { ($0.id, $0.title) }
+        }
         return host.paneTerminalIds.keys.sorted().map { id in
             (id, host.agents.first { $0.id == id }?.name ?? id)
         }

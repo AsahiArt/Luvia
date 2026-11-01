@@ -7,6 +7,7 @@ struct TerminalCanvas: UIViewRepresentable {
     var ansi: Bool
     var wrap: Bool
     @Binding var stickToBottom: Bool
+    var outlinedLines: [Int] = []
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -31,6 +32,7 @@ struct TerminalCanvas: UIViewRepresentable {
         private var lastText: String?
         private var lastAnsi: Bool?
         private var lastWrap: Bool?
+        private var lastOutline: [Int] = []
         private var lastViewport: CGSize = .zero
         private var parseGeneration: UInt64 = 0
         private var userZoom: CGFloat = 1
@@ -61,7 +63,9 @@ struct TerminalCanvas: UIViewRepresentable {
         func sync() {
             let textChanged = lastText != parent.text || lastAnsi != parent.ansi
             let wrapChanged = lastWrap != parent.wrap
+            let outlineChanged = lastOutline != parent.outlinedLines
             lastWrap = parent.wrap
+            lastOutline = parent.outlinedLines
 
             if textChanged {
                 lastText = parent.text
@@ -69,6 +73,8 @@ struct TerminalCanvas: UIViewRepresentable {
                 scheduleParse(text: parent.text, ansi: parent.ansi)
             } else if wrapChanged {
                 relayout(forceZoom: true)
+            } else if outlineChanged {
+                refreshOutline()
             }
 
             if parent.stickToBottom, !appliedStick {
@@ -133,6 +139,14 @@ struct TerminalCanvas: UIViewRepresentable {
             if parent.stickToBottom, !userIsPinching, !host.scrollView.isZooming {
                 scrollToBottom()
             }
+            refreshOutline()
+        }
+
+        private func refreshOutline() {
+            guard let host else { return }
+            host.outlineView.lineIndexes = parent.outlinedLines
+            host.outlineView.frame = host.textView.frame
+            host.outlineView.setNeedsDisplay()
         }
 
         private func viewportDidChange(_ size: CGSize) {
@@ -221,6 +235,7 @@ struct TerminalCanvas: UIViewRepresentable {
                 targetZoom: targetZoom,
                 force: forceZoom
             )
+            refreshOutline()
             let scale = scrollView.zoomScale
             scrollView.contentSize = CGSize(
                 width: host.zoomView.bounds.width * scale,
@@ -287,10 +302,78 @@ struct TerminalCanvas: UIViewRepresentable {
     }
 }
 
+final class FailureOutlineView: UIView {
+    weak var textView: UITextView?
+    var lineIndexes: [Int] = [] {
+        didSet { setNeedsDisplay() }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isOpaque = false
+        backgroundColor = .clear
+        isUserInteractionEnabled = false
+        contentMode = .redraw
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard let textView, !lineIndexes.isEmpty else { return }
+        let text = textView.text ?? ""
+        let ns = text as NSString
+        guard ns.length > 0 else { return }
+        let layout = textView.layoutManager
+        let container = textView.textContainer
+        let inset = textView.textContainerInset
+        let wanted = Set(lineIndexes)
+        var start = 0
+        var run: [CGRect] = []
+        func flush() {
+            guard let first = run.first else { return }
+            let union = run.dropFirst().reduce(first) { $0.union($1) }.insetBy(dx: -3, dy: -1)
+            let path = UIBezierPath(roundedRect: union, cornerRadius: 6)
+            UIColor.systemRed.withAlphaComponent(0.16).setFill()
+            path.fill()
+            UIColor.systemRed.setStroke()
+            path.lineWidth = 1.5
+            path.stroke()
+            run.removeAll()
+        }
+        while start <= ns.length {
+            let newline = ns.rangeOfCharacter(
+                from: .newlines,
+                options: [],
+                range: NSRange(location: start, length: ns.length - start)
+            )
+            let lineEnd = newline.location == NSNotFound ? ns.length : newline.location
+            let lineRange = NSRange(location: start, length: max(0, lineEnd - start))
+            if wanted.contains(line), lineRange.length > 0 {
+                let glyphRange = layout.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+                if glyphRange.length > 0 {
+                    var box = layout.boundingRect(forGlyphRange: glyphRange, in: container)
+                    box.origin.x += inset.left
+                    box.origin.y += inset.top
+                    run.append(box)
+                }
+            } else if !run.isEmpty {
+                flush()
+            }
+            if newline.location == NSNotFound { break }
+            start = newline.location + newline.length
+        }
+        flush()
+    }
+}
+
 final class TerminalCanvasHostView: UIView {
     let scrollView = UIScrollView()
     let zoomView = UIView()
     let textView = UITextView()
+    let outlineView = FailureOutlineView()
     var onLayout: ((CGSize) -> Void)?
 
     override init(frame: CGRect) {
@@ -343,6 +426,8 @@ final class TerminalCanvasHostView: UIView {
         textView.dataDetectorTypes = []
         textView.accessibilityLabel = "终端输出"
         zoomView.addSubview(textView)
+        outlineView.textView = textView
+        zoomView.addSubview(outlineView)
     }
 
     @available(*, unavailable)

@@ -104,6 +104,13 @@
     <string name="tool_other">工具</string>
     <string name="more_cells">还有 %1$d 格</string>
     <string name="ask_agent_fix">交给 claude 修</string>
+    <string name="ask_agent_fix_prompt">请修这个失败：\n</string>
+    <string name="terminal_synced">已同步</string>
+    <string name="terminal_pane_title">pane %1$d</string>
+    <string name="release_control_full">释放控制权</string>
+    <string name="terminal_failure_summary">%1$d/%2$d · %3$d failed</string>
+    <string name="terminal_failure_summary_timed">%1$d/%2$d · %3$d failed · %4$s</string>
+    <string name="key_ctrl">ctrl</string>
     <string name="sessions_title">会话</string>
     <string name="tab_sessions">会话</string>
     <string name="tab_machines">机器</string>

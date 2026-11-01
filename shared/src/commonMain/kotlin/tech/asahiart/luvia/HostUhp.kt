@@ -112,6 +112,16 @@ public class HostUhp(
 
     public fun promptAgent(text: String) = agents.prompt(text)
 
+    /**
+     * Sends [text] to [paneId] without opening the conversation.
+     * False when that pane already has a send in flight.
+     */
+    public fun promptPane(paneId: String, text: String): Boolean {
+        if (!agents.target(paneId)) return false
+        agents.prompt(text)
+        return true
+    }
+
     public fun sendAgentKeys(keys: List<AgentKey>) = agents.sendKeys(keys)
 
     public fun checkAgent() = agents.check()

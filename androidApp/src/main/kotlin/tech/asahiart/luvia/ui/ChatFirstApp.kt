@@ -297,6 +297,8 @@ fun ChatFirstApp(
             ),
         ) {
             val id = selected?.id
+            val fixLead = stringResource(R.string.ask_agent_fix_prompt)
+            val canAsk = selected?.isObserver != true && selected?.connection == ConnectionBadge.Live
             TerminalScreen(
                 model = id?.let { terminals[it] },
                 pendingDecisions = pendingReplyCount(allThreads),
@@ -309,10 +311,20 @@ fun ChatFirstApp(
                 onReleaseControl = { id?.let { viewModel.releaseControl(it) } },
                 onSendText = { text -> id?.let { viewModel.sendTerminalText(it, text) } },
                 onSendKey = { key -> id?.let { viewModel.sendTerminalKey(it, key) } },
-                statusOverride = when (selected?.connection) {
-                    ConnectionBadge.Connecting -> stringResource(R.string.link_reconnecting)
-                    ConnectionBadge.Live, null -> null
-                    else -> stringResource(R.string.link_offline)
+                connection = selected?.connection,
+                canAskFix = canAsk,
+                onAskFix = fix@{ excerpt ->
+                    val host = id ?: return@fix
+                    val workspace = viewModel.workspace(host)
+                    val prompt = fixLead + excerpt
+                    val pane = terminals[host]?.paneId
+                    val agentPane = allThreads.firstOrNull { it.kind == AgentKind.Pane && it.paneId == pane }?.paneId
+                        ?: allThreads.firstOrNull { it.kind == AgentKind.Pane }?.paneId
+                    if (agentPane != null && workspace.promptPane(agentPane, prompt)) return@fix
+                    if (allThreads.any { it.kind == AgentKind.Acp }) {
+                        workspace.setAcpDraft(prompt)
+                        workspace.promptAcp()
+                    }
                 },
             )
         }

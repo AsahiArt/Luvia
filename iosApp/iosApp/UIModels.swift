@@ -410,6 +410,11 @@ struct TerminalLocator: Hashable, Sendable {
 }
 
 
+struct TerminalPaneChoiceItem: Hashable, Sendable, Identifiable {
+    var id: String
+    var title: String
+}
+
 struct HostViewState: Identifiable, Hashable, Sendable {
     let id: String
     var name: String
@@ -431,6 +436,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
     var terminalLocator: TerminalLocator?
     var backend: String
     var paneTerminalIds: [String: String]
+    var terminalPanes: [TerminalPaneChoiceItem]
     var workspaces: [WorkspaceItem]
 
     init(
@@ -454,6 +460,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         terminalLocator: TerminalLocator? = nil,
         backend: String = "luvus",
         paneTerminalIds: [String: String] = [:],
+        terminalPanes: [TerminalPaneChoiceItem] = [],
         workspaces: [WorkspaceItem] = []
     ) {
         self.id = id
@@ -476,6 +483,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         self.terminalLocator = terminalLocator
         self.backend = backend
         self.paneTerminalIds = paneTerminalIds
+        self.terminalPanes = terminalPanes
         self.workspaces = workspaces
     }
 
@@ -525,6 +533,21 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         }
         let tasks = taskSummaries.map { TaskViewState($0) }
         let locator = HostViewState.locator(from: snapshot)
+        let terminalPanes: [TerminalPaneChoiceItem] = paneSummaries.compactMap { pane in
+            guard let terminalId = pane.terminalId, !terminalId.isEmpty else { return nil }
+            let agent = agentSummaries.first { $0.paneId == pane.paneId }
+            let cwdLeaf = pane.cwd.flatMap { cwd -> String? in
+                let leaf = cwd.split(separator: "/").last.map(String.init)
+                return leaf?.isEmpty == false ? leaf : nil
+            }
+            let title = [pane.agentName, agent?.name, agent?.agent, cwdLeaf].compactMap { value -> String? in
+                guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+                    return nil
+                }
+                return trimmed
+            }.first ?? pane.paneId
+            return TerminalPaneChoiceItem(id: pane.paneId, title: title)
+        }
 
         self.init(
             id: profile.id,
@@ -549,6 +572,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
             terminalLocator: locator,
             backend: runtime.backend,
             paneTerminalIds: terminalIds,
+            terminalPanes: terminalPanes,
             workspaces: workspaceItems
         )
     }
