@@ -208,10 +208,10 @@ public fun threadTrails(state: HostUhpState, threads: List<AgentThread>): List<T
         val calls = state.acp.transcript.mapNotNull { (it as? AcpTranscriptItem.Tool)?.call }
         val thumb = trailThumb(calls)
         val sessionId = state.acp.info?.sessionId
-        if (thumb != null) {
+        if (thumb != null && sessionId != null) {
             val match = threads.firstOrNull { thread ->
                 thread.kind == AgentKind.Acp &&
-                    (sessionId == null || thread.acpSessionId == sessionId || thread.id == "acp:$sessionId")
+                    (thread.acpSessionId == sessionId || thread.id == "acp:$sessionId")
             }
             if (match != null) found += ThreadTrail(match.id, thumb)
         }

@@ -162,6 +162,27 @@ class SessionListTest {
         assertNull(trails["acp:s"]?.progressPermille)
     }
 
+    @Test
+    fun acpTrailWithoutSessionIdStaysUnattached() {
+        val state = HostUhpState(
+            acp = AcpState(
+                open = true,
+                info = null,
+                transcript = listOf(
+                    AcpTranscriptItem.Tool(
+                        "e",
+                        AcpToolCall("e", "Edit TokenStore.kt", "edit", AcpToolStatus.Completed, null),
+                    ),
+                ),
+            ),
+        )
+        val threads = listOf(
+            thread("acp", AgentStatus.Working).copy(kind = AgentKind.Acp),
+            thread("acp:other", AgentStatus.Idle).copy(kind = AgentKind.Acp, acpSessionId = "other"),
+        )
+        assertTrue(threadTrails(state, threads).isEmpty())
+    }
+
     private fun thread(
         id: String,
         status: AgentStatus,
