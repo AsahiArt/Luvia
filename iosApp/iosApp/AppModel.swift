@@ -60,7 +60,7 @@ final class AppModel {
         let managerRef = manager
         readyTask = _Concurrency.Task { [weak self] in
             for await ready in managerRef.catalogReady {
-                if ready {
+                if ready.boolValue {
                     let states = KotlinLists.array(managerRef.hosts.value as Any).map(HostViewState.init)
                     await MainActor.run {
                         self?.replaceHosts(states)
