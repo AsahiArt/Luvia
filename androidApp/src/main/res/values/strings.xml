@@ -92,11 +92,15 @@
     <string name="add_note">补充说明</string>
     <string name="observer_cannot_answer">观察者不能代答</string>
     <string name="select_and_continue">选定并继续</string>
+    <string name="continue_action">继续</string>
+    <string name="note_hint">补充说明</string>
+    <string name="decision_needs_you">%1$s 需要你决定</string>
     <string name="message_hint">消息</string>
     <string name="observer_cannot_send">观察者只能看，不能发</string>
+    <string name="offline_cannot_send">离线，无法发送</string>
     <string name="tool_read">读</string>
-    <string name="tool_edit">改</string>
-    <string name="tool_run">跑</string>
+    <string name="tool_edit">编辑</string>
+    <string name="tool_run">运行</string>
     <string name="tool_other">工具</string>
     <string name="more_cells">还有 %1$d 格</string>
     <string name="ask_agent_fix">交给 claude 修</string>

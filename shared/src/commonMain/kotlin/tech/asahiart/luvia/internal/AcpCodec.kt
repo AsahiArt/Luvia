@@ -2,7 +2,9 @@ package tech.asahiart.luvia.internal
 
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import tech.asahiart.luvia.AcpAgentKind
@@ -17,6 +19,8 @@ import tech.asahiart.luvia.AcpStopReason
 import tech.asahiart.luvia.AcpToolCall
 import tech.asahiart.luvia.AcpToolCallUpdate
 import tech.asahiart.luvia.AcpToolStatus
+import tech.asahiart.luvia.thread.findDuration
+import tech.asahiart.luvia.thread.unifiedDiff
 
 internal fun mapAcpAgents(result: JsonElement): List<AcpAgentKind> =
     result.asObject().optionalObjectList("agents").mapNotNull { row ->
@@ -96,6 +100,8 @@ private fun decodeToolCall(update: JsonObject): AcpToolCall? {
         kind = update.optionalString("kind"),
         status = parseToolStatus(update.optionalString("status")) ?: AcpToolStatus.Unknown,
         summary = toolSummary(update),
+        path = toolPath(update),
+        duration = toolDuration(update),
     )
 }
 
@@ -108,19 +114,61 @@ private fun decodeToolCallUpdate(update: JsonObject): AcpToolCallUpdate? {
         kind = update.optionalString("kind"),
         status = if (hasStatus) parseToolStatus(update.optionalString("status")) ?: AcpToolStatus.Unknown else null,
         summary = toolSummary(update),
+        path = toolPath(update),
+        duration = toolDuration(update),
     )
 }
 
 private fun toolSummary(update: JsonObject): String? {
+    val parts = mutableListOf<String>()
     val contents = update["content"] as? JsonArray
     if (contents != null) {
         for (el in contents) {
             val item = el as? JsonObject ?: continue
-            val inner = item.optionalObject("content") ?: continue
-            val text = inner.optionalString("text")
-            if (!text.isNullOrEmpty()) return text
+            val inner = item.optionalObject("content")
+            val text = inner?.optionalString("text")
+            if (!text.isNullOrEmpty()) parts += text
+            if (item.optionalString("type") == "diff") {
+                val newText = item.optionalString("newText") ?: continue
+                val path = item.optionalString("path") ?: "file"
+                val rendered = unifiedDiff(path, item.optionalString("oldText") ?: "", newText)
+                if (rendered != null) parts += rendered
+            }
         }
     }
+    if (parts.isNotEmpty()) return parts.joinToString("\n")
+    return firstLocationPath(update)
+}
+
+private fun toolPath(update: JsonObject): String? {
+    firstLocationPath(update)?.let { return it }
+    val contents = update["content"] as? JsonArray ?: return null
+    for (el in contents) {
+        val item = el as? JsonObject ?: continue
+        if (item.optionalString("type") != "diff") continue
+        val path = item.optionalString("path")
+        if (!path.isNullOrEmpty()) return path
+    }
+    return null
+}
+
+private fun toolDuration(update: JsonObject): String? {
+    looseString(update, "duration")?.let { findDuration(it) }?.let { return it }
+    val raw = update.optionalObject("rawOutput")
+    if (raw != null) {
+        looseString(raw, "duration")?.let { findDuration(it) }?.let { return it }
+    }
+    return findDuration(update.optionalString("title"))
+}
+
+private fun looseString(obj: JsonObject, key: String): String? {
+    val value = obj[key] ?: return null
+    if (value is JsonNull) return null
+    val primitive = value as? JsonPrimitive ?: return null
+    return primitive.content
+}
+
+private fun firstLocationPath(update: JsonObject): String? {
     val locations = update["locations"] as? JsonArray ?: return null
     for (el in locations) {
         val item = el as? JsonObject ?: continue

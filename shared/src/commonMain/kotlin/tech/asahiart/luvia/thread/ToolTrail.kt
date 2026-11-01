@@ -1,0 +1,351 @@
+package tech.asahiart.luvia.thread
+
+import tech.asahiart.luvia.AcpToolCall
+import tech.asahiart.luvia.AcpToolStatus
+import kotlin.math.roundToInt
+
+/** How many cells the chat test bar always draws. Failures are sampled into this width. */
+public const val TEST_BAR_CELLS: Int = 64
+
+public data class DiffLineView(
+    /** Null when the tool text has no hunk header, so the UI does not invent a number. */
+    public val oldNumber: Int?,
+    public val newNumber: Int?,
+    /** `"+"`, `"-"`, or `" "` (context). */
+    public val marker: String,
+    public val text: String,
+)
+
+public data class DiffFileView(
+    public val path: String?,
+    public val lines: List<DiffLineView>,
+    public val additions: Int,
+    public val deletions: Int,
+)
+
+/** Facts the chat trail can show without inventing a tool the host did not send. */
+public data class ToolTrailView(
+    public val kind: ToolTrailKind,
+    public val path: String?,
+    public val duration: String?,
+    public val diffs: List<DiffFileView>,
+    public val meter: RunMeter?,
+    public val failedNames: List<String>,
+    public val markFailed: Boolean,
+)
+
+/** One fact in the horizontal chip stream. Copy stays in the platform UI. */
+public sealed class ToolStreamPart {
+    public data class Reads(public val count: Int) : ToolStreamPart()
+
+    public data class Edit(
+        public val file: String,
+        public val additions: Int,
+        public val deletions: Int,
+        public val hasDiff: Boolean,
+    ) : ToolStreamPart()
+
+    public data class Meter(public val passed: Int, public val total: Int) : ToolStreamPart()
+
+    public data class Run(public val title: String) : ToolStreamPart()
+
+    public data class Other(public val count: Int) : ToolStreamPart()
+}
+
+public fun toolTrailView(call: AcpToolCall): ToolTrailView {
+    val diffs = parseDiffFiles(call.summary)
+    val blob = listOfNotNull(call.title, call.summary).joinToString("\n")
+    val path = call.path?.takeIf { it.isNotBlank() }
+        ?: diffs.firstNotNullOfOrNull { it.path }
+        ?: findPath(call.summary)
+        ?: findPath(call.title)
+    return ToolTrailView(
+        kind = toolTrailKind(call.kind, call.title),
+        path = path,
+        duration = call.duration?.takeIf { it.isNotBlank() } ?: findDuration(blob),
+        diffs = diffs,
+        meter = parseRunMeter(call.summary),
+        failedNames = findFailedNames(call.summary),
+        markFailed = call.status == AcpToolStatus.Failed,
+    )
+}
+
+/**
+ * Reads first, then each edit and run in order, then any other tools.
+ * A run with a meter contributes the meter instead of a second run chip.
+ */
+public fun toolStreamParts(calls: List<AcpToolCall>): List<ToolStreamPart> {
+    val views = calls.map(::toolTrailView)
+    val parts = mutableListOf<ToolStreamPart>()
+    val reads = views.count { it.kind == ToolTrailKind.Read }
+    if (reads > 0) parts += ToolStreamPart.Reads(reads)
+    views.forEach { view ->
+        when (view.kind) {
+            ToolTrailKind.Edit -> {
+                val additions = view.diffs.sumOf { it.additions }
+                val deletions = view.diffs.sumOf { it.deletions }
+                val file = view.diffs.firstNotNullOfOrNull { it.path }?.fileName()
+                    ?: view.path?.fileName()
+                    ?: "file"
+                parts += ToolStreamPart.Edit(file, additions, deletions, view.diffs.isNotEmpty())
+            }
+            ToolTrailKind.Run -> {
+                val meter = view.meter
+                if (meter != null) parts += ToolStreamPart.Meter(meter.passed, meter.total)
+                else parts += ToolStreamPart.Run(view.path?.fileName().orEmpty())
+            }
+            ToolTrailKind.Read, ToolTrailKind.Other -> Unit
+        }
+    }
+    val others = views.count { it.kind == ToolTrailKind.Other }
+    if (others > 0) parts += ToolStreamPart.Other(others)
+    return parts
+}
+
+/** `true` marks a failed cell. The list is always [TEST_BAR_CELLS] long. */
+public fun testBarCells(passed: Int, total: Int, markFailed: Boolean): List<Boolean> {
+    if (total <= 0) {
+        return List(TEST_BAR_CELLS) { markFailed && it == TEST_BAR_CELLS - 1 }
+    }
+    val failed = (total - passed).coerceAtLeast(0)
+    var failedCells = ((failed.toFloat() / total.toFloat()) * TEST_BAR_CELLS).roundToInt()
+    if (failed > 0 && failedCells == 0) failedCells = 1
+    if (markFailed && failedCells == 0) failedCells = 1
+    failedCells = failedCells.coerceIn(0, TEST_BAR_CELLS)
+    return List(TEST_BAR_CELLS) { index -> index >= TEST_BAR_CELLS - failedCells }
+}
+
+/** Compact mask so Swift can draw the same bar without reimplementing the ratio. */
+public fun testBarMask(passed: Int, total: Int, markFailed: Boolean): String =
+    testBarCells(passed, total, markFailed).joinToString("") { if (it) "1" else "0" }
+
+/**
+ * Unified diff for an ACP `diff` content block. Line numbers start at 1 because
+ * those blocks carry the whole old and new text, not a pre-numbered hunk.
+ * Returns null when the texts match. Large edits keep the first changed lines.
+ */
+internal fun unifiedDiff(path: String, oldText: String, newText: String): String? {
+    val oldLines = splitKeep(oldText)
+    val newLines = splitKeep(newText)
+    if (oldLines == newLines) return null
+    var start = 0
+    while (start < oldLines.size && start < newLines.size && oldLines[start] == newLines[start]) start++
+    var endOld = oldLines.size
+    var endNew = newLines.size
+    while (endOld > start && endNew > start && oldLines[endOld - 1] == newLines[endNew - 1]) {
+        endOld--
+        endNew--
+    }
+    val lead = (start - HUNK_CONTEXT).coerceAtLeast(0)
+    val oldChangeEnd = endOld.coerceAtMost(start + MAX_DIFF_LINES)
+    val newChangeEnd = endNew.coerceAtMost(start + MAX_DIFF_LINES)
+    val body = mutableListOf<String>()
+    var index = lead
+    while (index < start) {
+        body += " " + oldLines[index]
+        index++
+    }
+    var oldIndex = start
+    while (oldIndex < oldChangeEnd) {
+        body += "-" + oldLines[oldIndex]
+        oldIndex++
+    }
+    var newIndex = start
+    while (newIndex < newChangeEnd) {
+        body += "+" + newLines[newIndex]
+        newIndex++
+    }
+    if (oldIndex == endOld && newIndex == endNew) {
+        var trail = 0
+        while (
+            trail < HUNK_CONTEXT &&
+            endOld + trail < oldLines.size &&
+            endNew + trail < newLines.size
+        ) {
+            body += " " + oldLines[endOld + trail]
+            trail++
+        }
+    }
+    val oldCount = body.count { !it.startsWith("+") }
+    val newCount = body.count { !it.startsWith("-") }
+    val file = path.ifBlank { "file" }
+    val oldStart = if (oldCount == 0) 0 else lead + 1
+    val newStart = if (newCount == 0) 0 else lead + 1
+    val sb = StringBuilder()
+    sb.append("diff --git a/").append(file).append(" b/").append(file).append('\n')
+    sb.append("--- a/").append(file).append('\n')
+    sb.append("+++ b/").append(file).append('\n')
+    sb.append("@@ -").append(oldStart).append(',').append(oldCount)
+    sb.append(" +").append(newStart).append(',').append(newCount).append(" @@\n")
+    body.forEach { sb.append(it).append('\n') }
+    return sb.toString().trimEnd()
+}
+
+private const val HUNK_CONTEXT: Int = 3
+private const val MAX_DIFF_LINES: Int = 80
+
+private val durationPattern =
+    Regex("""(?<!\w)(\d+(?:\.\d+)?)(\s*)(ms|s|秒)(?!\w)""", RegexOption.IGNORE_CASE)
+
+private val failedPrefix = Regex("""(?i)^(?:FAILED|FAIL|✘|✗|×)\s+(\S.*)""")
+private val failedSuffix = Regex("""(?i)^([\w.$]+)\s+FAILED\b""")
+private val failedCase = Regex("""(?i)^([\w.$]+)\s*>\s*.+\bFAILED\b""")
+private val testName = Regex("""^[\w.$]*(?:Test|Spec|Suite)[\w.$]*$""")
+
+internal fun findDuration(text: String?): String? {
+    if (text.isNullOrBlank()) return null
+    val match = durationPattern.findAll(text).lastOrNull() ?: return null
+    val number = match.groupValues[1]
+    val unit = match.groupValues[3].lowercase()
+    return number + unit
+}
+
+private fun findPath(text: String?): String? {
+    if (text.isNullOrBlank()) return null
+    return text.split(Regex("""\s+"""))
+        .map { it.trim().trimEnd('.', ',', ';', ':', '→') }
+        .firstOrNull { looksLikePath(it) }
+}
+
+private fun looksLikePath(token: String): Boolean {
+    if (token.isEmpty() || token.length > 240) return false
+    if (token.startsWith("~/") || token.startsWith("/") || token.startsWith("./") || token.startsWith("../")) {
+        return true
+    }
+    if ('/' in token && ' ' !in token) return true
+    return looksLikeFile(token)
+}
+
+private fun looksLikeFile(token: String): Boolean {
+    val name = token.substringAfterLast('/')
+    val dot = name.lastIndexOf('.')
+    if (dot <= 0 || dot == name.lastIndex) return false
+    if (name[dot - 1].isDigit()) return false
+    val ext = name.substring(dot + 1)
+    return ext.length in 1..8 && ext.all { it.isLetter() }
+}
+
+private fun findFailedNames(summary: String?): List<String> {
+    if (summary.isNullOrBlank()) return emptyList()
+    val names = mutableListOf<String>()
+    for (raw in summary.lineSequence()) {
+        val line = raw.trim()
+        if (line.isEmpty() || isDiffChrome(line) || looksLikePath(line)) continue
+        val name = failedPrefix.find(line)?.groupValues?.get(1)
+            ?: failedCase.find(line)?.groupValues?.get(1)
+            ?: failedSuffix.find(line)?.groupValues?.get(1)
+            ?: line.takeIf { testName.matches(it) }
+        if (name != null && name !in names) names += name.trim()
+    }
+    return names
+}
+
+private fun isDiffChrome(line: String): Boolean =
+    line.startsWith("diff ") ||
+        line.startsWith("index ") ||
+        line.startsWith("--- ") ||
+        line.startsWith("+++ ") ||
+        line.startsWith("@@") ||
+        line.startsWith("\\") ||
+        line.startsWith("+") ||
+        line.startsWith("-")
+
+private fun parseDiffFiles(summary: String?): List<DiffFileView> {
+    val lines = summary?.lines()?.filter { it.isNotEmpty() }.orEmpty()
+    if (lines.isEmpty()) return emptyList()
+    val diffish = lines.count { line ->
+        line.startsWith("+") || line.startsWith("-") || line.startsWith("@@") || line.startsWith("diff ")
+    }
+    if (diffish == 0) return emptyList()
+    val files = mutableListOf<DiffFileView>()
+    var path: String? = null
+    var rows = mutableListOf<DiffLineView>()
+    var oldNumber: Int? = null
+    var newNumber: Int? = null
+    fun flush() {
+        if (rows.isEmpty() && path == null) return
+        val additions = rows.count { it.marker == "+" }
+        val deletions = rows.count { it.marker == "-" }
+        if (rows.isEmpty() && additions == 0 && deletions == 0) {
+            path = null
+            return
+        }
+        files += DiffFileView(path, rows.toList(), additions, deletions)
+        rows = mutableListOf()
+        path = null
+        oldNumber = null
+        newNumber = null
+    }
+    for (line in lines) {
+        when {
+            line.startsWith("diff --git ") -> {
+                flush()
+                path = gitPath(line)
+            }
+            line.startsWith("--- ") || line.startsWith("+++ ") -> {
+                val header = headerPath(line)
+                if (header != null && header != "/dev/null") path = header
+            }
+            line.startsWith("@@") -> {
+                val hunk = hunkStarts(line)
+                oldNumber = hunk?.first
+                newNumber = hunk?.second
+            }
+            line.startsWith("\\") -> Unit
+            line.startsWith("+") -> {
+                val number = newNumber
+                if (number != null) newNumber = number + 1
+                rows += DiffLineView(null, number, "+", line.drop(1))
+            }
+            line.startsWith("-") -> {
+                val number = oldNumber
+                if (number != null) oldNumber = number + 1
+                rows += DiffLineView(number, null, "-", line.drop(1))
+            }
+            else -> {
+                val oldN = oldNumber
+                val newN = newNumber
+                if (oldN != null) oldNumber = oldN + 1
+                if (newN != null) newNumber = newN + 1
+                val text = if (line.startsWith(" ")) line.drop(1) else line
+                rows += DiffLineView(oldN, newN, " ", text)
+            }
+        }
+        if (rows.size >= MAX_DIFF_LINES) break
+    }
+    flush()
+    return files
+}
+
+private fun gitPath(line: String): String? {
+    val marker = " b/"
+    val index = line.lastIndexOf(marker)
+    if (index < 0) return null
+    return line.substring(index + marker.length).trim().ifBlank { null }
+}
+
+private fun headerPath(line: String): String? {
+    val raw = line.drop(4).trim()
+    val path = when {
+        raw.startsWith("a/") || raw.startsWith("b/") -> raw.drop(2)
+        else -> raw
+    }
+    return path.substringBefore('\t').ifBlank { null }
+}
+
+private val hunkPattern = Regex("""@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@""")
+
+private fun hunkStarts(line: String): Pair<Int, Int>? {
+    val match = hunkPattern.find(line) ?: return null
+    val oldStart = match.groupValues[1].toIntOrNull() ?: return null
+    val newStart = match.groupValues[2].toIntOrNull() ?: return null
+    return oldStart to newStart
+}
+
+private fun splitKeep(text: String): List<String> {
+    if (text.isEmpty()) return emptyList()
+    val lines = text.lines()
+    return if (text.endsWith("\n") && lines.last().isEmpty()) lines.dropLast(1) else lines
+}
+
+private fun String.fileName(): String = trimEnd('/').substringAfterLast('/').ifBlank { this }

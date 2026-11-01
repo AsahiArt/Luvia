@@ -254,6 +254,8 @@ internal class AcpBoard(private val ctx: UhpContext) {
                     kind = update.kind,
                     status = update.status ?: AcpToolStatus.Unknown,
                     summary = update.summary,
+                    path = update.path,
+                    duration = update.duration,
                 )
             return acp.copy(transcript = acp.transcript + AcpTranscriptItem.Tool(id = call.toolCallId, call = call))
         }
@@ -264,6 +266,8 @@ internal class AcpBoard(private val ctx: UhpContext) {
                 kind = update.kind ?: existing.call.kind,
                 status = update.status ?: existing.call.status,
                 summary = update.summary ?: existing.call.summary,
+                path = update.path ?: existing.call.path,
+                duration = update.duration ?: existing.call.duration,
             )
         val transcript = acp.transcript.toMutableList()
         transcript[index] = existing.copy(call = merged)

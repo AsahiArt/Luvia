@@ -160,21 +160,47 @@ private object SampleShots {
         tech.asahiart.luvia.thread.TimelineItem.Output("o", "我先看了握手，再改重连。"),
         tech.asahiart.luvia.thread.TimelineItem.Tool(
             "r",
-            AcpToolCall("r", "Read Pairing.kt", "read", AcpToolStatus.Completed, null),
+            AcpToolCall(
+                toolCallId = "r",
+                title = "Read Pairing.kt",
+                kind = "read",
+                status = AcpToolStatus.Completed,
+                summary = null,
+                path = "shared/src/Pairing.kt",
+                duration = "120ms",
+            ),
         ),
         tech.asahiart.luvia.thread.TimelineItem.Tool(
             "e",
             AcpToolCall(
-                "e",
-                "Edit ReconnectPolicy",
-                "edit",
-                AcpToolStatus.Completed,
-                "+ fun reconnect()\n- fun retry()\n@@ policy",
+                toolCallId = "e",
+                title = "Edit ReconnectPolicy",
+                kind = "edit",
+                status = AcpToolStatus.Completed,
+                summary = """
+                    diff --git a/shared/ReconnectPolicy.kt b/shared/ReconnectPolicy.kt
+                    --- a/shared/ReconnectPolicy.kt
+                    +++ b/shared/ReconnectPolicy.kt
+                    @@ -12,3 +12,4 @@
+                     class ReconnectPolicy {
+                    -    fun retry()
+                    +    fun reconnect()
+                    +    fun backoff()
+                     }
+                """.trimIndent(),
+                duration = "1.2s",
             ),
         ),
         tech.asahiart.luvia.thread.TimelineItem.Tool(
             "x",
-            AcpToolCall("x", "gradle test", "execute", AcpToolStatus.Failed, "tests 127/128\nReconnectTest"),
+            AcpToolCall(
+                toolCallId = "x",
+                title = "gradle test",
+                kind = "execute",
+                status = AcpToolStatus.Failed,
+                summary = "tests 127/128\nReconnectTest",
+                duration = "4.2s",
+            ),
         ),
     )
 
@@ -216,6 +242,7 @@ private object SampleShots {
             onAnswer = {},
             onBack = {},
             onOpenTerminal = {},
+            terminalPreview = "luvia-host pair\nwaiting for the phone",
             sending = false,
             isObserver = false,
         )
