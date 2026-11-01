@@ -9,6 +9,7 @@ final class AppModel {
     nonisolated(unsafe) let manager: HostManager
     nonisolated(unsafe) let uhpRegistry: HostUhpRegistry
     @ObservationIgnored private nonisolated(unsafe) var hostsTask: _Concurrency.Task<Void, Never>?
+    @ObservationIgnored private nonisolated(unsafe) var readyTask: _Concurrency.Task<Void, Never>?
     @ObservationIgnored private nonisolated(unsafe) var terminalTask: _Concurrency.Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) var uhpTask: _Concurrency.Task<Void, Never>?
     @ObservationIgnored private nonisolated(unsafe) var nowTask: _Concurrency.Task<Void, Never>?
@@ -26,6 +27,7 @@ final class AppModel {
     private var liveActivityBlockedAgents = 0
 
     private(set) var hosts: [HostViewState] = []
+    private(set) var hostsReady = false
     var selectedHostID: String?
     var selectedSection: HostSection = .agents
     var workspaceSegment: WorkspaceSegment = .review
@@ -56,6 +58,17 @@ final class AppModel {
         manager = HostManager(store: store, vault: vault, scope: scope)
         uhpRegistry = HostUhpRegistry(manager: manager, scope: scope)
         let managerRef = manager
+        readyTask = _Concurrency.Task { [weak self] in
+            for await ready in managerRef.catalogReady {
+                if ready {
+                    let states = KotlinLists.array(managerRef.hosts.value as Any).map(HostViewState.init)
+                    await MainActor.run {
+                        self?.replaceHosts(states)
+                        self?.hostsReady = true
+                    }
+                }
+            }
+        }
         hostsTask = _Concurrency.Task { [weak self] in
             for await runtimes in managerRef.hosts {
                 let preferred = managerRef.preferredHostId()
@@ -85,6 +98,7 @@ final class AppModel {
         // hosts is a StateFlow and never completes, so the collecting task has to be
         // cancelled explicitly or it keeps the manager alive past deinit.
         hostsTask?.cancel()
+        readyTask?.cancel()
         terminalTask?.cancel()
         uhpTask?.cancel()
         nowTask?.cancel()

@@ -43,6 +43,7 @@ class LuviaViewModel(
     private val suppressAutoConnect = mutableSetOf<String>()
 
     val hosts: StateFlow<List<HostRuntime>> = manager.hosts
+    val catalogReady: StateFlow<Boolean> = manager.catalogReady
     val now: StateFlow<NowState> = uhpRegistry.now
     val hostStates: StateFlow<Map<String, HostUhpState>> = uhpRegistry.states
 

@@ -25,8 +25,9 @@ struct PairingView: View {
                     start
                 }
             }
-            .navigationTitle("配对电脑")
+            .navigationTitle(draft == nil ? "配对电脑" : "")
             .navigationBarTitleDisplayMode(.inline)
+            .modifier(PairStageBar(ritual: draft != nil))
             .toolbar {
                 if let onClose {
                     ToolbarItem(placement: .cancellationAction) {
@@ -79,26 +80,31 @@ struct PairingView: View {
             let decoded = decodedCode
             ScrollView {
                 VStack(spacing: 16) {
-                    ZStack {
-                        PairOrb(progress: CGFloat(remaining) / 300)
-                            .frame(height: 260)
-                        VStack(spacing: 8) {
-                            Text(String(format: "%d:%02d", remaining / 60, remaining % 60))
-                                .font(.system(.title2, design: .monospaced).weight(.semibold))
-                                .foregroundStyle(Color.blue)
-                            Text("电脑终端显示的配对码")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.7))
-                            shortTiles
-                        }
-                    }
-                    .padding(18)
-                    .luviaGlass(in: RoundedRectangle(cornerRadius: 36, style: .continuous), tint: Color.blue)
+                    Text("配对")
+                        .font(.system(size: 40, weight: .medium, design: .serif))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                    Text("电脑终端显示的配对码")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.72))
+                    PairOrb()
+                        .frame(height: 220)
+                    shortTiles
+                    Text(String(format: "%d:%02d", remaining / 60, remaining % 60))
+                        .font(.system(.title3, design: .monospaced).weight(.semibold))
+                        .foregroundStyle(Color.blue)
                     fingerprintRow(
                         draft,
                         matches: decoded?.deviceKeyFingerprint == draft.deviceKeyFingerprint,
                         hostKey: hostKeys(decoded).first
                     )
+                    if let error {
+                        Text(error)
+                            .font(.subheadline)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if let decoded {
                         let address = addresses(decoded).first ?? ""
                         HStack {
@@ -106,7 +112,7 @@ struct PairingView: View {
                                 Text(decoded.hostLabel).font(.headline)
                                 Text(address)
                                     .font(.caption.monospaced())
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(.white.opacity(0.7))
                             }
                             Spacer()
                             if looksLikeTailscale(address) {
@@ -117,35 +123,30 @@ struct PairingView: View {
                                     .luviaGlass(in: Capsule())
                             }
                         }
+                        .foregroundStyle(.white)
                     }
                     commandRow(draft.command)
                     TextField("luvia1: 码", text: $longCode, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.plain)
                         .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .padding(12)
+                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     if remaining == 0 {
                         Text("倒计时结束。仍可用下面的 luvia1: 码配对。")
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.7))
                     }
                 }
                 .padding(16)
             }
             .background(ChatPalette.pairBackground.ignoresSafeArea())
             .safeAreaInset(edge: .bottom) {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let error {
-                        Text(error)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    HStack(spacing: 10) {
-                        Button("改用扫码") { scanning = true }
-                            .buttonStyle(.bordered)
-                        Button {
-                            if !busy { confirm(draft) }
-                        } label: {
+                VStack(spacing: 10) {
+                    Button {
+                        if !busy { confirm(draft) }
+                    } label: {
+                        Group {
                             if busy {
                                 HStack(spacing: 8) {
                                     ProgressView().controlSize(.small).tint(.white)
@@ -155,14 +156,24 @@ struct PairingView: View {
                                 Text("确认配对")
                             }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(Color.blue)
-                        .disabled(longCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.blue)
+                    .disabled(longCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("改用扫码") { scanning = true }
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 22)
+                        .padding(.vertical, 12)
+                        .luviaGlass(in: Capsule())
                 }
-                .padding()
-                .luviaGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), tint: Color.blue)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .background(ChatPalette.pairBackground)
             }
         }
     }
@@ -274,33 +285,45 @@ struct PairingView: View {
     }
 }
 
-private struct PairOrb: View {
-    var progress: CGFloat
+private struct PairStageBar: ViewModifier {
+    var ritual: Bool
 
+    func body(content: Content) -> some View {
+        if ritual {
+            content
+                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbarBackground(ChatPalette.pairBackground, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+        } else {
+            content
+        }
+    }
+}
+
+private struct PairOrb: View {
     var body: some View {
         Canvas { context, size in
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            let radius = min(size.width, size.height) * 0.34
-            for index in 0..<48 {
+            let radius = min(size.width, size.height) * 0.42
+            let glow = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+            context.fill(Path(ellipseIn: glow), with: .color(Color.blue.opacity(0.18)))
+            let coreRadius = radius * 0.46
+            let core = CGRect(x: center.x - coreRadius, y: center.y - coreRadius, width: coreRadius * 2, height: coreRadius * 2)
+            context.fill(Path(ellipseIn: core), with: .color(Color.blue.opacity(0.30)))
+            for index in 0..<72 {
                 let angle = Double(index) * 2.399
-                let distance = radius * CGFloat((Double(index) / 48).squareRoot())
+                let distance = radius * CGFloat((Double(index) / 72).squareRoot())
                 let point = CGPoint(
                     x: center.x + CGFloat(cos(angle)) * distance,
-                    y: center.y + CGFloat(sin(angle)) * distance
+                    y: center.y + CGFloat(sin(angle)) * distance * 0.88
                 )
-                let rect = CGRect(x: point.x - 2, y: point.y - 2, width: 4, height: 4)
-                context.fill(Path(ellipseIn: rect), with: .color(Color.blue.opacity(0.85)))
+                let dot: CGFloat = index % 9 == 0 ? 4 : 2.5
+                let rect = CGRect(x: point.x - dot / 2, y: point.y - dot / 2, width: dot, height: dot)
+                let alpha = 0.35 + 0.65 * (1 - Double(index) / 72)
+                context.fill(Path(ellipseIn: rect), with: .color(Color.blue.opacity(alpha)))
             }
-            var ring = Path()
-            ring.addArc(
-                center: center,
-                radius: radius + 18,
-                startAngle: .degrees(-90),
-                endAngle: .degrees(-90 + 360 * Double(progress)),
-                clockwise: false
-            )
-            context.stroke(ring, with: .color(Color.blue), lineWidth: 6)
         }
+        .accessibilityHidden(true)
     }
 }
 

@@ -66,6 +66,54 @@ class HostStartupTest {
     }
 
     @Test
+    fun coldStartDoesNotTreatAnUnreadCatalogAsUnpaired() {
+        assertFalse(
+            shouldPresentPairing(
+                catalogReady = false,
+                pairedHostCount = 0,
+                userOpenedPairing = false,
+                pairingInProgress = false,
+            ),
+        )
+        assertTrue(
+            shouldPresentPairing(
+                catalogReady = true,
+                pairedHostCount = 0,
+                userOpenedPairing = false,
+                pairingInProgress = false,
+            ),
+        )
+    }
+
+    @Test
+    fun pairedPhoneStaysOffThePairingPageUntilAsked() {
+        assertFalse(
+            shouldPresentPairing(
+                catalogReady = true,
+                pairedHostCount = 1,
+                userOpenedPairing = false,
+                pairingInProgress = false,
+            ),
+        )
+        assertTrue(
+            shouldPresentPairing(
+                catalogReady = true,
+                pairedHostCount = 2,
+                userOpenedPairing = true,
+                pairingInProgress = false,
+            ),
+        )
+        assertTrue(
+            shouldPresentPairing(
+                catalogReady = false,
+                pairedHostCount = 1,
+                userOpenedPairing = false,
+                pairingInProgress = true,
+            ),
+        )
+    }
+
+    @Test
     fun emptyCatalogHasNoStartupHost() {
         assertNull(preferredStartupHost(emptyList()))
         assertNull(resolveStartupHost(emptyList(), "yui-old"))

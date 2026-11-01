@@ -11,6 +11,8 @@
     <string name="disconnect">断开</string>
     <string name="show">查看</string>
     <string name="scan">扫码</string>
+    <string name="scan_instead">改用扫码</string>
+    <string name="pair_stage_title">配对</string>
     <string name="confirm_pair">确认配对</string>
     <string name="pairing_connecting">连接中</string>
     <string name="pair_computer">配对电脑</string>
