@@ -16,6 +16,18 @@ import okio.Path.Companion.toPath
 @OptIn(ExperimentalCoroutinesApi::class)
 class HostManagerTest {
     @Test
+    fun catalogReadyIsTrueOnceTheStoreHasEmitted() = runTest {
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-hm-ready-${Random.nextLong()}.json"
+        val store = HostStore(path.toString(), backgroundScope)
+        val manager = HostManager(store, MemoryVault(), backgroundScope)
+        store.upsert(sampleProfile())
+        advanceUntilIdle()
+        assertTrue(manager.catalogReady.value, "catalog ready after the store emits")
+        assertEquals(1, manager.hosts.value.size)
+        manager.close()
+    }
+
+    @Test
     fun hostsFollowStoreEvenWhenNeverConnected() = runTest {
         val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-hm-${Random.nextLong()}.json"
         val store = HostStore(path.toString(), backgroundScope)

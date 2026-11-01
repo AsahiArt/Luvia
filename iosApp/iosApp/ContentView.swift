@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var showNewSession = false
     @State private var cwd = ""
     @State private var confirmUnpair = false
+    @State private var userOpenedPairing = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -43,13 +44,16 @@ struct ContentView: View {
         .animation(.spring(response: 0.42, dampingFraction: 0.86), value: stage)
         .onAppear {
             model.autoConnectIfNeeded()
-            if model.hosts.isEmpty { stage = "pair" }
+            applyPairingGate()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.autoConnectIfNeeded(force: true) }
         }
-        .onChange(of: model.hosts.map(\.id)) { _, ids in
-            if ids.isEmpty, stage == "sessions" { stage = "pair" }
+        .onChange(of: model.hostsReady) { _, _ in
+            applyPairingGate()
+        }
+        .onChange(of: model.hosts.map(\.id)) { _, _ in
+            applyPairingGate()
         }
         .onChange(of: model.pendingOpenAgentID) { _, id in
             guard let id else { return }
@@ -75,8 +79,14 @@ struct ContentView: View {
         case "pair":
             PairingView(
                 model: model,
-                onPaired: { stage = "sessions" },
-                onClose: model.hosts.isEmpty ? nil : { stage = "sessions" }
+                onPaired: {
+                    userOpenedPairing = false
+                    stage = "sessions"
+                },
+                onClose: model.hosts.isEmpty ? nil : {
+                    userOpenedPairing = false
+                    stage = "sessions"
+                }
             )
         case "chat":
             if let thread = openThread {
@@ -97,28 +107,57 @@ struct ContentView: View {
                     .onTapGesture { stage = "sessions" }
             }
         default:
-            SessionListView(
-                model: model,
-                threads: visibleThreads,
-                pending: pending,
-                filter: filter,
-                roster: SessionListKt.sessionRoster(threads: allThreads),
-                trails: threadTrails,
-                onFilter: { filter = $0 },
-                onOpen: open,
-                onAnswer: { thread, option in
-                    model.uhpRegistry.answer(thread: thread, option: option)
-                },
-                onPair: { stage = "pair" },
-                onNewSession: {
-                    model.hostUhp()?.loadAcpAgents()
-                    showNewSession = true
-                },
-                onTerminal: { openTerminal(openThread?.paneId) },
-                onSettings: { showSettings = true },
-                showsChrome: stage != "terminal",
-                glass: glass
-            )
+            if !model.hostsReady && model.hosts.isEmpty && !userOpenedPairing {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                SessionListView(
+                    model: model,
+                    threads: visibleThreads,
+                    pending: pending,
+                    filter: filter,
+                    roster: SessionListKt.sessionRoster(threads: allThreads),
+                    trails: threadTrails,
+                    onFilter: { filter = $0 },
+                    onOpen: open,
+                    onAnswer: { thread, option in
+                        model.uhpRegistry.answer(thread: thread, option: option)
+                    },
+                    onPair: {
+                        userOpenedPairing = true
+                        stage = "pair"
+                    },
+                    onNewSession: {
+                        model.hostUhp()?.loadAcpAgents()
+                        showNewSession = true
+                    },
+                    onTerminal: { openTerminal(openThread?.paneId) },
+                    onSettings: { showSettings = true },
+                    showsChrome: stage != "terminal",
+                    glass: glass
+                )
+            }
+        }
+    }
+
+    private func applyPairingGate() {
+        let present = HostStartupKt.shouldPresentPairing(
+            catalogReady: model.hostsReady,
+            pairedHostCount: Int32(model.hosts.count),
+            userOpenedPairing: userOpenedPairing,
+            pairingInProgress: false
+        )
+        if !model.hostsReady && !userOpenedPairing {
+            if stage == "pair" { stage = "sessions" }
+            return
+        }
+        if model.hosts.isEmpty && present {
+            stage = "pair"
+        } else if present && userOpenedPairing && stage == "sessions" {
+            stage = "pair"
+        } else if !present && stage == "pair" {
+            userOpenedPairing = false
+            stage = "sessions"
         }
     }
 

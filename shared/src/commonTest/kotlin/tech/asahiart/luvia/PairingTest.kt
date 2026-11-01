@@ -31,6 +31,12 @@ class PairingTest {
     }
 
     @Test
+    fun shortFingerprintIsTheFirstSixBytesGrouped() {
+        assertEquals("E3B0 C442 98FC", shortFingerprint(deviceFp))
+        assertEquals("E3B0 C442 98FC", shortFingerprint("  $deviceFp  "))
+    }
+
+    @Test
     fun pairCommandQuotesLabelAndKey() {
         val command = pairCommandFor("misaka's studio", HostRole.Observer, "ssh-ed25519 AAAA key")
         assertEquals(

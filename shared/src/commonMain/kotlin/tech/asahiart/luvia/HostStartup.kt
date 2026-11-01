@@ -54,6 +54,25 @@ internal fun aliasStem(alias: String): String {
     return head.lowercase()
 }
 
+/**
+ * Whether the pairing page should be showing.
+ *
+ * An empty host list before the catalog has been read is not "unpaired".
+ * Cold start waits for [catalogReady], so a phone that already has a host
+ * does not open pairing on every launch. An explicit open, or a draft
+ * already in progress, stays on pairing.
+ */
+public fun shouldPresentPairing(
+    catalogReady: Boolean,
+    pairedHostCount: Int,
+    userOpenedPairing: Boolean,
+    pairingInProgress: Boolean,
+): Boolean {
+    if (userOpenedPairing || pairingInProgress) return true
+    if (!catalogReady) return false
+    return pairedHostCount <= 0
+}
+
 private fun startupRank(profile: HostProfile): Int {
     val everConnected = !profile.lastConnectedAddress.isNullOrBlank()
     return when (profile.lastStatus) {

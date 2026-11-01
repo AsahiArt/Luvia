@@ -52,6 +52,26 @@ public object PairingCodes {
     }
 }
 
+/**
+ * Grouped prefix of an OpenSSH SHA256 fingerprint for the pairing row.
+ * Six bytes, three groups: `E3B0 C442 98FC`. Not a second fingerprint.
+ */
+public fun shortFingerprint(raw: String): String {
+    val body = raw.trim().substringAfter(':')
+    val bytes = decodeBase64UrlUnpadded(body.replace('+', '-').replace('/', '_').trimEnd('='))
+    if (bytes != null && bytes.size >= 6) {
+        val hex = buildString(12) {
+            for (index in 0 until 6) {
+                append((bytes[index].toInt() and 0xFF).toString(16).uppercase().padStart(2, '0'))
+            }
+        }
+        return hex.chunked(4).joinToString(" ")
+    }
+    val compact = body.filter { it.isLetterOrDigit() }.uppercase()
+    if (compact.isEmpty()) return raw.trim()
+    return compact.take(12).chunked(4).joinToString(" ")
+}
+
 public fun pairCommandFor(deviceLabel: String, role: HostRole, authorizedKeysLine: String): String {
     val roleFlag =
         when (role) {

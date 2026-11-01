@@ -11,6 +11,7 @@
     <string name="disconnect">断开</string>
     <string name="show">查看</string>
     <string name="scan">扫码</string>
+    <string name="scan_instead">改用扫码</string>
     <string name="confirm_pair">确认配对</string>
     <string name="pairing_connecting">连接中</string>
     <string name="pair_computer">配对电脑</string>
@@ -22,6 +23,10 @@
     <string name="pair_intro">这台手机会生成设备密钥。在电脑上运行命令，得到一条 luvia1: 码。</string>
     <string name="handshake">端到端加密握手</string>
     <string name="pair_code_caption">电脑终端显示的配对码</string>
+    <string name="pair_code_from_host">%1$s 终端显示的配对码</string>
+    <string name="paste_code">粘贴 luvia1: 码</string>
+    <string name="fingerprint_agreed">核对指纹 · 与电脑一致</string>
+    <string name="pair_tiles_readonly">只读。电脑终端上的配对码显示在这里，不用在手机上输入这 6 位。</string>
     <string name="pair_window_elapsed">倒计时结束。仍可用下面的 luvia1: 码配对。</string>
     <string name="fingerprint">核对指纹</string>
     <string name="fingerprint_match">指纹一致</string>

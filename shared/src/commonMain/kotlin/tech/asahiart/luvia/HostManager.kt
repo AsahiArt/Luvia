@@ -74,6 +74,7 @@ public class HostManager(
     private var catalogHosts: List<HostProfile> = emptyList()
     private val hostsState: MutableStateFlow<List<HostRuntime>> =
         MutableStateFlow(emptyList())
+    private val catalogReadyState: MutableStateFlow<Boolean> = MutableStateFlow(false)
     private val pushRegistrationState: MutableStateFlow<PushRegistration?> = MutableStateFlow(null)
     private var pushEnabled: Boolean = false
     private val busEventsFlow: MutableSharedFlow<Pair<String, BusEvent>> =
@@ -81,6 +82,12 @@ public class HostManager(
 
 
     public val hosts: StateFlow<List<HostRuntime>> = hostsState.asStateFlow()
+
+    /**
+     * False until the host catalog has emitted once.
+     * The initial empty [hosts] list is not a paired-or-not answer.
+     */
+    public val catalogReady: StateFlow<Boolean> = catalogReadyState.asStateFlow()
 
     /** Last successfully connected host, for cold start. Null when nothing is paired. */
     public fun preferredHostId(): String? =
@@ -114,6 +121,7 @@ public class HostManager(
                 mutex.withLock {
                     catalogHosts = catalog.hosts
                     publishLocked(catalogHosts)
+                    catalogReadyState.value = true
                 }
             }
         }

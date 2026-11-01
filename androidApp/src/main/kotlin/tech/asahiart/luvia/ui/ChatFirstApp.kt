@@ -48,6 +48,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.LuviaViewModel
 import tech.asahiart.luvia.resolveStartupHost
+import tech.asahiart.luvia.shouldPresentPairing
 import tech.asahiart.luvia.toSortedUi
 import tech.asahiart.luvia.StatusNotificationController
 import tech.asahiart.luvia.thread.AgentThread
@@ -72,13 +73,15 @@ fun ChatFirstApp(
     onSetPushEnabled: (Boolean) -> Unit,
 ) {
     val runtimes by viewModel.hosts.collectAsStateWithLifecycle()
+    val catalogReady by viewModel.catalogReady.collectAsStateWithLifecycle()
     val hostStates by viewModel.hostStates.collectAsStateWithLifecycle()
     val pairing by viewModel.pairing.collectAsStateWithLifecycle()
     val terminals by viewModel.terminals.collectAsStateWithLifecycle()
     val terminalPreviews by viewModel.terminalPreviews.collectAsStateWithLifecycle()
     val hosts = runtimes.toSortedUi(hostStates.mapValues { it.value.attentionCount() })
 
-    var stage by rememberSaveable { mutableStateOf(if (hosts.isEmpty()) "pair" else "sessions") }
+    var stage by rememberSaveable { mutableStateOf("sessions") }
+    var userOpenedPairing by rememberSaveable { mutableStateOf(false) }
     var hostId by rememberSaveable { mutableStateOf<String?>(null) }
     var startupApplied by rememberSaveable { mutableStateOf(false) }
     var threadId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -104,8 +107,21 @@ fun ChatFirstApp(
         hostId = resolveStartupHost(profiles, hostId)?.id
         startupApplied = true
     }
-    LaunchedEffect(hosts.map { it.id }.joinToString()) {
-        if (selected == null && hosts.isEmpty() && stage != "pair") stage = "pair"
+    val pairingInProgress = pairing.draft != null
+    LaunchedEffect(catalogReady, hosts.size, userOpenedPairing, pairingInProgress) {
+        if (!catalogReady && !userOpenedPairing && !pairingInProgress) {
+            if (stage == "pair") stage = "sessions"
+            return@LaunchedEffect
+        }
+        val present = shouldPresentPairing(catalogReady, hosts.size, userOpenedPairing, pairingInProgress)
+        if (hosts.isEmpty() && present) {
+            stage = "pair"
+        } else if (present && userOpenedPairing && stage == "sessions") {
+            stage = "pair"
+        } else if (!present && stage == "pair") {
+            userOpenedPairing = false
+            stage = "sessions"
+        }
     }
     LaunchedEffect(selected?.id) {
         val host = selected ?: return@LaunchedEffect
@@ -190,26 +206,39 @@ fun ChatFirstApp(
                 stage = terminalReturn
             }
             stage == "chat" -> stage = "sessions"
-            stage == "pair" -> if (hosts.isNotEmpty()) stage = "sessions"
+            stage == "pair" -> if (hosts.isNotEmpty()) {
+                userOpenedPairing = false
+                stage = "sessions"
+            }
         }
     }
 
     val underlying = if (stage == "terminal") terminalReturn else stage
+    val holdForCatalog = !catalogReady && hosts.isEmpty() && !userOpenedPairing && pairing.draft == null
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
-        if (stage != "terminal") when (underlying) {
-            "pair" -> PairingScreen(
+        if (stage != "terminal") when {
+            holdForCatalog && underlying == "sessions" -> androidx.compose.foundation.layout.Box(Modifier.fillMaxSize())
+            underlying == "pair" -> PairingScreen(
                 pairing = pairing,
                 onBegin = viewModel::beginPairing,
                 onComplete = { raw ->
                     viewModel.completePairing(raw, onSuccess = {
+                        userOpenedPairing = false
                         stage = "sessions"
                     })
                 },
                 onCancel = viewModel::cancelPairing,
                 onClearError = viewModel::clearPairingError,
-                onBack = if (hosts.isNotEmpty()) ({ stage = "sessions" }) else null,
+                onBack = if (hosts.isNotEmpty()) {
+                    {
+                        userOpenedPairing = false
+                        stage = "sessions"
+                    }
+                } else {
+                    null
+                },
             )
-            "chat" -> {
+            underlying == "chat" -> {
                 val thread = openThread
                 if (thread == null) {
                     Column(Modifier.fillMaxSize().padding(24.dp)) {
@@ -261,6 +290,7 @@ fun ChatFirstApp(
                 },
                 onPair = {
                     viewModel.cancelPairing()
+                    userOpenedPairing = true
                     stage = "pair"
                 },
                 onOpenSettings = { showSettings = true },
@@ -322,6 +352,7 @@ fun ChatFirstApp(
         val id = pairing.pairedHostId ?: return@LaunchedEffect
         startupApplied = true
         hostId = id
+        userOpenedPairing = false
         stage = "sessions"
         viewModel.clearPairingDraft()
     }
