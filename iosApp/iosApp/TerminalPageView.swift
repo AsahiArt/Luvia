@@ -11,12 +11,13 @@ struct TerminalPageView: View {
     var canAskFix: Bool = false
     var onBack: () -> Void
     var onSelectPane: (String) -> Void
-    var onAskFix: (String) -> Void = { _ in }
+    var onAskFix: (String) -> Bool = { _ in false }
     var glass: Namespace.ID
 
     @State private var stickToBottom = true
     @State private var literal = ""
     @State private var ctrlLatched = false
+    @State private var fixRefused = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -187,6 +188,7 @@ struct TerminalPageView: View {
                     keyLabel("~C", selected: ctrlLatched)
                 }
                 .buttonStyle(.plain)
+                key("回车", .enter)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -226,10 +228,15 @@ struct TerminalPageView: View {
                         .lineLimit(1)
                         .foregroundStyle(TerminalPalette.foreground.opacity(0.8))
                 }
+                if fixRefused {
+                    Text("没发出去")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.red)
+                }
             }
             Spacer(minLength: 8)
             Button("交给 claude 修") {
-                onAskFix(banner.excerpt)
+                fixRefused = !onAskFix(banner.excerpt)
             }
             .font(.caption.weight(.semibold))
             .buttonStyle(.borderedProminent)

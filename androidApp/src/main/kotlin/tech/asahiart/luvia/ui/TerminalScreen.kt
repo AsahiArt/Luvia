@@ -82,7 +82,7 @@ fun TerminalScreen(
     statusOverride: String? = null,
     connection: ConnectionBadge? = null,
     canAskFix: Boolean = false,
-    onAskFix: (String) -> Unit = {},
+    onAskFix: (String) -> Boolean = { false },
     modifier: Modifier = Modifier,
 ) {
     val extended = LuviaTheme.extended
@@ -93,6 +93,7 @@ fun TerminalScreen(
     val panes = model?.panes.orEmpty()
     val paneIndex = panes.indexOfFirst { it.paneId == model?.paneId }
     val banner = remember(model?.text) { terminalFailureBanner(model?.text) }
+    var fixRefused by remember(banner?.excerpt) { mutableStateOf(false) }
     Column(
         modifier
             .fillMaxSize()
@@ -152,7 +153,12 @@ fun TerminalScreen(
             )
         }
         if (banner != null) {
-            FailureBar(banner = banner, enabled = canAskFix, onFix = { onAskFix(banner.excerpt) })
+            FailureBar(
+                banner = banner,
+                enabled = canAskFix,
+                refused = fixRefused,
+                onFix = { fixRefused = !onAskFix(banner.excerpt) },
+            )
         }
         val lines = terminalDisplayLines(
             text = model?.text.orEmpty(),
@@ -193,6 +199,7 @@ fun TerminalScreen(
                 ctrlLatched = false
                 onSendKey(TerminalKey.CtrlC)
             }
+            TerminalChip("回车", selected = false, shape = RoundedCornerShape(14.dp)) { onSendKey(TerminalKey.Enter) }
         }
         if (controlling) {
             Row(
@@ -364,6 +371,7 @@ private fun PaneSegments(
 private fun FailureBar(
     banner: TerminalFailureBanner,
     enabled: Boolean,
+    refused: Boolean,
     onFix: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -429,6 +437,14 @@ private fun FailureBar(
             Spacer(Modifier.width(4.dp))
             Text(stringResource(R.string.ask_agent_fix), maxLines = 1, softWrap = false)
         }
+    }
+    if (refused) {
+        Text(
+            stringResource(R.string.fix_not_sent),
+            modifier = Modifier.padding(start = 12.dp, top = 4.dp),
+            color = scheme.error,
+            style = MaterialTheme.typography.labelMedium,
+        )
     }
 }
 

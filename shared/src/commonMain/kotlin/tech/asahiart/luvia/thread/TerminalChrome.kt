@@ -5,11 +5,10 @@ import tech.asahiart.luvia.stripAnsi
 /**
  * Facts for the terminal failure bar. Null when the capture has no failed tests.
  *
- * Gradle’s `127 tests completed, 1 failed` is shown as `127/128`: the completed
- * count is the numerator and completed plus failed is the denominator, which is
- * how the wow frame reads that line. A later explicit `passed/total` replaces it.
- * `BUILD FAILED in 41s` supplies the duration. Test names such as `caps at 30s`
- * do not.
+ * Gradle’s `127 tests completed, 1 failed` already counts the failure inside
+ * the completed total, so the bar is `126/127 · 1失败`. A later explicit
+ * `passed/total` replaces that pair. `BUILD FAILED in 41s` supplies the
+ * duration. Test names such as `caps at 30s` do not.
  */
 public data class TerminalFailureBanner(
     public val passed: Int,
@@ -87,8 +86,9 @@ private fun countsFrom(lines: List<String>): TestCounts? {
         if (gradle != null) {
             val completed = gradle.groupValues[1].toIntOrNull() ?: continue
             val failed = gradle.groupValues[2].toIntOrNull() ?: continue
-            if (completed in 0..COUNT_LIMIT && failed in 0..COUNT_LIMIT) {
-                found = TestCounts(completed, completed + failed, failed)
+            // `completed` already includes `failed`. Do not add them again.
+            if (completed in 1..COUNT_LIMIT && failed in 0..completed) {
+                found = TestCounts(completed - failed, completed, failed)
             }
             continue
         }

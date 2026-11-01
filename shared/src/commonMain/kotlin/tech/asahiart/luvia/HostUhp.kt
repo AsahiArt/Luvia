@@ -114,12 +114,45 @@ public class HostUhp(
 
     /**
      * Sends [text] to [paneId] without opening the conversation.
-     * False when that pane already has a send in flight.
+     * False when the prompt was not accepted, including a send already in flight.
      */
     public fun promptPane(paneId: String, text: String): Boolean {
         if (!agents.target(paneId)) return false
-        agents.prompt(text)
-        return true
+        return agents.prompt(text)
+    }
+
+    /**
+     * True when 「交给 claude 修」 has a live controller and a pane agent or an
+     * empty ACP composer to receive it. Android and iOS both use this.
+     */
+    public fun canAskFix(paneId: String?): Boolean = askFixTarget(paneId) != null
+
+    /**
+     * Hands [excerpt] to the pane agent, or to ACP when that composer is empty.
+     * False when nothing was sent. Does not replace an unsent draft.
+     */
+    public fun askFix(excerpt: String, paneId: String?): Boolean {
+        val body = excerpt.trim()
+        if (body.isEmpty()) return false
+        return when (val target = askFixTarget(paneId)) {
+            null -> false
+            is FixTarget.Pane -> promptPane(target.paneId, FIX_LEAD + body)
+            FixTarget.Acp -> acp.promptIfBlank(FIX_LEAD + body)
+        }
+    }
+
+    private fun askFixTarget(paneId: String?): FixTarget? {
+        val state = state.value
+        if (!state.canMutate) return null
+        val detail = state.agentDetail
+        val paneFree = !detail.sending && detail.unconfirmed == null
+        if (paneFree && ctx.session()?.supports(UhpMethods.AGENT_PROMPT) == true) {
+            val pane = paneId?.takeIf { id -> state.agents.any { it.paneId == id } }
+                ?: state.agents.firstOrNull()?.paneId
+            if (pane != null) return FixTarget.Pane(pane)
+        }
+        if (state.acp.open && state.acp.draft.isBlank() && ctx.session() != null) return FixTarget.Acp
+        return null
     }
 
     public fun sendAgentKeys(keys: List<AgentKey>) = agents.sendKeys(keys)
@@ -341,6 +374,16 @@ public class HostUhp(
     public fun close() {
         acp.close()
         job.cancel()
+    }
+
+    private sealed class FixTarget {
+        data class Pane(val paneId: String) : FixTarget()
+
+        data object Acp : FixTarget()
+    }
+
+    private companion object {
+        const val FIX_LEAD: String = "请修这个失败：\n"
     }
 }
 

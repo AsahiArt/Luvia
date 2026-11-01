@@ -7,11 +7,11 @@ import kotlin.test.assertTrue
 
 class TerminalChromeTest {
     @Test
-    fun wowGradleLogReadsCompletedOverCompletedPlusFailed() {
+    fun gradleCompletedAlreadyIncludesFailures() {
         val banner = terminalFailureBanner(WOW_LOG)
         checkNotNull(banner)
-        assertEquals(127, banner.passed)
-        assertEquals(128, banner.total)
+        assertEquals(126, banner.passed)
+        assertEquals(127, banner.total)
         assertEquals(1, banner.failed)
         assertEquals("41s", banner.duration)
         assertEquals("AnsiParserTest > sgr 38;5 truecolor", banner.failedTitle)
@@ -50,8 +50,8 @@ class TerminalChromeTest {
             """.trimIndent(),
         )
         checkNotNull(banner)
-        assertEquals(4, banner.passed)
-        assertEquals(5, banner.total)
+        assertEquals(3, banner.passed)
+        assertEquals(4, banner.total)
         assertEquals(1, banner.failed)
         assertEquals("3s", banner.duration)
     }
@@ -79,6 +79,7 @@ class TerminalChromeTest {
         )
         assertNull(terminalFailureBanner(""))
         assertNull(terminalFailureBanner("caps at 30s"))
+        assertNull(terminalFailureBanner("3 tests completed, 9 failed"))
     }
 
     @Test

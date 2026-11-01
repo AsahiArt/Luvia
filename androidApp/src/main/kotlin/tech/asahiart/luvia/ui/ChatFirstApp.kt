@@ -297,8 +297,8 @@ fun ChatFirstApp(
             ),
         ) {
             val id = selected?.id
-            val fixLead = stringResource(R.string.ask_agent_fix_prompt)
-            val canAsk = selected?.isObserver != true && selected?.connection == ConnectionBadge.Live
+            val workspace = id?.let { viewModel.workspace(it) }
+            val fixPane = id?.let { terminals[it]?.paneId }
             TerminalScreen(
                 model = id?.let { terminals[it] },
                 pendingDecisions = pendingReplyCount(allThreads),
@@ -312,20 +312,8 @@ fun ChatFirstApp(
                 onSendText = { text -> id?.let { viewModel.sendTerminalText(it, text) } },
                 onSendKey = { key -> id?.let { viewModel.sendTerminalKey(it, key) } },
                 connection = selected?.connection,
-                canAskFix = canAsk,
-                onAskFix = fix@{ excerpt ->
-                    val host = id ?: return@fix
-                    val workspace = viewModel.workspace(host)
-                    val prompt = fixLead + excerpt
-                    val pane = terminals[host]?.paneId
-                    val agentPane = allThreads.firstOrNull { it.kind == AgentKind.Pane && it.paneId == pane }?.paneId
-                        ?: allThreads.firstOrNull { it.kind == AgentKind.Pane }?.paneId
-                    if (agentPane != null && workspace.promptPane(agentPane, prompt)) return@fix
-                    if (allThreads.any { it.kind == AgentKind.Acp }) {
-                        workspace.setAcpDraft(prompt)
-                        workspace.promptAcp()
-                    }
-                },
+                canAskFix = workspace?.canAskFix(fixPane) == true,
+                onAskFix = { excerpt -> workspace?.askFix(excerpt, fixPane) == true },
             )
         }
     }

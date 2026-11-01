@@ -28,22 +28,11 @@ struct ContentView: View {
                         pendingDecisions: pending.count,
                         waitingTitle: pending.first?.title,
                         waitingDetail: pending.first?.ask?.question,
-                        canAskFix: model.selectedHost?.isController == true && model.selectedHost?.connection == .live,
+                        canAskFix: model.hostUhp()?.canAskFix(paneId: model.uhp.selectedAgentID) == true,
                         onBack: closeTerminal,
                         onSelectPane: { model.openTerminal(paneId: $0) },
                         onAskFix: { excerpt in
-                            let text = "请修这个失败：\n\(excerpt)"
-                            guard let uhp = model.hostUhp() else { return }
-                            let pane = model.uhp.selectedAgentID
-                            let agentPane = allThreads.first { $0.kind == .pane && $0.paneId == pane }?.paneId
-                                ?? allThreads.first { $0.kind == .pane }?.paneId
-                            if let agentPane, uhp.promptPane(paneId: agentPane, text: text) {
-                                return
-                            }
-                            if allThreads.contains(where: { $0.kind == .acp }) {
-                                uhp.setAcpDraft(text: text)
-                                uhp.promptAcp()
-                            }
+                            model.hostUhp()?.askFix(excerpt: excerpt, paneId: model.uhp.selectedAgentID) == true
                         },
                         glass: glass
                     )
