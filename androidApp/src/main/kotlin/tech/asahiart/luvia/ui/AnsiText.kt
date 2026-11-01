@@ -37,7 +37,12 @@ internal fun terminalDisplayLines(
 ): List<AnnotatedString> {
     if (text.isEmpty()) return emptyList()
     if (!isAnsi || !text.hasAnsiEscape()) {
-        return text.split('\n').map { AnnotatedString(it) }
+        val ink = SpanStyle(color = defaultForeground)
+        return text.split('\n').map { line ->
+            buildAnnotatedString {
+                withStyle(ink) { append(line) }
+            }
+        }
     }
     return ansiSpansToLines(parseAnsi(text), defaultForeground, defaultBackground)
 }

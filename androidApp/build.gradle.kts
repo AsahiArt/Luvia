@@ -103,4 +103,5 @@ dependencies {
     implementation(libs.mlkit.barcode.scanning)
     implementation(libs.unifiedpush.connector)
     debugImplementation(libs.compose.ui.tooling)
+    testImplementation(kotlin("test-junit"))
 }

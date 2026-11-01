@@ -53,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -174,7 +175,7 @@ fun TerminalScreen(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
             if (lines.isEmpty()) {
-                Text(stringResource(R.string.waiting_output), color = extended.terminalFg.copy(alpha = 0.85f), fontFamily = LuviaTheme.mono)
+                Text(stringResource(R.string.waiting_output), color = extended.terminalFg, fontFamily = LuviaTheme.mono)
             } else {
                 TerminalLines(lines, banner)
             }
@@ -208,18 +209,25 @@ fun TerminalScreen(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val fieldFill = MaterialTheme.colorScheme.surfaceContainerHigh
+                val fieldInk = if (prefersDarkInk(fieldFill.red, fieldFill.green, fieldFill.blue)) {
+                    Color(0xFF14201E)
+                } else {
+                    extended.terminalFg
+                }
                 BasicTextField(
                     value = literal,
                     onValueChange = { literal = it },
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .background(fieldFill)
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = extended.terminalFg,
+                        color = fieldInk,
                         fontFamily = LuviaTheme.mono,
                     ),
+                    cursorBrush = SolidColor(fieldInk),
                 )
                 Button(
                     onClick = {
@@ -342,6 +350,7 @@ private fun PaneSegments(
     selectedId: String?,
     onSelect: (String) -> Unit,
 ) {
+    val ink = LuviaTheme.extended.terminalFg
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
         val segment = maxOf(160.dp, maxWidth / panes.size)
         SingleChoiceSegmentedButtonRow(
@@ -352,6 +361,10 @@ private fun PaneSegments(
                     selected = pane.paneId == selectedId,
                     onClick = { onSelect(pane.paneId) },
                     shape = SegmentedButtonDefaults.itemShape(index = index, count = panes.size),
+                    colors = SegmentedButtonDefaults.colors(
+                        inactiveContentColor = ink,
+                        disabledInactiveContentColor = ink.copy(alpha = 0.38f),
+                    ),
                     icon = {},
                     label = {
                         Text(
@@ -455,7 +468,7 @@ private fun TerminalLines(lines: List<AnnotatedString>, banner: TerminalFailureB
     var index = 0
     while (index < lines.size) {
         if (index !in outlined) {
-            Text(lines[index], fontFamily = LuviaTheme.mono, style = MaterialTheme.typography.bodySmall)
+            TerminalLine(lines[index])
             index++
             continue
         }
@@ -471,14 +484,20 @@ private fun TerminalLines(lines: List<AnnotatedString>, banner: TerminalFailureB
                 .padding(horizontal = 6.dp, vertical = 2.dp),
         ) {
             for (lineIndex in start until index) {
-                Text(
-                    lines[lineIndex],
-                    fontFamily = LuviaTheme.mono,
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                TerminalLine(lines[lineIndex])
             }
         }
     }
+}
+
+@Composable
+private fun TerminalLine(text: AnnotatedString) {
+    Text(
+        text,
+        color = LuviaTheme.extended.terminalFg,
+        fontFamily = LuviaTheme.mono,
+        style = MaterialTheme.typography.bodySmall,
+    )
 }
 
 private fun ConnectionBadge?.isOffline(): Boolean =
