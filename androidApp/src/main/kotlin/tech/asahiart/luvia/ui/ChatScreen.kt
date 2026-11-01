@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +25,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -47,26 +51,28 @@ import tech.asahiart.luvia.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import tech.asahiart.luvia.AcpPlanEntry
 import tech.asahiart.luvia.AcpToolCall
-import tech.asahiart.luvia.AcpToolStatus
+import tech.asahiart.luvia.stripAnsi
 import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.Ask
+import tech.asahiart.luvia.thread.AskAction
 import tech.asahiart.luvia.thread.outputRuns
 import tech.asahiart.luvia.thread.AskOption
 import tech.asahiart.luvia.thread.AskTone
+import tech.asahiart.luvia.thread.DiffFileView
 import tech.asahiart.luvia.thread.TimelineItem
-import tech.asahiart.luvia.thread.diffLines
-import tech.asahiart.luvia.thread.parseRunMeter
 import tech.asahiart.luvia.thread.recommendedOption
-import tech.asahiart.luvia.thread.toolTrailKind
+import tech.asahiart.luvia.thread.testBarCells
+import tech.asahiart.luvia.thread.toolTrailView
 import tech.asahiart.luvia.thread.ToolTrailKind
 import tech.asahiart.luvia.ui.theme.LuviaTheme
-import kotlin.math.roundToInt
 
 @Composable
 fun ChatScreen(
@@ -80,6 +86,7 @@ fun ChatScreen(
     onBack: () -> Unit,
     onOpenTerminal: () -> Unit,
     terminalModifier: Modifier = Modifier,
+    terminalPreview: String? = null,
     sending: Boolean,
     isObserver: Boolean,
     connection: ConnectionBadge? = null,
@@ -120,17 +127,11 @@ fun ChatScreen(
             if (offline) {
                 TextButton(onClick = onRetry) { Text(stringResource(R.string.retry)) }
             }
-            Text(
-                ">_",
-                modifier = terminalModifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable(onClick = onOpenTerminal)
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                fontFamily = LuviaTheme.mono,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
+            TerminalThumbnail(
+                preview = terminalPreview,
+                onClick = onOpenTerminal,
+                modifier = terminalModifier.padding(end = 8.dp),
             )
-            Spacer(Modifier.width(8.dp))
         }
         if (offline && connection != null) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -142,35 +143,46 @@ fun ChatScreen(
                 )
             }
         }
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            items(visible, key = { it.id }) { item ->
-                when (item) {
-                    is TimelineItem.Output -> OutputBlocks(item.text)
-                    is TimelineItem.Mine -> Bubble(item.text, mine = true)
-                    is TimelineItem.Thought -> ThoughtRow(item.text)
-                    is TimelineItem.Tool -> ToolTrail(item.call)
-                    is TimelineItem.Plan -> PlanBlock(item.entries)
-                    is TimelineItem.Status ->
-                        StatusLine(item.label?.takeIf { it.isNotBlank() } ?: item.status?.sessionLabel() ?: stringResource(R.string.status_update))
-                    is TimelineItem.Unconfirmed -> UnconfirmedRow(item.text)
-                    is TimelineItem.AskCard -> Unit
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(visible, key = { it.id }) { item ->
+                    when (item) {
+                        is TimelineItem.Output -> OutputBlocks(item.text)
+                        is TimelineItem.Mine -> Bubble(item.text, mine = true)
+                        is TimelineItem.Thought -> ThoughtRow(item.text)
+                        is TimelineItem.Tool -> ToolTrail(item.call)
+                        is TimelineItem.Plan -> PlanBlock(item.entries)
+                        is TimelineItem.Status ->
+                            StatusLine(item.label?.takeIf { it.isNotBlank() } ?: item.status?.sessionLabel() ?: stringResource(R.string.status_update))
+                        is TimelineItem.Unconfirmed -> UnconfirmedRow(item.text)
+                        is TimelineItem.AskCard -> Unit
+                    }
                 }
+            }
+            if (thread.ask != null) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.14f)),
+                )
             }
         }
         thread.ask?.let { ask ->
             DecisionCard(
                 ask = ask,
+                agentName = thread.agentType?.takeIf { it.isNotBlank() } ?: thread.title,
                 index = queueIndex,
                 total = queueTotal,
-                enabled = !isObserver && !sending,
+                enabled = !isObserver && !sending && !offline,
                 onAnswer = onAnswer,
             )
         }
+        val canType = !isObserver && !sending && !offline
         Composer(
             draft = draft,
             onDraft = { draft = it },
@@ -181,8 +193,13 @@ fun ChatScreen(
                     draft = ""
                 }
             },
-            enabled = !isObserver && !sending && draft.isNotBlank(),
-            hint = if (isObserver) stringResource(R.string.observer_cannot_send) else stringResource(R.string.message_hint),
+            canSend = canType && draft.isNotBlank(),
+            editable = canType,
+            hint = when {
+                offline -> stringResource(R.string.offline_cannot_send)
+                isObserver -> stringResource(R.string.observer_cannot_send)
+                else -> stringResource(R.string.message_hint)
+            },
         )
     }
 }
@@ -259,7 +276,8 @@ private fun ThoughtRow(text: String) {
 
 @Composable
 private fun ToolTrail(call: AcpToolCall) {
-    val kind = toolTrailKind(call.kind, call.title)
+    val view = toolTrailView(call)
+    val kind = view.kind
     val color = when (kind) {
         ToolTrailKind.Read -> MaterialTheme.colorScheme.secondary
         ToolTrailKind.Edit -> MaterialTheme.colorScheme.primary
@@ -267,33 +285,54 @@ private fun ToolTrail(call: AcpToolCall) {
         ToolTrailKind.Other -> MaterialTheme.colorScheme.outline
     }
     val shape = if (kind == ToolTrailKind.Run) RoundedCornerShape(4.dp) else CircleShape
-    val lines = diffLines(call.summary)
-    val meter = parseRunMeter(call.summary)
-    Row(Modifier.fillMaxWidth()) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.size(12.dp).background(color, shape))
-            Box(Modifier.width(2.dp).height(8.dp).background(MaterialTheme.colorScheme.outlineVariant))
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                call.title.ifBlank { kind.shortLabel() },
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis,
+    val subject = view.path ?: call.title.ifBlank { kind.shortLabel() }
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+        Box(Modifier.width(16.dp).fillMaxHeight()) {
+            Box(
+                Modifier
+                    .padding(top = 14.dp)
+                    .width(2.dp)
+                    .fillMaxHeight()
+                    .align(Alignment.TopCenter)
+                    .background(MaterialTheme.colorScheme.outlineVariant),
             )
-            call.kind?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(
+                Modifier
+                    .padding(top = 4.dp)
+                    .size(12.dp)
+                    .align(Alignment.TopCenter)
+                    .background(color, shape),
+            )
+        }
+        Column(Modifier.weight(1f).padding(start = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(kind.shortLabel(), style = MaterialTheme.typography.titleSmall, color = color)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    subject,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                view.duration?.let { duration ->
+                    Text(
+                        duration,
+                        fontFamily = LuviaTheme.mono,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            if (lines != null) {
-                DiffBlock(lines)
+            view.diffs.forEach { DiffCard(it) }
+            view.meter?.let { meter ->
+                TestMeter(meter.passed, meter.total, view.markFailed, view.failedNames)
             }
-            if (meter != null) {
-                TestMeter(meter.passed, meter.total, call.status == AcpToolStatus.Failed)
-            }
-            if (lines == null && meter == null) {
-                call.summary?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, fontFamily = LuviaTheme.mono)
+            if (view.diffs.isEmpty() && view.meter == null) {
+                val summary = call.summary?.trim().orEmpty()
+                val hidden = summary.isEmpty() || summary == view.path || summary == view.duration
+                if (!hidden) {
+                    Text(summary, style = MaterialTheme.typography.bodySmall, fontFamily = LuviaTheme.mono)
                 }
             }
         }
@@ -301,55 +340,153 @@ private fun ToolTrail(call: AcpToolCall) {
 }
 
 @Composable
-private fun DiffBlock(lines: List<String>) {
+private fun DiffCard(file: DiffFileView) {
+    val extended = LuviaTheme.extended
     Column(
         Modifier
             .padding(top = 8.dp)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLowest)
-            .padding(8.dp),
+            .background(MaterialTheme.colorScheme.surfaceContainerLowest),
     ) {
-        lines.take(40).forEachIndexed { index, line ->
-            val color = when {
-                line.startsWith("+") -> LuviaTheme.extended.diffAdd
-                line.startsWith("-") -> LuviaTheme.extended.diffDel
-                else -> MaterialTheme.colorScheme.onSurface
-            }
-            Row {
-                Text(
-                    "${index + 1}",
-                    modifier = Modifier.width(28.dp),
-                    fontFamily = LuviaTheme.mono,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(line, fontFamily = LuviaTheme.mono, style = MaterialTheme.typography.bodySmall, color = color)
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                file.path ?: stringResource(R.string.tool_edit),
+                modifier = Modifier.weight(1f),
+                fontFamily = LuviaTheme.mono,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "+${file.additions}",
+                fontFamily = LuviaTheme.mono,
+                style = MaterialTheme.typography.labelMedium,
+                color = extended.diffAdd,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "−${file.deletions}",
+                fontFamily = LuviaTheme.mono,
+                style = MaterialTheme.typography.labelMedium,
+                color = extended.diffDel,
+            )
+        }
+        Column(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 4.dp)) {
+            file.lines.take(40).forEach { line ->
+                val bg = when (line.marker) {
+                    "+" -> extended.diffAdd.copy(alpha = 0.14f)
+                    "-" -> extended.diffDel.copy(alpha = 0.14f)
+                    else -> Color.Transparent
+                }
+                val ink = when (line.marker) {
+                    "+" -> extended.diffAdd
+                    "-" -> extended.diffDel
+                    else -> MaterialTheme.colorScheme.onSurface
+                }
+                Row(Modifier.background(bg).padding(vertical = 1.dp)) {
+                    Text(
+                        line.oldNumber?.toString().orEmpty(),
+                        modifier = Modifier.width(32.dp).padding(end = 4.dp),
+                        fontFamily = LuviaTheme.mono,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        line.newNumber?.toString().orEmpty(),
+                        modifier = Modifier.width(32.dp),
+                        fontFamily = LuviaTheme.mono,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        line.marker,
+                        modifier = Modifier.width(16.dp),
+                        fontFamily = LuviaTheme.mono,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = ink,
+                    )
+                    Text(line.text, fontFamily = LuviaTheme.mono, style = MaterialTheme.typography.bodySmall, color = ink)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun TestMeter(passed: Int, total: Int, failedStatus: Boolean) {
-    val cells = 64.coerceAtMost(total)
-    val failed = (total - passed).coerceAtLeast(0)
-    val failedCells = if (total == 0) 0 else ((failed.toFloat() / total) * cells).roundToInt().coerceIn(0, cells)
-    Column(Modifier.padding(top = 8.dp)) {
+private fun TestMeter(passed: Int, total: Int, markFailed: Boolean, failedNames: List<String>) {
+    val cells = testBarCells(passed, total, markFailed)
+    Column(Modifier.padding(top = 8.dp).fillMaxWidth()) {
         Text("$passed / $total", fontFamily = LuviaTheme.mono, style = MaterialTheme.typography.labelMedium)
-        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            repeat(cells.coerceAtMost(32)) { index ->
-                val bad = index >= cells - failedCells
+        Row(
+            Modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(1.dp),
+        ) {
+            cells.forEach { bad ->
                 Box(
                     Modifier
-                        .size(width = 6.dp, height = 14.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(if (bad || (failedStatus && failedCells == 0 && index == cells - 1)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary),
+                        .weight(1f)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(if (bad) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary),
                 )
             }
         }
-        if (cells > 32) {
-            Text(stringResource(R.string.more_cells, cells - 32), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        failedNames.forEach { name ->
+            Text(
+                name,
+                modifier = Modifier.padding(top = 4.dp),
+                fontFamily = LuviaTheme.mono,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TerminalThumbnail(preview: String?, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val extended = LuviaTheme.extended
+    val label = stringResource(R.string.terminal)
+    val lines = remember(preview) {
+        stripAnsi(preview.orEmpty())
+            .lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .toList()
+            .takeLast(2)
+    }
+    Column(
+        modifier
+            .width(88.dp)
+            .height(48.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+            .background(extended.terminalBg)
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = label }
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        if (lines.isEmpty()) {
+            Text(label, color = extended.terminalFg, fontFamily = LuviaTheme.mono, fontSize = 11.sp, maxLines = 1)
+        } else {
+            lines.forEach { line ->
+                Text(
+                    line,
+                    color = extended.terminalFg,
+                    fontFamily = LuviaTheme.mono,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -411,6 +548,7 @@ private fun UnconfirmedRow(text: String) {
 @Composable
 private fun DecisionCard(
     ask: Ask,
+    agentName: String,
     index: Int,
     total: Int,
     enabled: Boolean,
@@ -418,29 +556,51 @@ private fun DecisionCard(
 ) {
     val recommended = recommendedOption(ask)
     var selected by remember(ask.question, ask.options) { mutableStateOf(recommended ?: ask.options.firstOrNull()) }
+    var note by remember(ask.question, ask.options) { mutableStateOf("") }
+    val onCard = MaterialTheme.colorScheme.onTertiaryContainer
     Surface(
         color = MaterialTheme.colorScheme.tertiaryContainer,
-        shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        shadowElevation = 8.dp,
+        tonalElevation = 3.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-            Box(
-                Modifier
-                    .padding(bottom = 8.dp)
-                    .size(width = 36.dp, height = 4.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.35f))
-                    .align(Alignment.CenterHorizontally),
-            )
-            Text(
-                "$index / $total",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onTertiaryContainer,
-            )
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.tertiary),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        agentName.take(1).uppercase(),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onTertiary,
+                    )
+                }
+                Text(
+                    "·",
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                    color = onCard,
+                )
+                Text(
+                    stringResource(R.string.decision_needs_you, agentName),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = onCard,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text("·", modifier = Modifier.padding(horizontal = 8.dp), color = onCard)
+                Text("$index/$total", style = MaterialTheme.typography.labelLarge, color = onCard)
+            }
             Text(
                 ask.question ?: stringResource(R.string.decision_waiting),
+                modifier = Modifier.padding(top = 10.dp),
                 style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                color = onCard,
             )
             ask.options.forEach { option ->
                 val picked = option == selected
@@ -476,23 +636,52 @@ private fun DecisionCard(
                     }
                 }
             }
+            BasicTextField(
+                value = note,
+                onValueChange = { note = it },
+                enabled = enabled,
+                modifier = Modifier
+                    .padding(top = 10.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                decorationBox = { inner ->
+                    Box {
+                        if (note.isEmpty()) {
+                            Text(
+                                if (enabled) stringResource(R.string.note_hint) else stringResource(R.string.observer_cannot_answer),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        inner()
+                    }
+                },
+            )
             Row(
                 Modifier.fillMaxWidth().padding(top = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    if (enabled) stringResource(R.string.add_note) else stringResource(R.string.observer_cannot_answer),
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                )
                 Button(
-                    onClick = { selected?.let(onAnswer) },
+                    onClick = {
+                        val choice = selected ?: return@Button
+                        val extra = note.trim()
+                        val action = choice.action
+                        val delivered = if (extra.isNotEmpty() && action is AskAction.Prompt) {
+                            val base = action.text.trim()
+                            choice.copy(action = AskAction.Prompt(if (base.isEmpty()) extra else "$base\n$extra"))
+                        } else {
+                            choice
+                        }
+                        onAnswer(delivered)
+                        note = ""
+                    },
                     enabled = enabled && selected != null,
                     shape = RoundedCornerShape(20.dp),
                 ) {
-                    Text(stringResource(R.string.select_and_continue))
+                    Text(stringResource(R.string.continue_action))
                 }
             }
         }
@@ -504,9 +693,11 @@ private fun Composer(
     draft: String,
     onDraft: (String) -> Unit,
     onSend: () -> Unit,
-    enabled: Boolean,
+    canSend: Boolean,
+    editable: Boolean,
     hint: String,
 ) {
+    val ink = if (editable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         Modifier
             .fillMaxWidth()
@@ -514,15 +705,22 @@ private fun Composer(
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .heightIn(min = 52.dp)
             .clip(RoundedCornerShape(26.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .background(
+                if (editable) {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.55f)
+                },
+            )
             .padding(start = 16.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicTextField(
             value = draft,
             onValueChange = onDraft,
+            enabled = editable,
             modifier = Modifier.weight(1f).padding(vertical = 12.dp),
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = ink),
             decorationBox = { inner ->
                 Box {
                     if (draft.isEmpty()) {
@@ -532,8 +730,12 @@ private fun Composer(
                 }
             },
         )
-        IconButton(onClick = onSend, enabled = enabled) {
-            Icon(Icons.Filled.Send, contentDescription = stringResource(R.string.send), tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
+        IconButton(onClick = onSend, enabled = canSend) {
+            Icon(
+                Icons.Filled.Send,
+                contentDescription = stringResource(R.string.send),
+                tint = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+            )
         }
     }
 }

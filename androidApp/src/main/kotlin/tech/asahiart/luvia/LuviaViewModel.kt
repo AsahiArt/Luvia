@@ -57,6 +57,8 @@ class LuviaViewModel(
 
     private val _terminals = MutableStateFlow<Map<String, TerminalUiModel>>(emptyMap())
     val terminals: StateFlow<Map<String, TerminalUiModel>> = _terminals.asStateFlow()
+    private val _terminalPreviews = MutableStateFlow<Map<String, String>>(emptyMap())
+    val terminalPreviews: StateFlow<Map<String, String>> = _terminalPreviews.asStateFlow()
     val pushRegistration: StateFlow<PushRegistration?> = manager.pushRegistration
 
     private val pushListener = object : PushRegistrar.Listener {
@@ -389,6 +391,9 @@ class LuviaViewModel(
         when (update) {
             is TerminalUpdate.Frame -> {
                 triedTerminals.remove(hostId)
+                if (update.frame.text.isNotBlank()) {
+                    _terminalPreviews.update { it + (hostId to update.frame.text) }
+                }
                 _terminals.update { map ->
                     val current = map[hostId] ?: return@update map
                     map + (

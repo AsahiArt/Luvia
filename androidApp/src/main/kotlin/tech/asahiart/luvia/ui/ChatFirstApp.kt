@@ -73,6 +73,7 @@ fun ChatFirstApp(
     val hostStates by viewModel.hostStates.collectAsStateWithLifecycle()
     val pairing by viewModel.pairing.collectAsStateWithLifecycle()
     val terminals by viewModel.terminals.collectAsStateWithLifecycle()
+    val terminalPreviews by viewModel.terminalPreviews.collectAsStateWithLifecycle()
     val hosts = runtimes.toSortedUi(hostStates.mapValues { it.value.attentionCount() })
 
     var stage by rememberSaveable { mutableStateOf(if (hosts.isEmpty()) "pair" else "sessions") }
@@ -238,6 +239,7 @@ fun ChatFirstApp(
                         onAnswer = { option -> viewModel.answer(thread, option) },
                         onBack = { stage = "sessions" },
                         onOpenTerminal = { openTerminal(thread.paneId) },
+                        terminalPreview = selected?.id?.let { terminalPreviews[it] ?: terminals[it]?.text },
                         sending = state?.agentDetail?.sending == true,
                         isObserver = selected?.isObserver == true,
                         connection = selected?.connection,

@@ -83,7 +83,8 @@ struct ContentView: View {
                     onBack: { stage = "sessions" },
                     onTerminal: { openTerminal(thread.paneId) },
                     showsChrome: stage != "terminal",
-                    glass: glass
+                    glass: glass,
+                    nextQuestion: nextQuestion(after: thread)
                 )
             } else {
                 ContentUnavailableView("会话不在了", systemImage: "bubble.left", description: Text("回到列表。"))
@@ -140,6 +141,13 @@ struct ContentView: View {
 
     private func timeline(_ thread: AgentThread) -> [TimelineItem] {
         KotlinLists.array(model.hostUhp()?.timeline(thread: thread) as Any)
+    }
+
+    private func nextQuestion(after thread: AgentThread) -> String? {
+        guard let index = pending.firstIndex(where: { $0.id == thread.id }) else { return nil }
+        let next = index + 1
+        guard pending.indices.contains(next) else { return nil }
+        return pending[next].ask?.question
     }
 
     private func queueIndex(_ thread: AgentThread) -> Int {

@@ -23,6 +23,8 @@ import kotlinx.serialization.json.put
 import tech.asahiart.luvia.internal.Methods
 import tech.asahiart.luvia.internal.NdjsonFramer
 import tech.asahiart.luvia.internal.UhpRequest
+import tech.asahiart.luvia.internal.decodeAcpEvent
+import tech.asahiart.luvia.internal.decodeUhpEvent
 import tech.asahiart.luvia.internal.decodeUhpRequest
 import tech.asahiart.luvia.internal.parseObject
 import tech.asahiart.luvia.support.ScriptedFactory
@@ -164,6 +166,21 @@ class AcpTest {
         assertEquals(false, closed.viewing)
         uhp.close()
         session.close()
+    }
+
+    @Test
+    fun toolCallKeepsPathBesideTextAndRendersDiff() {
+        val read = """{"event":"acp.update","sequence":1,"data":{"session_id":"s","update":{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Read","kind":"read","status":"completed","locations":[{"path":"shared/Pairing.kt","line":4}],"content":[{"type":"content","content":{"type":"text","text":"package x"}}]}}}"""
+        val readCall = assertIs<AcpEvent.ToolCall>(decodeAcpEvent(decodeUhpEvent(read))).call
+        assertEquals("package x", readCall.summary)
+        assertEquals("shared/Pairing.kt", readCall.path)
+
+        val edit = """{"event":"acp.update","sequence":2,"data":{"session_id":"s","update":{"sessionUpdate":"tool_call","toolCallId":"t2","title":"Edit","kind":"edit","status":"completed","duration":"1.2s","content":[{"type":"diff","path":"shared/ReconnectPolicy.kt","oldText":"fun retry()\n","newText":"fun reconnect()\n"}]}}}"""
+        val editCall = assertIs<AcpEvent.ToolCall>(decodeAcpEvent(decodeUhpEvent(edit))).call
+        assertEquals("shared/ReconnectPolicy.kt", editCall.path)
+        assertEquals("1.2s", editCall.duration)
+        assertTrue(editCall.summary!!.contains("@@ "))
+        assertTrue(editCall.summary!!.contains("+fun reconnect()"))
     }
 
 }

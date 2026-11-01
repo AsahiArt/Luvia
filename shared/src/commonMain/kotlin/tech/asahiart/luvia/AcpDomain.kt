@@ -52,6 +52,10 @@ public data class AcpToolCall(
     public val kind: String?,
     public val status: AcpToolStatus,
     public val summary: String?,
+    /** File the tool named, when the update carried `locations` or a diff path. */
+    public val path: String? = null,
+    /** Elapsed time the update named, such as `120ms`. Never invented. */
+    public val duration: String? = null,
 )
 
 public data class AcpToolCallUpdate(
@@ -60,6 +64,8 @@ public data class AcpToolCallUpdate(
     public val kind: String?,
     public val status: AcpToolStatus?,
     public val summary: String?,
+    public val path: String? = null,
+    public val duration: String? = null,
 )
 
 public enum class AcpPlanStatus {
