@@ -54,7 +54,9 @@ import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.SessionFilter
 import tech.asahiart.luvia.thread.filterSessions
 import tech.asahiart.luvia.thread.pendingReplyCount
+import tech.asahiart.luvia.thread.sessionRoster
 import tech.asahiart.luvia.thread.sortSessions
+import tech.asahiart.luvia.thread.threadTrails
 import tech.asahiart.luvia.thread.threads
 
 private val Emphasized = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -270,6 +272,10 @@ fun ChatFirstApp(
                 },
                 onOpenTerminal = { openTerminal(openThread?.paneId) },
                 onRetry = { selected?.id?.let(viewModel::connect) },
+                roster = sessionRoster(allThreads),
+                trails = state?.let { hostState ->
+                    threadTrails(hostState, allThreads).associate { it.threadId to it.thumb }
+                }.orEmpty(),
             )
         }
         if (stage == "terminal") {
