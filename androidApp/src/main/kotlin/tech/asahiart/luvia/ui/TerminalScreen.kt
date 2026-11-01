@@ -69,6 +69,10 @@ import tech.asahiart.luvia.thread.terminalFailureBanner
 import tech.asahiart.luvia.thread.terminalSegmentLabel
 import tech.asahiart.luvia.thread.testBarCells
 import tech.asahiart.luvia.ui.theme.LuviaTheme
+import tech.asahiart.luvia.ui.theme.composerInk
+import tech.asahiart.luvia.ui.theme.failureLineChrome
+import tech.asahiart.luvia.ui.theme.inactivePaneInk
+import tech.asahiart.luvia.ui.theme.lightTerminalBoard
 
 @Composable
 fun TerminalScreen(
@@ -166,6 +170,7 @@ fun TerminalScreen(
             isAnsi = model?.isAnsi == true,
             defaultForeground = extended.terminalFg,
             defaultBackground = extended.terminalBg,
+            dimForeground = if (extended.lightTerminalBoard()) extended.terminalDim else null,
         )
         Column(
             Modifier
@@ -210,11 +215,7 @@ fun TerminalScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val fieldFill = MaterialTheme.colorScheme.surfaceContainerHigh
-                val fieldInk = if (prefersDarkInk(fieldFill.red, fieldFill.green, fieldFill.blue)) {
-                    Color(0xFF14201E)
-                } else {
-                    extended.terminalFg
-                }
+                val fieldInk = extended.composerInk(fieldFill)
                 BasicTextField(
                     value = literal,
                     onValueChange = { literal = it },
@@ -350,7 +351,7 @@ private fun PaneSegments(
     selectedId: String?,
     onSelect: (String) -> Unit,
 ) {
-    val ink = LuviaTheme.extended.terminalFg
+    val ink = LuviaTheme.extended.inactivePaneInk()
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
         val segment = maxOf(160.dp, maxWidth / panes.size)
         SingleChoiceSegmentedButtonRow(
@@ -463,12 +464,14 @@ private fun FailureBar(
 
 @Composable
 private fun TerminalLines(lines: List<AnnotatedString>, banner: TerminalFailureBanner?) {
+    val extended = LuviaTheme.extended
     val outlined = banner?.outlinedLines?.toSet().orEmpty()
-    val error = MaterialTheme.colorScheme.error
+    val chrome = extended.failureLineChrome(MaterialTheme.colorScheme.error)
+    val body = extended.terminalFg
     var index = 0
     while (index < lines.size) {
         if (index !in outlined) {
-            TerminalLine(lines[index])
+            TerminalLine(lines[index], body)
             index++
             continue
         }
@@ -479,22 +482,29 @@ private fun TerminalLines(lines: List<AnnotatedString>, banner: TerminalFailureB
                 .fillMaxWidth()
                 .padding(vertical = 2.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .border(1.dp, error, RoundedCornerShape(8.dp))
-                .background(error.copy(alpha = 0.16f))
+                .border(1.dp, chrome.stroke, RoundedCornerShape(8.dp))
+                .background(chrome.fill)
                 .padding(horizontal = 6.dp, vertical = 2.dp),
         ) {
+            val failureText = chrome.text
+            val recolor = extended.lightTerminalBoard() && failureText != body
             for (lineIndex in start until index) {
-                TerminalLine(lines[lineIndex])
+                val line = if (recolor) {
+                    lines[lineIndex].recolorDefaults(setOf(body, extended.terminalDim), failureText)
+                } else {
+                    lines[lineIndex]
+                }
+                TerminalLine(line, failureText)
             }
         }
     }
 }
 
 @Composable
-private fun TerminalLine(text: AnnotatedString) {
+private fun TerminalLine(text: AnnotatedString, color: Color) {
     Text(
         text,
-        color = LuviaTheme.extended.terminalFg,
+        color = color,
         fontFamily = LuviaTheme.mono,
         style = MaterialTheme.typography.bodySmall,
     )
