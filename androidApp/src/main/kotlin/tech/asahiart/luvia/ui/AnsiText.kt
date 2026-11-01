@@ -17,12 +17,13 @@ internal fun ansiAnnotatedString(
     text: String,
     defaultForeground: Color,
     defaultBackground: Color,
+    dimForeground: Color? = null,
 ): AnnotatedString {
     val spans = parseAnsi(text)
     if (spans.isEmpty()) return AnnotatedString("")
     return buildAnnotatedString {
         for (span in spans) {
-            withStyle(span.toSpanStyle(defaultForeground, defaultBackground)) {
+            withStyle(span.toSpanStyle(defaultForeground, defaultBackground, dimForeground)) {
                 append(span.text)
             }
         }
@@ -34,12 +35,30 @@ internal fun terminalDisplayLines(
     isAnsi: Boolean,
     defaultForeground: Color,
     defaultBackground: Color,
+    dimForeground: Color? = null,
 ): List<AnnotatedString> {
     if (text.isEmpty()) return emptyList()
     if (!isAnsi || !text.hasAnsiEscape()) {
-        return text.split('\n').map { AnnotatedString(it) }
+        val ink = SpanStyle(color = defaultForeground)
+        return text.split('\n').map { line ->
+            buildAnnotatedString {
+                withStyle(ink) { append(line) }
+            }
+        }
     }
-    return ansiSpansToLines(parseAnsi(text), defaultForeground, defaultBackground)
+    return ansiSpansToLines(parseAnsi(text), defaultForeground, defaultBackground, dimForeground)
+}
+
+/** Recolor plain or dim body ink. ANSI colors that are not in [from] stay. */
+internal fun AnnotatedString.recolorDefaults(from: Set<Color>, to: Color): AnnotatedString {
+    if (from.isEmpty() || spanStyles.none { it.item.color in from }) return this
+    return buildAnnotatedString {
+        append(text)
+        for (range in spanStyles) {
+            val style = if (range.item.color in from) range.item.copy(color = to) else range.item
+            addStyle(style, range.start, range.end)
+        }
+    }
 }
 
 private fun String.hasAnsiEscape(): Boolean {
@@ -54,12 +73,13 @@ private fun ansiSpansToLines(
     spans: List<AnsiSpan>,
     defaultForeground: Color,
     defaultBackground: Color,
+    dimForeground: Color?,
 ): List<AnnotatedString> {
     if (spans.isEmpty()) return listOf(AnnotatedString(""))
     val lines = ArrayList<AnnotatedString>()
     var builder = AnnotatedString.Builder()
     for (span in spans) {
-        val style = span.toSpanStyle(defaultForeground, defaultBackground)
+        val style = span.toSpanStyle(defaultForeground, defaultBackground, dimForeground)
         val t = span.text
         var start = 0
         while (true) {
@@ -84,6 +104,7 @@ private fun ansiSpansToLines(
 private fun AnsiSpan.toSpanStyle(
     defaultForeground: Color,
     defaultBackground: Color,
+    dimForeground: Color?,
 ): SpanStyle {
     var fg = foreground?.toColor() ?: defaultForeground
     var bg = background?.toColor() ?: defaultBackground
@@ -92,7 +113,13 @@ private fun AnsiSpan.toSpanStyle(
         fg = bg
         bg = swapped
     }
-    if (dim) fg = fg.copy(alpha = fg.alpha * 0.65f)
+    if (dim) {
+        fg = if (foreground == null && !inverse && dimForeground != null) {
+            dimForeground
+        } else {
+            fg.copy(alpha = fg.alpha * 0.65f)
+        }
+    }
     val decorations = buildList {
         if (underline) add(TextDecoration.Underline)
         if (strikethrough) add(TextDecoration.LineThrough)

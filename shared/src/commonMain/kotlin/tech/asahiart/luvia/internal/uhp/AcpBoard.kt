@@ -118,12 +118,12 @@ internal class AcpBoard(private val ctx: UhpContext) {
         }
     }
 
-    fun prompt() {
-        val acpSession = session ?: return
+    fun prompt(): Boolean {
+        val acpSession = session ?: return false
         val state = ctx.value()
-        if (!state.canMutate || !state.acp.open) return
+        if (!state.canMutate || !state.acp.open) return false
         val text = state.acp.draft.trim()
-        if (text.isEmpty()) return
+        if (text.isEmpty()) return false
         ctx.update {
             it.copy(
                 acp =
@@ -149,6 +149,18 @@ internal class AcpBoard(private val ctx: UhpContext) {
                     ctx.update { it.copy(acp = it.acp.copy(errorText = result.failure.userMessage())) }
             }
         }
+        return true
+    }
+
+    /** Sends [text] only when the composer is empty. A pending draft is left alone. */
+    fun promptIfBlank(text: String): Boolean {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return false
+        val state = ctx.value()
+        if (state.acp.draft.isNotBlank()) return false
+        if (!state.canMutate || !state.acp.open || session == null) return false
+        setDraft(trimmed)
+        return prompt()
     }
 
     fun answerPermission(optionId: String) {

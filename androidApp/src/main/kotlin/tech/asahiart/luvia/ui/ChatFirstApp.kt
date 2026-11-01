@@ -297,6 +297,8 @@ fun ChatFirstApp(
             ),
         ) {
             val id = selected?.id
+            val workspace = id?.let { viewModel.workspace(it) }
+            val fixPane = id?.let { terminals[it]?.paneId }
             TerminalScreen(
                 model = id?.let { terminals[it] },
                 pendingDecisions = pendingReplyCount(allThreads),
@@ -309,11 +311,9 @@ fun ChatFirstApp(
                 onReleaseControl = { id?.let { viewModel.releaseControl(it) } },
                 onSendText = { text -> id?.let { viewModel.sendTerminalText(it, text) } },
                 onSendKey = { key -> id?.let { viewModel.sendTerminalKey(it, key) } },
-                statusOverride = when (selected?.connection) {
-                    ConnectionBadge.Connecting -> stringResource(R.string.link_reconnecting)
-                    ConnectionBadge.Live, null -> null
-                    else -> stringResource(R.string.link_offline)
-                },
+                connection = selected?.connection,
+                canAskFix = workspace?.canAskFix(fixPane) == true,
+                onAskFix = { excerpt -> workspace?.askFix(excerpt, fixPane) == true },
             )
         }
     }

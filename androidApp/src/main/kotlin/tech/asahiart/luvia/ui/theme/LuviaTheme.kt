@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import tech.asahiart.luvia.R
+import tech.asahiart.luvia.prefersDarkInk
 
 /** Fallback seed when the wallpaper cannot supply a dynamic scheme. ADR 0004. */
 val LuviaSeed = Color(0xFF006A62)
@@ -69,8 +70,15 @@ private val OnErrorDark = Color(0xFF690005)
 private val ErrorContainerDark = Color(0xFF93000A)
 private val OnErrorContainerDark = Color(0xFFFFDAD6)
 
-private val TerminalBg = Color(0xFF101615)
-private val TerminalFg = Color(0xFFE4EEEB)
+private val TerminalBgLight = Color(0xFFEEF5F2)
+private val TerminalFgLight = Color(0xFF161D1C)
+private val TerminalDimLight = Color(0xFF3F4947)
+private val TerminalFailureFillLight = Color(0xFFFFDAD6).copy(alpha = 0.55f)
+private val TerminalFailureStrokeLight = Color(0xFFBA1A1A)
+private val TerminalFailureInkLight = Color(0xFF410002)
+
+private val TerminalBgDark = Color(0xFF101615)
+private val TerminalFgDark = Color(0xFFE4EEEB)
 
 @Immutable
 data class LuviaExtendedColors(
@@ -80,6 +88,12 @@ data class LuviaExtendedColors(
     val offline: Color,
     val terminalBg: Color,
     val terminalFg: Color,
+    /** Secondary terminal ink. Light is on-surface-variant; dark matches [terminalFg]. */
+    val terminalDim: Color,
+    /** Failure-line wash. Drawn on a light board; dark lines keep Material error. */
+    val failureFill: Color,
+    val failureStroke: Color,
+    val failureInk: Color,
     val agentIdle: Color,
     val agentWorking: Color,
     val agentBlocked: Color,
@@ -88,30 +102,17 @@ data class LuviaExtendedColors(
     val diffDel: Color,
 )
 
-private val LocalLuviaExtendedColors = staticCompositionLocalOf {
-    LuviaExtendedColors(
-        live = Color(0xFF2E9E5B),
-        connecting = TertiaryLight,
-        stale = Color(0xFF8A5100),
-        offline = OutlineLight,
-        terminalBg = TerminalBg,
-        terminalFg = TerminalFg,
-        agentIdle = OnSurfaceVariantLight,
-        agentWorking = TertiaryLight,
-        agentBlocked = TertiaryLight,
-        agentUnknown = OutlineLight,
-        diffAdd = Color(0xFF0B6E4F),
-        diffDel = Color(0xFFBA1A1A),
-    )
-}
-
-private val LuviaLightExtended = LuviaExtendedColors(
+internal val LuviaLightExtended = LuviaExtendedColors(
     live = Color(0xFF2E9E5B),
     connecting = TertiaryLight,
     stale = Color(0xFF8A5100),
     offline = OutlineLight,
-    terminalBg = TerminalBg,
-    terminalFg = TerminalFg,
+    terminalBg = TerminalBgLight,
+    terminalFg = TerminalFgLight,
+    terminalDim = TerminalDimLight,
+    failureFill = TerminalFailureFillLight,
+    failureStroke = TerminalFailureStrokeLight,
+    failureInk = TerminalFailureInkLight,
     agentIdle = OnSurfaceVariantLight,
     agentWorking = TertiaryLight,
     agentBlocked = TertiaryLight,
@@ -120,19 +121,61 @@ private val LuviaLightExtended = LuviaExtendedColors(
     diffDel = Color(0xFFBA1A1A),
 )
 
-private val LuviaDarkExtended = LuviaExtendedColors(
+internal val LuviaDarkExtended = LuviaExtendedColors(
     live = Color(0xFF6FDB9A),
     connecting = TertiaryDark,
     stale = Color(0xFFFFB870),
     offline = Color(0xFF8A9391),
-    terminalBg = TerminalBg,
-    terminalFg = TerminalFg,
+    terminalBg = TerminalBgDark,
+    terminalFg = TerminalFgDark,
+    terminalDim = TerminalFgDark,
+    failureFill = ErrorDark.copy(alpha = 0.16f),
+    failureStroke = ErrorDark,
+    failureInk = TerminalFgDark,
     agentIdle = OnSurfaceVariantDark,
     agentWorking = TertiaryDark,
     agentBlocked = TertiaryDark,
     agentUnknown = Color(0xFF8A9391),
     diffAdd = Color(0xFF81C784),
     diffDel = Color(0xFFFFB4AB),
+)
+
+private val LocalLuviaExtendedColors = staticCompositionLocalOf { LuviaLightExtended }
+
+/** Light Misaka board wants dark ink. Dark `#101615` does not. */
+internal fun LuviaExtendedColors.lightTerminalBoard(): Boolean =
+    prefersDarkInk(terminalBg.red, terminalBg.green, terminalBg.blue)
+
+/** Composer ink follows the terminal board. A light board takes [terminalFg]. */
+internal fun LuviaExtendedColors.composerInk(fieldFill: Color): Color {
+    if (lightTerminalBoard()) return terminalFg
+    return if (prefersDarkInk(fieldFill.red, fieldFill.green, fieldFill.blue)) {
+        Color(0xFF14201E)
+    } else {
+        terminalFg
+    }
+}
+
+/** Unselected pane labels. Light uses on-surface-variant; dark stays [terminalFg]. */
+internal fun LuviaExtendedColors.inactivePaneInk(): Color =
+    if (lightTerminalBoard()) terminalDim else terminalFg
+
+/**
+ * Failure-line chrome. Light uses the Misaka error wash.
+ * Dark keeps the Material error outline and the existing light body ink.
+ */
+internal fun LuviaExtendedColors.failureLineChrome(materialError: Color): FailureLineChrome =
+    if (lightTerminalBoard()) {
+        FailureLineChrome(fill = failureFill, stroke = failureStroke, text = failureInk)
+    } else {
+        FailureLineChrome(fill = materialError.copy(alpha = 0.16f), stroke = materialError, text = terminalFg)
+    }
+
+@Immutable
+internal data class FailureLineChrome(
+    val fill: Color,
+    val stroke: Color,
+    val text: Color,
 )
 
 private val LuviaLightColorScheme = lightColorScheme(

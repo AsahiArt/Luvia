@@ -71,6 +71,36 @@ class HostUhpTest {
     }
 
     @Test
+    fun promptPaneReportsADroppedSendAndKeepsTheDraft() = runTest {
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { null }, runtime = { runtime }, scope = this)
+        uhp.applyRuntime(runtime)
+        uhp.setAgentDraft("unsent note")
+        assertEquals(false, uhp.canAskFix("7"))
+        assertEquals(false, uhp.askFix("AnsiParserTest FAILED", "7"))
+        assertEquals(false, uhp.promptPane("8", "fix"))
+        assertEquals("8", uhp.state.value.agentDetail.paneId)
+        assertEquals("unsent note", uhp.state.value.agentDetail.draft)
+        uhp.close()
+    }
+
+    @Test
+    fun askFixReachesThePaneAgentWithoutReplacingTheDraft() = runTest {
+        val session = openSession(backgroundScope)
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        uhp.setAgentDraft("unsent note")
+        advanceUntilIdle()
+        assertEquals(true, uhp.canAskFix("7"))
+        assertEquals(true, uhp.askFix("AnsiParserTest FAILED", "7"))
+        assertEquals("unsent note", uhp.state.value.agentDetail.draft)
+        assertEquals(true, uhp.state.value.agentDetail.sending)
+        uhp.close()
+        session.close()
+    }
+
+    @Test
     fun lostMutationKindsAreUnconfirmed() {
         assertTrue(Failure.IndeterminateMutation("agent.prompt").isLostMutation())
         assertTrue(Failure.Closed().isLostMutation())

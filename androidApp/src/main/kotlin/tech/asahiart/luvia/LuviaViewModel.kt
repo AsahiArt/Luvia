@@ -268,6 +268,7 @@ class LuviaViewModel(
                     errorText = null,
                     paneId = identity.paneId,
                     panes = panes,
+                    synced = previous?.takeIf { it.paneId == identity.paneId }?.synced == true,
                 )
                 )
         }
@@ -402,6 +403,7 @@ class LuviaViewModel(
                             isAnsi = update.frame.ansi,
                             isTruncated = update.frame.truncated,
                             errorText = null,
+                            synced = true,
                         )
                         )
                 }

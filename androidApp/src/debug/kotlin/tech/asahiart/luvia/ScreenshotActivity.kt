@@ -88,6 +88,19 @@ class ScreenshotActivity : ComponentActivity() {
                         onReleaseControl = {},
                         onSendText = {},
                         onSendKey = {},
+                        connection = ConnectionBadge.Live,
+                        canAskFix = true,
+                    )
+                    "terminal-offline" -> TerminalScreen(
+                        model = SampleShots.terminal.copy(control = TerminalControl.Observing, synced = false),
+                        pendingDecisions = 0,
+                        onBack = {},
+                        onSelectPane = {},
+                        onRequestControl = {},
+                        onReleaseControl = {},
+                        onSendText = {},
+                        onSendKey = {},
+                        connection = ConnectionBadge.Offline,
                     )
                     "transition" -> SampleShots.Transition()
                     else -> PairingScreen(
@@ -307,17 +320,43 @@ private object SampleShots {
         ),
     )
 
+    private val wowTerminal =
+        """
+        ~/code/luvus-mobile feat/reconnect
+        ${'$'} ./gradlew :shared:allTests
+        > Task :shared:compileKotlinIosSimulatorArm64
+        > Task :shared:iosSimulatorArm64Test
+        ReconnectPolicyTest > backoff caps at 30s PASSED
+        ReconnectPolicyTest > 401 stops retry PASSED
+        SnapshotSyncTest > resync on seq gap PASSED
+        AnsiParserTest > sgr 38;5 truecolor FAILED
+          expected:<#2EE6B6> but was:<#2EE6B7>
+        > Task :shared:testDebugUnitTest
+        CompanionClientTest > pairs with code PASSED
+        CompanionClientTest > rejects expired PASSED
+
+        127 tests completed, 1 failed
+        BUILD FAILED in 41s
+        ${'$'} git diff --stat
+        shared/.../ReconnectPolicy.kt | 42 ++++++++--
+        shared/.../CompanionClient.kt | 18 +++--
+        shared/.../AnsiParser.kt | 6 +-
+        ${'$'}
+        """.trimIndent()
+
     val terminal = TerminalUiModel(
         title = "claude-code",
-        text = "luvia-host pair\nwaiting for the phone\n",
+        text = wowTerminal,
         isAnsi = false,
         isTruncated = false,
-        control = TerminalControl.Observing,
+        control = TerminalControl.Controlling,
+        synced = true,
         panes = listOf(
-            TerminalPaneChoice("1", "claude-code"),
-            TerminalPaneChoice("2", "shell"),
+            TerminalPaneChoice("1", "zsh"),
+            TerminalPaneChoice("2", "gradle"),
+            TerminalPaneChoice("3", "claude"),
         ),
-        paneId = "1",
+        paneId = "3",
     )
 
     fun draft(): PairingDraft {

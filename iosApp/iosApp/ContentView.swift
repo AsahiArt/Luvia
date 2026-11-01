@@ -26,8 +26,14 @@ struct ContentView: View {
                         panes: panes,
                         selectedPaneID: model.uhp.selectedAgentID,
                         pendingDecisions: pending.count,
+                        waitingTitle: pending.first?.title,
+                        waitingDetail: pending.first?.ask?.question,
+                        canAskFix: model.hostUhp()?.canAskFix(paneId: model.uhp.selectedAgentID) == true,
                         onBack: closeTerminal,
                         onSelectPane: { model.openTerminal(paneId: $0) },
+                        onAskFix: { excerpt in
+                            model.hostUhp()?.askFix(excerpt: excerpt, paneId: model.uhp.selectedAgentID) == true
+                        },
                         glass: glass
                     )
                     .transition(.scale(scale: 0.9, anchor: .top).combined(with: .opacity))
@@ -146,6 +152,9 @@ struct ContentView: View {
 
     private var panes: [(id: String, title: String)] {
         guard let host = model.selectedHost else { return [] }
+        if !host.terminalPanes.isEmpty {
+            return host.terminalPanes.map { ($0.id, $0.title) }
+        }
         return host.paneTerminalIds.keys.sorted().map { id in
             (id, host.agents.first { $0.id == id }?.name ?? id)
         }

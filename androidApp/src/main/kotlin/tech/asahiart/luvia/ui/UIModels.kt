@@ -55,6 +55,8 @@ data class TerminalUiModel(
     val conflictMessage: String? = null,
     val paneId: String? = null,
     val panes: List<TerminalPaneChoice> = emptyList(),
+    /** A frame has arrived for this pane, so the header can say 已同步. */
+    val synced: Boolean = false,
 )
 
 enum class TerminalControl { Observing, Requesting, Controlling, Conflict }

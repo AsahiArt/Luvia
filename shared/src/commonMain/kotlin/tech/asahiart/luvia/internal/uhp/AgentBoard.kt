@@ -178,7 +178,20 @@ internal class AgentBoard(private val ctx: UhpContext) {
         if (existing.paneId == paneId) return true
         if (existing.sending || existing.unconfirmed != null) return false
         val summary = ctx.value().agents.firstOrNull { it.paneId == paneId }
-        ctx.update { it.copy(agentDetail = AgentDetailState(paneId = paneId, summary = summary)) }
+        ctx.update {
+            it.copy(
+                agentDetail =
+                    AgentDetailState(
+                        paneId = paneId,
+                        summary = summary,
+                        draft = existing.draft,
+                        showName = existing.showName,
+                        nameDraft = existing.nameDraft,
+                        showFork = existing.showFork,
+                        forkDraft = existing.forkDraft,
+                    ),
+            )
+        }
         return true
     }
 
@@ -216,14 +229,15 @@ internal class AgentBoard(private val ctx: UhpContext) {
         ctx.update { it.copy(agentDetail = it.agentDetail.copy(forkDraft = text)) }
     }
 
-    fun prompt(text: String) {
-        val session = ctx.session() ?: return
+    /** False when the prompt was not accepted. A refusal does not clear an unsent draft. */
+    fun prompt(text: String): Boolean {
+        val session = ctx.session() ?: return false
         val state = ctx.value()
-        val paneId = state.agentDetail.paneId ?: return
-        if (!state.canMutate || state.agentDetail.sending || state.agentDetail.unconfirmed != null) return
-        if (!session.supports(UhpMethods.AGENT_PROMPT)) return
+        val paneId = state.agentDetail.paneId ?: return false
+        if (!state.canMutate || state.agentDetail.sending || state.agentDetail.unconfirmed != null) return false
+        if (!session.supports(UhpMethods.AGENT_PROMPT)) return false
         val trimmed = text.trim()
-        if (trimmed.isEmpty()) return
+        if (trimmed.isEmpty()) return false
         updatePane(paneId) { it.copy(sending = true, errorText = null, timeline = it.timeline.recordMine(trimmed)) }
         ctx.launch {
             when (val result = session.promptAgent(paneId, trimmed, wait = false)) {
@@ -240,6 +254,7 @@ internal class AgentBoard(private val ctx: UhpContext) {
                 is Outcome.Err -> applyMutationFailure(paneId, UnconfirmedKind.AgentPrompt, result.failure)
             }
         }
+        return true
     }
 
     fun sendKeys(keys: List<AgentKey>) {
