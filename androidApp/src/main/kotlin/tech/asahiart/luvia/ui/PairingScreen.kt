@@ -5,7 +5,12 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,25 +31,21 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,14 +58,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -71,20 +80,14 @@ import androidx.core.content.ContextCompat
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.sqrt
 import kotlinx.coroutines.delay
 import tech.asahiart.luvia.HostRole
 import tech.asahiart.luvia.Outcome
 import tech.asahiart.luvia.PairingCodes
 import tech.asahiart.luvia.PairingUiState
 import tech.asahiart.luvia.R
+import tech.asahiart.luvia.shortFingerprint
 import tech.asahiart.luvia.ui.theme.LuviaTheme
-
-private val PairField = Color(0xFF070B16)
-private val PairInk = Color(0xFFF4F7FF)
-private val PairMuted = Color(0xFFB7C0D4)
-private val SystemBlue = Color(0xFF0A84FF)
-private val PairError = Color(0xFFFFB4AB)
 
 private val TileShapes = listOf(
     RoundedCornerShape(percent = 50),
@@ -94,6 +97,9 @@ private val TileShapes = listOf(
     CircleShape,
     RoundedCornerShape(20.dp),
 )
+
+private val ScanShape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp, topEnd = 8.dp, bottomEnd = 8.dp)
+private val ConfirmShape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp, topEnd = 28.dp, bottomEnd = 28.dp)
 
 @Composable
 fun PairingScreen(
@@ -106,12 +112,10 @@ fun PairingScreen(
     initialLongCode: String = "",
 ) {
     val draft = pairing.draft
-    val onField = draft != null
-    val barInk = if (onField) PairInk else MaterialTheme.colorScheme.onSurface
     Column(
         Modifier
             .fillMaxSize()
-            .background(if (onField) PairField else MaterialTheme.colorScheme.surface)
+            .background(MaterialTheme.colorScheme.surface)
             .statusBarsPadding(),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -120,19 +124,16 @@ fun PairingScreen(
                     onCancel()
                     onBack()
                 }) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.back), tint = barInk)
+                    Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                 }
             } else {
                 Spacer(Modifier.width(12.dp))
             }
-            if (!onField) {
-                Text(
-                    stringResource(R.string.pair_new_computer),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = barInk,
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            Text(
+                stringResource(R.string.pair_new_computer),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
         }
         if (draft == null) {
             PairingStart(
@@ -226,13 +227,22 @@ private fun PairingRitual(
     val started by remember(draft.command) { mutableLongStateOf(System.currentTimeMillis()) }
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val focus = LocalFocusManager.current
     val remaining = (5 * 60_000L - (nowMs - started)).coerceAtLeast(0)
     val decoded = remember(longCode) {
         (PairingCodes.decode(longCode) as? Outcome.Ok)?.value
     }
     val fingerprintMatches = decoded?.deviceKeyFingerprint == draft.deviceKeyFingerprint
+    val hostName = decoded?.hostLabel?.takeIf { it.isNotBlank() }
+    val scanLabel = stringResource(R.string.scan_instead)
+    val address = decoded?.addresses?.firstOrNull().orEmpty()
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) scanning = true
+    }
+    val openScanner = {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) scanning = true else cameraPermission.launch(Manifest.permission.CAMERA)
     }
     LaunchedEffect(draft.command) {
         while (true) {
@@ -257,117 +267,132 @@ private fun PairingRitual(
             }
         }
     }
-    val openScanner = {
-        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-            PackageManager.PERMISSION_GRANTED
-        if (granted) scanning = true else cameraPermission.launch(Manifest.permission.CAMERA)
-    }
     Column(Modifier.fillMaxSize()) {
         Column(
             Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .padding(horizontal = 12.dp),
         ) {
-            Text(
-                stringResource(R.string.pair_stage_title),
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                style = MaterialTheme.typography.displaySmall,
-                fontFamily = FontFamily.Serif,
-                fontWeight = FontWeight.Medium,
-                color = PairInk,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                stringResource(R.string.pair_code_caption),
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 8.dp),
-                style = MaterialTheme.typography.bodyMedium,
-                color = PairMuted,
-                textAlign = TextAlign.Center,
-            )
-            Box(Modifier.fillMaxWidth().height(240.dp), contentAlignment = Alignment.Center) {
-                ParticleOrb(Modifier.size(220.dp))
-            }
-            ShortCodeTiles()
-            Text(
-                formatRemaining(remaining),
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                style = MaterialTheme.typography.titleMedium,
-                fontFamily = LuviaTheme.mono,
-                fontWeight = FontWeight.SemiBold,
-                color = SystemBlue,
-                textAlign = TextAlign.Center,
-            )
-            if (remaining == 0L) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(44.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .padding(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 22.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.handshake),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        formatRemaining(remaining),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontFamily = LuviaTheme.mono,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
+                Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
+                    CookieCountdown(
+                        progress = remaining / (5 * 60_000f),
+                        modifier = Modifier.size(220.dp),
+                    )
+                }
                 Text(
-                    stringResource(R.string.pair_window_elapsed),
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = PairMuted,
+                    if (hostName != null) {
+                        stringResource(R.string.pair_code_from_host, hostName)
+                    } else {
+                        stringResource(R.string.pair_code_caption)
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
                     textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
                 )
+                ShortCodeTiles()
+                if (remaining == 0L) {
+                    Text(
+                        stringResource(R.string.pair_window_elapsed),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                }
             }
-            Spacer(Modifier.height(18.dp))
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(Color.White.copy(alpha = 0.08f))
+                    .padding(top = 10.dp)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
                     .padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.fingerprint), style = MaterialTheme.typography.labelMedium, color = PairMuted)
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
+                Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
                     Text(
-                        draft.deviceKeyFingerprint,
-                        fontFamily = LuviaTheme.mono,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = PairInk,
+                        if (fingerprintMatches) stringResource(R.string.fingerprint_agreed) else stringResource(R.string.fingerprint),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    decoded?.hostKeyFingerprints?.firstOrNull()?.let { hostKey ->
-                        Text(
-                            stringResource(R.string.host_key, hostKey),
-                            fontFamily = LuviaTheme.mono,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = PairMuted,
-                        )
-                    }
+                    Text(
+                        shortFingerprint(draft.deviceKeyFingerprint),
+                        fontFamily = LuviaTheme.mono,
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
                 }
                 if (fingerprintMatches) {
                     Box(
-                        Modifier.size(32.dp).background(SystemBlue, CircleShape),
+                        Modifier.size(32.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Filled.Check, contentDescription = stringResource(R.string.fingerprint_match), tint = Color.White)
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = stringResource(R.string.fingerprint_match),
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                        )
                     }
                 }
             }
-            decoded?.let { code ->
-                val address = code.addresses.firstOrNull().orEmpty()
+            if (decoded != null) {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 10.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text(
-                            code.hostLabel.ifBlank { stringResource(R.string.computer) },
-                            style = MaterialTheme.typography.titleMedium,
-                            color = PairInk,
-                        )
+                        Text(hostName ?: stringResource(R.string.computer), style = MaterialTheme.typography.titleMedium)
                         Text(
                             address,
                             fontFamily = LuviaTheme.mono,
                             style = MaterialTheme.typography.bodySmall,
-                            color = PairMuted,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     if (looksLikeTailscale(address)) {
                         Text(
                             "Tailscale",
-                            modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.28f), CircleShape).padding(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.labelMedium,
-                            color = PairInk,
                         )
                     }
                 }
@@ -375,9 +400,10 @@ private fun PairingRitual(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.White.copy(alpha = 0.08f))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .padding(horizontal = 4.dp)
+                    .height(40.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -385,72 +411,67 @@ private fun PairingRitual(
                     modifier = Modifier.weight(1f),
                     fontFamily = LuviaTheme.mono,
                     style = MaterialTheme.typography.bodySmall,
-                    color = PairInk,
-                    maxLines = 3,
+                    maxLines = 1,
                 )
                 TextButton(onClick = {
                     clipboard.setText(AnnotatedString(draft.command))
                     copied = true
                 }) {
-                    Text(if (copied) stringResource(R.string.copied) else stringResource(R.string.copy), color = SystemBlue)
+                    Text(if (copied) stringResource(R.string.copied) else stringResource(R.string.copy))
                 }
             }
-            Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = longCode,
                 onValueChange = {
                     longCode = it
                     onClearError()
                 },
-                label = { Text(stringResource(R.string.luvia_code)) },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 2,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = PairInk, fontFamily = LuviaTheme.mono),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = PairInk,
-                    unfocusedTextColor = PairInk,
-                    focusedBorderColor = SystemBlue,
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.28f),
-                    focusedLabelColor = PairMuted,
-                    unfocusedLabelColor = PairMuted,
-                    cursorColor = SystemBlue,
-                ),
+                label = { Text(stringResource(R.string.paste_code)) },
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = LuviaTheme.mono),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
         }
         pairing.errorMessage?.let { message ->
             Text(
                 localizeUiMessage(message),
-                color = PairError,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
-        Column(
+        Row(
             Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .navigationBarsPadding(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .height(56.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
+            FilledTonalButton(
+                onClick = openScanner,
+                modifier = Modifier
+                    .width(76.dp)
+                    .fillMaxHeight()
+                    .semantics { contentDescription = scanLabel },
+                shape = ScanShape,
+            ) {
+                QrMark(Modifier.size(22.dp))
+            }
             Button(
                 onClick = { if (!pairing.completing) onComplete(longCode.trim()) },
                 enabled = longCode.isNotBlank(),
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(28.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = SystemBlue,
-                    contentColor = Color.White,
-                    disabledContainerColor = SystemBlue.copy(alpha = 0.38f),
-                    disabledContentColor = Color.White.copy(alpha = 0.7f),
-                ),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                shape = ConfirmShape,
             ) {
                 if (pairing.completing) {
                     CircularProgressIndicator(
                         Modifier.size(18.dp),
                         strokeWidth = 2.dp,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onPrimary,
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.pairing_connecting))
@@ -458,24 +479,13 @@ private fun PairingRitual(
                     Text(stringResource(R.string.confirm_pair))
                 }
             }
-            Button(
-                onClick = openScanner,
-                modifier = Modifier.height(48.dp),
-                shape = RoundedCornerShape(24.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White.copy(alpha = 0.12f),
-                    contentColor = PairInk,
-                ),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.28f)),
-            ) {
-                Text(stringResource(R.string.scan_instead))
-            }
         }
     }
 }
 
 @Composable
 private fun ShortCodeTiles() {
+    val caption = stringResource(R.string.pair_tiles_readonly)
     val pulse by rememberInfiniteTransition(label = "pair-code").animateFloat(
         initialValue = 0f,
         targetValue = 6f,
@@ -486,57 +496,108 @@ private fun ShortCodeTiles() {
         label = "pair-slot",
     )
     val hot = pulse.toInt().coerceIn(0, 5)
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) { contentDescription = caption },
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         repeat(6) { index ->
             if (index == 3) Spacer(Modifier.width(10.dp))
-            val filled = index == hot
             Box(
                 Modifier
                     .padding(horizontal = 3.dp)
                     .size(width = 46.dp, height = 60.dp)
                     .clip(TileShapes[index])
-                    .background(if (filled) SystemBlue else Color.White.copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (filled) {
-                    Box(Modifier.size(8.dp).background(Color.White, CircleShape))
-                }
-            }
+                    .background(
+                        if (index == hot) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                    ),
+            )
         }
     }
 }
 
 @Composable
-private fun ParticleOrb(modifier: Modifier = Modifier) {
-    val spin by rememberInfiniteTransition(label = "pair-orb").animateFloat(
-        initialValue = 0f,
-        targetValue = (2.0 * PI).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 14000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "orb-spin",
-    )
+private fun CookieCountdown(progress: Float, modifier: Modifier = Modifier) {
+    val primary = MaterialTheme.colorScheme.primary
+    val onPrimary = MaterialTheme.colorScheme.onPrimary
     Canvas(modifier) {
         val center = Offset(size.width / 2f, size.height / 2f)
-        val radius = size.minDimension * 0.42f
-        drawCircle(SystemBlue.copy(alpha = 0.16f), radius * 0.96f, center)
-        drawCircle(SystemBlue.copy(alpha = 0.30f), radius * 0.48f, center)
-        val count = 72
-        for (i in 0 until count) {
-            val t = i.toFloat() / count
-            val angle = i * 2.399f + spin
-            val dist = radius * sqrt(t)
-            val point = Offset(
-                center.x + cos(angle) * dist,
-                center.y + sin(angle) * dist * 0.86f,
-            )
-            val alpha = 0.35f + 0.65f * (1f - t)
-            drawCircle(
-                SystemBlue.copy(alpha = alpha),
-                radius = if (i % 9 == 0) 3.2.dp.toPx() else 1.8.dp.toPx(),
-                center = point,
-            )
+        val radius = size.minDimension * 0.34f
+        drawPath(
+            wavyCookie(center, radius * 1.22f, lobes = 9, amplitude = 4.dp.toPx()),
+            primary.copy(alpha = 0.16f),
+            style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round),
+        )
+        drawArc(
+            color = primary,
+            startAngle = -90f,
+            sweepAngle = 360f * progress.coerceIn(0f, 1f),
+            useCenter = false,
+            topLeft = Offset(center.x - radius * 1.08f, center.y - radius * 1.08f),
+            size = Size(radius * 2.16f, radius * 2.16f),
+            style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round),
+        )
+        drawPath(wavyCookie(center, radius * 0.78f, lobes = 9, amplitude = 7.dp.toPx()), primary)
+        val screen = Size(radius * 0.7f, radius * 0.46f)
+        val screenTop = Offset(center.x - screen.width / 2f, center.y - screen.height / 2f - 6.dp.toPx())
+        drawRoundRect(
+            color = onPrimary,
+            topLeft = screenTop,
+            size = screen,
+            cornerRadius = CornerRadius(3.dp.toPx()),
+            style = Stroke(width = 2.dp.toPx()),
+        )
+        val baseY = screenTop.y + screen.height + 4.dp.toPx()
+        drawLine(
+            onPrimary,
+            Offset(center.x - screen.width * 0.72f, baseY),
+            Offset(center.x + screen.width * 0.72f, baseY),
+            strokeWidth = 2.dp.toPx(),
+            cap = StrokeCap.Round,
+        )
+        drawCircle(primary, 5.dp.toPx(), Offset(center.x - radius * 1.15f, center.y - radius * 0.72f))
+    }
+}
+
+private fun wavyCookie(center: Offset, radius: Float, lobes: Int, amplitude: Float): Path {
+    val path = Path()
+    val steps = 180
+    for (i in 0..steps) {
+        val angle = i / steps.toFloat() * 2.0 * PI
+        val wave = sin(angle * lobes).toFloat() * amplitude
+        val point = Offset(
+            center.x + cos(angle).toFloat() * (radius + wave),
+            center.y + sin(angle).toFloat() * (radius + wave),
+        )
+        if (i == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y)
+    }
+    path.close()
+    return path
+}
+
+@Composable
+private fun QrMark(modifier: Modifier = Modifier) {
+    val color = LocalContentColor.current
+    Canvas(modifier) {
+        val unit = size.minDimension / 7f
+        fun cell(column: Int, row: Int, span: Int = 1) {
+            drawRect(color, Offset(column * unit, row * unit), Size(unit * span, unit * span))
         }
+        cell(0, 0, 3)
+        cell(1, 1)
+        cell(4, 0, 3)
+        cell(5, 1)
+        cell(0, 4, 3)
+        cell(1, 5)
+        cell(4, 4)
+        cell(6, 4)
+        cell(4, 6)
+        cell(6, 6)
     }
 }
