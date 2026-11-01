@@ -1,7 +1,14 @@
 package tech.asahiart.luvia.thread
 
+import tech.asahiart.luvia.AcpSessionInfo
+import tech.asahiart.luvia.AcpState
+import tech.asahiart.luvia.AcpToolCall
+import tech.asahiart.luvia.AcpToolStatus
+import tech.asahiart.luvia.AcpTranscriptItem
+import tech.asahiart.luvia.AgentDetailState
 import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.AgentStatus
+import tech.asahiart.luvia.HostUhpState
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -71,6 +78,109 @@ class SessionListTest {
         )
         assertEquals("Replace", recommendedOption(marked)?.label)
         assertTrue(marked.options[1].recommended)
+    }
+
+    @Test
+    fun rosterCountsMatchTheFilters() {
+        val threads = listOf(
+            thread("a", AgentStatus.Blocked, ask = Ask("go?", emptyList())),
+            thread("b", AgentStatus.Working),
+            thread("c", AgentStatus.Idle),
+            thread("d", AgentStatus.Done),
+        )
+        val roster = sessionRoster(threads)
+        assertEquals(4, roster.agents)
+        assertEquals(1, roster.running)
+        assertEquals(1, roster.waiting)
+        assertEquals(2, roster.idle)
+    }
+
+    @Test
+    fun searchMatchesTitleAgentAndSummary() {
+        val threads = listOf(
+            thread("a", AgentStatus.Idle).copy(title = "修复 UHP", agentType = "codex", summary = "gradle"),
+            thread("b", AgentStatus.Idle).copy(title = "配对", agentType = "claude-code"),
+        )
+        assertEquals(listOf("a"), searchSessions(threads, "uhp").map { it.id })
+        assertEquals(listOf("b"), searchSessions(threads, "Claude").map { it.id })
+        assertEquals(listOf("a"), searchSessions(threads, "Gradle").map { it.id })
+        assertEquals(threads, searchSessions(threads, "  "))
+    }
+
+    @Test
+    fun agentMarkAndAgeStayLiteral() {
+        assertEquals("CC", agentMark("claude-code", "重构"))
+        assertEquals("C", agentMark("codex", "修复"))
+        assertEquals("O", agentMark("opencode", "终端"))
+        assertEquals("G", agentMark("gemini", "迁移"))
+        assertEquals("?", agentMark("  ", " "))
+        assertEquals(agentColorSlot("codex", "x"), agentColorSlot("codex", "y"))
+        val now = 1_700_000_000_000L
+        assertEquals("刚刚", sessionAgeLabel(now - 10_000, now))
+        assertEquals("2 分钟", sessionAgeLabel(now - 120_000, now))
+        assertEquals("1 小时", sessionAgeLabel(now - 3_600_000, now))
+        assertNull(sessionAgeLabel(null, now))
+        assertNull(sessionAgeLabel(now + 1, now))
+    }
+
+    @Test
+    fun trailThumbUsesRealCallsAndSkipsOtherPanes() {
+        assertNull(trailThumb(emptyList()))
+        val read = AcpToolCall("r", "Read Pairing.kt", "read", AcpToolStatus.Completed, null)
+        val run = AcpToolCall("x", "./gradlew :shared:allTests", "shell", AcpToolStatus.Failed, "96/128")
+        val state = HostUhpState(
+            agentDetail = AgentDetailState(
+                paneId = "p1",
+                timeline = PaneTimeline(items = listOf(TimelineItem.Tool("r", read), TimelineItem.Tool("x", run))),
+            ),
+            acp = AcpState(
+                open = true,
+                info = AcpSessionInfo("s", "claude", "Claude", 1, "/work"),
+                transcript = listOf(
+                    AcpTranscriptItem.Tool(
+                        "e",
+                        AcpToolCall("e", "Edit TokenStore.kt", "edit", AcpToolStatus.Completed, null),
+                    ),
+                ),
+            ),
+        )
+        val threads = listOf(
+            thread("p1", AgentStatus.Working).copy(paneId = "p1"),
+            thread("p2", AgentStatus.Idle).copy(paneId = "p2"),
+            thread("acp:s", AgentStatus.Blocked, ask = Ask("q", emptyList())).copy(
+                kind = AgentKind.Acp,
+                acpSessionId = "s",
+            ),
+        )
+        val trails = threadTrails(state, threads).associate { it.threadId to it.thumb }
+        assertEquals("./gradlew :shared:allTests · 96/128", trails["p1"]?.label)
+        assertEquals(listOf(ToolTrailKind.Read, ToolTrailKind.Run), trails["p1"]?.kinds)
+        assertEquals(750, trails["p1"]?.progressPermille)
+        assertNull(trails["p2"])
+        assertEquals("Edit TokenStore.kt", trails["acp:s"]?.label)
+        assertEquals(listOf(ToolTrailKind.Edit), trails["acp:s"]?.kinds)
+        assertNull(trails["acp:s"]?.progressPermille)
+    }
+
+    @Test
+    fun acpTrailWithoutSessionIdStaysUnattached() {
+        val state = HostUhpState(
+            acp = AcpState(
+                open = true,
+                info = null,
+                transcript = listOf(
+                    AcpTranscriptItem.Tool(
+                        "e",
+                        AcpToolCall("e", "Edit TokenStore.kt", "edit", AcpToolStatus.Completed, null),
+                    ),
+                ),
+            ),
+        )
+        val threads = listOf(
+            thread("acp", AgentStatus.Working).copy(kind = AgentKind.Acp),
+            thread("acp:other", AgentStatus.Idle).copy(kind = AgentKind.Acp, acpSessionId = "other"),
+        )
+        assertTrue(threadTrails(state, threads).isEmpty())
     }
 
     private fun thread(

@@ -96,6 +96,8 @@ struct ContentView: View {
                 threads: visibleThreads,
                 pending: pending,
                 filter: filter,
+                roster: SessionListKt.sessionRoster(threads: allThreads),
+                trails: threadTrails,
                 onFilter: { filter = $0 },
                 onOpen: open,
                 onAnswer: { thread, option in
@@ -126,6 +128,16 @@ struct ContentView: View {
 
     private var pending: [AgentThread] {
         KotlinLists.array(SessionListKt.filterSessions(threads: allThreads, filter: .needsYou) as Any)
+    }
+
+    private var threadTrails: [String: TrailThumb] {
+        guard let id = model.selectedHostID, let state = model.hostStates[id] else { return [:] }
+        let rows: [ThreadTrail] = KotlinLists.array(SessionListKt.threadTrails(state: state, threads: allThreads) as Any)
+        var map: [String: TrailThumb] = [:]
+        for row in rows {
+            map[row.threadId] = row.thumb
+        }
+        return map
     }
 
     private var openThread: AgentThread? {

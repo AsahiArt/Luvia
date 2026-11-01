@@ -33,11 +33,15 @@ import tech.asahiart.luvia.ui.TerminalControl
 import tech.asahiart.luvia.ui.TerminalPaneChoice
 import tech.asahiart.luvia.ui.TerminalScreen
 import tech.asahiart.luvia.ui.TerminalUiModel
+import tech.asahiart.luvia.thread.trailThumb
 import tech.asahiart.luvia.ui.theme.LuviaTheme
 
 /**
  * Debug-only fixture host so the chat-first screens can be captured without a paired computer.
  * Not in the release manifest.
+ *
+ * List light/dark: `screen=sessions-light` or `screen=sessions-dark`.
+ * `screen=sessions` still follows the `night` extra.
  */
 class ScreenshotActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,9 +49,18 @@ class ScreenshotActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val screen = intent.getStringExtra("screen") ?: "pair"
         val night = intent.getBooleanExtra("night", false)
+        val nightMode = when (screen) {
+            "sessions-dark" -> true
+            "sessions-light" -> false
+            else -> night
+        }
+        val page = when (screen) {
+            "sessions-light", "sessions-dark" -> "sessions"
+            else -> screen
+        }
         setContent {
-            LuviaTheme(darkTheme = night, dynamicColor = false) {
-                when (screen) {
+            LuviaTheme(darkTheme = nightMode, dynamicColor = false) {
+                when (page) {
                     "sessions" -> SessionListScreen(
                         hosts = SampleShots.hosts,
                         selected = SampleShots.hosts.first(),
@@ -61,6 +74,9 @@ class ScreenshotActivity : ComponentActivity() {
                         onAnswer = { _, _ -> },
                         onNewSession = {},
                         onOpenTerminal = {},
+                        trails = SampleShots.trails,
+                        latencyMs = 12,
+                        nowEpochMs = SampleShots.shotNow,
                     )
                     "chat" -> SampleShots.Chat()
                     "terminal" -> TerminalScreen(
@@ -90,6 +106,8 @@ class ScreenshotActivity : ComponentActivity() {
 }
 
 private object SampleShots {
+    const val shotNow: Long = 1_762_000_000_000L
+
     const val goldenCode: String =
         "luvia1:eyJ2IjoxLCJpZCI6IjA0ZWQxZTczNTk1NjBkNTA1ZmViODI5Zjk5NzFjNGE5IiwiZGsiOiJTSEEyNTY6S3VOWEllUXREYSt5WmxmOTd1QUhWV01QUXNwdzNHVmhlMnAzYzdOVXYzcyIsIm5hbWUiOiJZdWkubG9jYWwiLCJ1c2VyIjoibWlzYWthIiwicG9ydCI6MjIsImFkZHJzIjpbIjE5Mi4xNjguMS4xNiIsIjE3Mi4xOC4wLjEiLCJZdWkubG9jYWwiXSwiaGsiOlsiU0hBMjU2OjQ2bk5sakpMRmhzRmlvMW5sMUJUUWo5b2dSdnJFY2IzSkZIYWxwMVhqRFkiLCJTSEEyNTY6NjJFK2FEM1p2am9CV1ZwQjh2aE9aRzgzM3NaTGNxNHNSRmZIT011eHJ3QSIsIlNIQTI1NjpqVFBxMUwvQnB4R0JGRitmWjM0dU8rSE1vOVdNZTdmV3JlSDBYclIyT3NzIl0sInJvbGUiOiJjb250cm9sbGVyIn0"
 
@@ -102,6 +120,15 @@ private object SampleShots {
             connection = ConnectionBadge.Live,
             connected = true,
             hasSnapshot = true,
+        ),
+        HostUiModel(
+            id = "h2",
+            name = "lab-mini",
+            address = "",
+            sessionName = null,
+            connection = ConnectionBadge.Offline,
+            connected = false,
+            hasSnapshot = false,
         ),
     )
 
@@ -126,6 +153,25 @@ private object SampleShots {
         total = 2,
     )
 
+    private val snapshotAsk = tech.asahiart.luvia.thread.Ask(
+        question = "发现 3 个快照不一致，覆盖还是保留旧快照？",
+        options = listOf(
+            tech.asahiart.luvia.thread.AskOption(
+                "保留",
+                tech.asahiart.luvia.thread.AskTone.Primary,
+                tech.asahiart.luvia.thread.AskAction.Prompt("keep"),
+                recommended = true,
+            ),
+            tech.asahiart.luvia.thread.AskOption(
+                "覆盖",
+                tech.asahiart.luvia.thread.AskTone.Destructive,
+                tech.asahiart.luvia.thread.AskAction.Prompt("overwrite"),
+            ),
+        ),
+        index = 2,
+        total = 2,
+    )
+
     val threads = listOf(
         tech.asahiart.luvia.thread.AgentThread(
             id = "a",
@@ -138,7 +184,22 @@ private object SampleShots {
             status = AgentStatus.Blocked,
             ask = ask,
             summary = "先核对指纹，再确认配对",
-            updatedEpochMs = null,
+            updatedEpochMs = shotNow - 2 * 60_000,
+            paneId = "a",
+        ),
+        tech.asahiart.luvia.thread.AgentThread(
+            id = "c",
+            kind = AgentKind.Pane,
+            hostId = "h",
+            projectKey = "luvia",
+            projectLabel = "Luvia",
+            title = "终端 ANSI 解析测试",
+            agentType = "opencode",
+            status = AgentStatus.Blocked,
+            ask = snapshotAsk,
+            summary = "发现 3 个快照不一致，覆盖还是保留旧快照？",
+            updatedEpochMs = shotNow - 9 * 60_000,
+            paneId = "c",
         ),
         tech.asahiart.luvia.thread.AgentThread(
             id = "b",
@@ -146,13 +207,55 @@ private object SampleShots {
             hostId = "h",
             projectKey = "luvia",
             projectLabel = "Luvia",
-            title = "TokenStore 拆分",
+            title = "修复 UHP 断线重连",
             agentType = "codex",
             status = AgentStatus.Working,
             ask = null,
             summary = "正在改 ReconnectPolicy",
-            updatedEpochMs = null,
+            updatedEpochMs = shotNow - 9 * 60_000,
         ),
+        tech.asahiart.luvia.thread.AgentThread(
+            id = "d",
+            kind = AgentKind.Pane,
+            hostId = "h",
+            projectKey = "luvia",
+            projectLabel = "Luvia",
+            title = "迁移 Room → SQLDelight",
+            agentType = "gemini",
+            status = AgentStatus.Done,
+            ask = null,
+            summary = "12 个文件变更，等你 review。",
+            updatedEpochMs = shotNow - 60 * 60_000,
+            paneId = "d",
+        ),
+    )
+
+    val trails = mapOf(
+        "a" to trailThumb(
+            listOf(
+                AcpToolCall("r", "Read TokenStore.kt", "read", AcpToolStatus.Completed, null),
+                AcpToolCall("e", "Edit TokenStore.kt", "edit", AcpToolStatus.Completed, null),
+            ),
+        )!!,
+        "b" to trailThumb(
+            listOf(
+                AcpToolCall("r", "Read ReconnectPolicy.kt", "read", AcpToolStatus.Completed, null),
+                AcpToolCall("x", "./gradlew :shared:allTests", "shell", AcpToolStatus.Failed, "96/128"),
+            ),
+        )!!,
+        "c" to trailThumb(
+            listOf(
+                AcpToolCall("r", "Read Ansi.kt", "read", AcpToolStatus.Completed, null),
+                AcpToolCall("x", "ansi snapshot", "shell", AcpToolStatus.Failed, "3 mismatches"),
+            ),
+        )!!,
+        "d" to trailThumb(
+            listOf(
+                AcpToolCall("e1", "Edit Room.kt", "edit", AcpToolStatus.Completed, null),
+                AcpToolCall("e2", "Edit Delight.kt", "edit", AcpToolStatus.Completed, null),
+                AcpToolCall("e3", "Edit Schema.kt", "edit", AcpToolStatus.Completed, null),
+            ),
+        )!!,
     )
 
     val items = listOf(

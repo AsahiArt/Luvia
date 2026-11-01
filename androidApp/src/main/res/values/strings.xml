@@ -104,4 +104,24 @@
     <string name="tool_other">工具</string>
     <string name="more_cells">还有 %1$d 格</string>
     <string name="ask_agent_fix">交给 claude 修</string>
+    <string name="sessions_title">会话</string>
+    <string name="tab_sessions">会话</string>
+    <string name="tab_machines">机器</string>
+    <string name="tab_settings">设置</string>
+    <string name="search">搜索</string>
+    <string name="search_sessions">搜索会话</string>
+    <string name="stats_agents">%1$d agents</string>
+    <string name="stats_latency">%1$d ms</string>
+    <string name="stats_running">%1$d 运行</string>
+    <string name="stats_waiting">%1$d 等你</string>
+    <string name="filter_all_count">全部 %1$d</string>
+    <string name="filter_needs_you_count">等你 %1$d</string>
+    <string name="filter_running_count">运行 %1$d</string>
+    <string name="filter_idle_count">空闲 %1$d</string>
+    <string name="needs_you_count">%1$d 个待你决定</string>
+    <string name="needs_you_section">等你决定 · %1$d</string>
+    <string name="all_sessions">全部</string>
+    <string name="open_terminal">打开终端</string>
+    <string name="settings_placeholder">连接、唤醒和取消配对。</string>
+    <string name="machines_placeholder">已配对的电脑。点一台查看它的会话。</string>
 </resources>
