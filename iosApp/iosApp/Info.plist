@@ -5,7 +5,14 @@
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Luvia connects to Luvus hosts that you add.</string>
+	<string>Luvia connects to computers you pair, including a one-time short code on the local network.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Luvia uses the camera to scan the pairing code printed by luvia-host.</string>
 	<key>NSSupportsLiveActivities</key>

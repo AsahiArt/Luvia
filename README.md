@@ -52,6 +52,8 @@ cargo build --release -p luvia-host
 
 3. Scan the QR (or paste the code) on the phone. The payload pins every SSH host-key fingerprint (`hk`), lists reachable addresses in preference order (`addrs`), and includes `dk` so the phone can confirm the code belongs to the key it just generated.
 
+The command the phone copies includes `--short`. That also prints a six-digit code and listens on the LAN (default port 8741, 90 seconds, five failures, then the ticket is gone) for `POST /pair/redeem` with the phone's `dk`. The phone turns that into the same `luvia1:` payload and continues through the existing pairing path. Paste or scan still works if the short code expires. `pair` without `--short` only prints the `luvia1:` code.
+
 **Tailscale.** If the `tailscale` CLI is installed and the node is running, `luvia-host pair` places the node's tailnet IPs (`100.x`, `fd7a:115c:a1e0::`) and MagicDNS name ahead of LAN addresses in `addrs`, so the phone reaches the host from any network without port forwarding. The phone still pins the SSH host key; Tailscale only changes routing. Set `LUVIA_NO_TAILSCALE=1` to skip detection, or pass `--address` to override the list entirely. The host row shows a Tailnet badge when the active address is a tailnet address.
 
 Roles: `observer` (read) or `controller` (read plus workspace / agent / terminal / orchestration). Revoke with `luvia-host revoke <id>`.

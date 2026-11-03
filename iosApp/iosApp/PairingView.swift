@@ -10,12 +10,15 @@ struct PairingView: View {
     @State private var role: HostRole = .controller
     @State private var draft: PairingDraft?
     @State private var longCode = ""
+    @State private var shortCode = ""
+    @State private var shortHost = ""
     @State private var error: String?
     @State private var busy = false
     @State private var scanning = false
     @State private var copied = false
     @State private var started = Date()
     @FocusState private var codeFocused: Bool
+    @FocusState private var shortFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -67,7 +70,7 @@ struct PairingView: View {
                     Text("观察者").tag(HostRole.observer)
                 }
             } footer: {
-                Text("在电脑上运行 luvia-host pair，得到一条 luvia1: 码。")
+                Text("在电脑上运行本页复制的命令。终端会显示六位短码，也可以扫或粘贴 luvia1: 码。")
             }
             if let error {
                 Section { Text(error).foregroundStyle(.red) }
@@ -106,6 +109,20 @@ struct PairingView: View {
                         .padding(.top, 6)
                     shortTiles
                         .padding(.top, 20)
+                    TextField("电脑地址，例如 192.168.1.4:8741", text: $shortHost)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .textFieldStyle(.plain)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .padding(12)
+                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .padding(.top, 12)
+                    Text("六位短码约 90 秒有效，用过即废。也可以粘贴或扫描 luvia1: 码。")
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.6))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 8)
                     fingerprintRow(
                         draft,
                         matches: decoded?.deviceKeyFingerprint == draft.deviceKeyFingerprint,
@@ -168,7 +185,7 @@ struct PairingView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(Color.blue)
-                    .disabled(longCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(pairingMaterial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     Button {
                         scanning = true
                     } label: {
@@ -189,25 +206,53 @@ struct PairingView: View {
     }
 
     private var shortTiles: some View {
-        TimelineView(.periodic(from: started, by: 0.45)) { context in
-            let slot = Int(context.date.timeIntervalSince(started) / 0.45) % 6
+        ZStack {
             HStack(spacing: 6) {
                 ForEach(0..<6, id: \.self) { index in
+                    let filled = index < shortCode.count
+                    let digit = filled ? shortCode[shortCode.index(shortCode.startIndex, offsetBy: index)] : nil
                     RoundedRectangle(cornerRadius: index % 2 == 0 ? 22 : 12, style: .continuous)
-                        .fill(index == slot ? Color.blue : Color.white.opacity(0.08))
+                        .fill(filled || index == min(shortCode.count, 5) ? Color.blue : Color.white.opacity(0.08))
                         .frame(width: 42, height: 56)
                         .overlay {
-                            if index == slot {
-                                Circle()
-                                    .fill(Color.white.opacity(0.85))
-                                    .frame(width: 8, height: 8)
+                            if let digit {
+                                Text(String(digit))
+                                    .font(.system(size: 28, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(.white)
                             }
                         }
                 }
             }
+            .allowsHitTesting(false)
+            TextField("", text: $shortCode)
+                .keyboardType(.numberPad)
+                .focused($shortFocused)
+                .foregroundStyle(.clear)
+                .tint(.clear)
+                .frame(height: 56)
+                .onChange(of: shortCode) { _, value in
+                    let digits = String(value.filter(\.isNumber).prefix(6))
+                    if digits != value { shortCode = digits }
+                }
         }
+        .contentShape(Rectangle())
+        .onTapGesture { shortFocused = true }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("只读。电脑终端上的配对码显示在这里，不用在手机上输入这 6 位。")
+        .accessibilityLabel(shortCode.isEmpty ? "输入电脑上的六位短码" : "已输入短码 \(shortCode)")
+    }
+
+    private var pairingMaterial: String {
+        let pasted = longCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        if PairingCodes.shared.looksLikeCode(raw: pasted) {
+            return pasted
+        }
+        if shortCode.count == 6 {
+            return shortCode
+        }
+        if ShortCodeKt.looksLikeShortCode(raw: pasted) {
+            return pasted
+        }
+        return pasted
     }
 
     private func fingerprintRow(_ draft: PairingDraft, matches: Bool, tailscale: Bool) -> some View {
@@ -283,9 +328,10 @@ struct PairingView: View {
     private func confirm(_ draft: PairingDraft) {
         busy = true
         error = nil
-        let code = longCode
+        let code = pairingMaterial
+        let host = ShortCodeKt.looksLikeShortCode(raw: code) ? shortHost : ""
         _Concurrency.Task {
-            let result = await model.completePairing(draft: draft, rawCode: code)
+            let result = await model.completePairing(draft: draft, rawCode: code, shortHost: host)
             await MainActor.run {
                 busy = false
                 switch result {

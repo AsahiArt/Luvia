@@ -133,14 +133,43 @@ final class AppModel {
     func completePairing(
         draft: PairingDraft,
         rawCode: String,
+        shortHost: String = "",
         host: String = "",
         port: String = "",
         user: String = ""
     ) async -> Result<HostProfile, UserFacingError> {
+        let trimmed = rawCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let material: String
+        if ShortCodeKt.looksLikeShortCode(raw: trimmed) {
+            guard let endpoint = ShortCodeKt.parseShortCodeHost(raw: shortHost, defaultPort: 8741) else {
+                return .failure(UserFacingError(message: "填写电脑上短码旁边的地址。草稿仍然有效。"))
+            }
+            do {
+                let outcome = try await ShortCodeKt.redeemShortCode(
+                    code: trimmed,
+                    deviceKeyFingerprint: draft.deviceKeyFingerprint,
+                    host: endpoint.host,
+                    port: endpoint.port
+                )
+                switch onEnum(of: outcome) {
+                case .ok(let ok):
+                    guard let value = ok.value else {
+                        return .failure(UserFacingError(message: "短码兑换没有返回配对码。草稿仍然有效。"))
+                    }
+                    material = value
+                case .err(let err):
+                    return .failure(UserFacingError(message: FailureText.describe(err.failure)))
+                }
+            } catch {
+                return .failure(UserFacingError(message: error.localizedDescription))
+            }
+        } else {
+            material = trimmed
+        }
         do {
             let outcome = try await manager.completePairing(
                 draft: draft,
-                rawCode: rawCode,
+                rawCode: material,
                 addresses: [],
                 sshPort: nil,
                 username: nil
@@ -170,7 +199,7 @@ final class AppModel {
                 }
                 return .success(profile)
             case .err(let err):
-                return .failure(UserFacingError(message: pairingOutcomeMessage(err.failure, rawCode: rawCode)))
+                return .failure(UserFacingError(message: pairingOutcomeMessage(err.failure, rawCode: material)))
             }
         } catch {
             return .failure(UserFacingError(message: error.localizedDescription))

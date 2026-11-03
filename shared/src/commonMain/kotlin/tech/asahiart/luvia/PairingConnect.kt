@@ -69,8 +69,10 @@ public fun pairingConnectMessage(failure: Failure, addresses: List<String>, port
  * the wrong device key, or a key that could not be stored.
  */
 public fun Failure.isPairingSetupFailure(): Boolean {
+    if (this is Failure.Transport && reason.contains("short code")) return true
     val reason = (this as? Failure.ProtocolError)?.reason ?: return false
     return reason.contains("pairing code") ||
+        reason.contains("short code") ||
         reason.contains("device key") ||
         reason.contains("Could not store the device key")
 }

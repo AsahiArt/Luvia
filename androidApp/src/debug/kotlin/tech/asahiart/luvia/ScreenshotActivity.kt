@@ -106,7 +106,7 @@ class ScreenshotActivity : ComponentActivity() {
                     else -> PairingScreen(
                         pairing = PairingUiState(draft = SampleShots.draft()),
                         onBegin = { _, _ -> },
-                        onComplete = {},
+                        onComplete = { _, _ -> },
                         onCancel = {},
                         onClearError = {},
                         onBack = {},
@@ -367,7 +367,7 @@ private object SampleShots {
             HostRole.Controller,
             "ssh-ed25519 AAAA",
             "SHA256:KuNXIeQtDa+yZlf97uAHVWMPQspw3GVhe2p3c7NUv3s",
-            "luvia-host pair --name 手机 --role controller --key ssh-ed25519 AAAA",
+            "luvia-host pair --name 手机 --role controller --key ssh-ed25519 AAAA --short",
             "debug",
         ) as PairingDraft
     }

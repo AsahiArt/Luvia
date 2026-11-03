@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 
 use std::path::PathBuf;
 
@@ -57,6 +57,15 @@ pub enum Command {
         /// Emit JSON `{"id","code","payload"}` instead of human output
         #[arg(long)]
         json: bool,
+        /// Mint a one-time 6-digit LAN code and wait for the phone to redeem it
+        #[arg(long = "short")]
+        short_code: bool,
+        /// Redeem window in seconds, from 60 to 120
+        #[arg(long, default_value_t = crate::shortcode::DEFAULT_SHORT_TTL_SECS)]
+        short_ttl: u64,
+        /// Port for POST /pair/redeem
+        #[arg(long, default_value_t = crate::shortcode::DEFAULT_SHORT_REDEEM_PORT)]
+        short_port: u16,
     },
     /// Re-print the pairing QR and luvia1: payload for an existing grant
     PairCode {
@@ -74,6 +83,15 @@ pub enum Command {
         /// Emit JSON `{"id","code","payload"}` instead of human output
         #[arg(long)]
         json: bool,
+        /// Mint a one-time 6-digit LAN code and wait for the phone to redeem it
+        #[arg(long = "short")]
+        short_code: bool,
+        /// Redeem window in seconds, from 60 to 120
+        #[arg(long, default_value_t = crate::shortcode::DEFAULT_SHORT_TTL_SECS)]
+        short_ttl: u64,
+        /// Port for POST /pair/redeem
+        #[arg(long, default_value_t = crate::shortcode::DEFAULT_SHORT_REDEEM_PORT)]
+        short_port: u16,
     },
     /// List paired device grants without secrets
     Devices {
@@ -112,13 +130,17 @@ pub fn run() -> Result<()> {
             port,
             no_qr,
             json,
+            short_code,
+            short_ttl,
+            short_port,
         } => {
+            let short = short_opts(short_code, short_ttl, short_port)?;
             let key = parse_openssh_public_key(&read_public_key(key)?)?;
             let exe = host_executable()?;
             let grant = grant::pair_device(&paths, &name, role, &key, &exe)?;
             let _ = crate::audit::paired(&paths, &grant);
             let facts = HostFacts::collect(&addresses, port)?;
-            emit_pairing(&grant, &facts, no_qr, json)
+            emit_pairing(&grant, &facts, no_qr, json, short)
         }
         Command::PairCode {
             id,
@@ -126,10 +148,14 @@ pub fn run() -> Result<()> {
             port,
             no_qr,
             json,
+            short_code,
+            short_ttl,
+            short_port,
         } => {
+            let short = short_opts(short_code, short_ttl, short_port)?;
             let grant = grant::load_grant(&paths, &id)?;
             let facts = HostFacts::collect(&addresses, port)?;
-            emit_pairing(&grant, &facts, no_qr, json)
+            emit_pairing(&grant, &facts, no_qr, json, short)
         }
         Command::Devices { json } => {
             let grants = grant::list_grants(&paths)?;
@@ -176,11 +202,79 @@ fn read_public_key(key: Option<String>) -> Result<String> {
     Ok(input)
 }
 
-fn emit_pairing(grant: &grant::Grant, facts: &HostFacts, no_qr: bool, json: bool) -> Result<()> {
+struct ShortOpts {
+    ttl_secs: u64,
+    port: u16,
+}
+
+fn short_opts(enabled: bool, ttl_secs: u64, port: u16) -> Result<Option<ShortOpts>> {
+    if !enabled {
+        return Ok(None);
+    }
+    crate::shortcode::validate_ttl_secs(ttl_secs)?;
+    if port == 0 {
+        return Err(Error::new(
+            "invalid_port",
+            "short code port must be non-zero",
+        ));
+    }
+    Ok(Some(ShortOpts { ttl_secs, port }))
+}
+
+fn emit_pairing(
+    grant: &grant::Grant,
+    facts: &HostFacts,
+    no_qr: bool,
+    json: bool,
+    short: Option<ShortOpts>,
+) -> Result<()> {
     let payload = PairingPayload::from_grant(grant, facts)?;
     let code = payload.encode()?;
+    let running = if let Some(opts) = short {
+        match crate::shortcode::start_short(grant, facts, opts.ttl_secs, opts.port) {
+            Ok(running) => Some(running),
+            Err(error) => {
+                print_pairing(grant, facts, &payload, &code, no_qr, json, None)?;
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
+    print_pairing(grant, facts, &payload, &code, no_qr, json, running.as_ref())?;
+    if let Some(running) = running {
+        let _ = std::io::stdout().flush();
+        let end = running.wait();
+        if json {
+            println!("{}", serde_json::json!({"short_status": end.as_str()}));
+        } else {
+            println!("{}", end.message());
+        }
+    }
+    Ok(())
+}
+
+fn print_pairing(
+    grant: &grant::Grant,
+    facts: &HostFacts,
+    payload: &PairingPayload,
+    code: &str,
+    no_qr: bool,
+    json: bool,
+    short: Option<&crate::shortcode::RunningShort>,
+) -> Result<()> {
     if json {
-        println!("{}", paircode::json_output(grant, &code, &payload)?);
+        let mut value: serde_json::Value =
+            serde_json::from_str(&paircode::json_output(grant, code, payload)?)?;
+        if let Some(short) = short {
+            value["short"] = serde_json::json!({
+                "code": short.code(),
+                "port": short.port(),
+                "ttl_secs": short.ttl_secs(),
+                "targets": short.targets(),
+            });
+        }
+        println!("{value}");
         return Ok(());
     }
     println!(
@@ -194,9 +288,12 @@ fn emit_pairing(grant: &grant::Grant, facts: &HostFacts, no_qr: bool, json: bool
         facts.port,
         facts.addrs.join(",")
     );
+    if let Some(short) = short {
+        println!("{}", short.banner());
+    }
     println!("Scan this QR code in the Luvia app.");
     if !no_qr {
-        match paircode::render_qr(&code) {
+        match paircode::render_qr(code) {
             Ok(qr) => println!("{qr}"),
             Err(error) => eprintln!("luvia-host: {error}"),
         }
@@ -245,6 +342,36 @@ mod tests {
                     key.as_deref(),
                     Some("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJustATestKeyNotReal========== comment")
                 );
+            }
+            other => panic!("expected pair, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pair_short_defaults_ttl_and_port() {
+        let cli = Cli::try_parse_from([
+            "luvia-host",
+            "pair",
+            "--name",
+            "phone",
+            "--role",
+            "observer",
+            "--key",
+            "ssh-ed25519 AAAA",
+            "--short",
+        ])
+        .expect("pair --short must parse");
+        match cli.command {
+            Command::Pair {
+                short_code,
+                short_ttl,
+                short_port,
+                ..
+            } => {
+                assert!(short_code);
+                assert_eq!(short_ttl, crate::shortcode::DEFAULT_SHORT_TTL_SECS);
+                assert_eq!(short_port, crate::shortcode::DEFAULT_SHORT_REDEEM_PORT);
+                assert_eq!(short_ttl, 90);
             }
             other => panic!("expected pair, got {other:?}"),
         }
