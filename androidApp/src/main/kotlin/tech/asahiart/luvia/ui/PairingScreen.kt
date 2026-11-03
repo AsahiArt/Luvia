@@ -293,7 +293,7 @@ private fun PairingRitual(
             }
         }
     }
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().navigationBarsPadding()) {
         Column(
             Modifier
                 .weight(1f)
@@ -507,7 +507,6 @@ private fun PairingRitual(
         Row(
             Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .height(56.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp),

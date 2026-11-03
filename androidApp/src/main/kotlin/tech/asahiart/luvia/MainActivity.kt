@@ -1,6 +1,7 @@
 package tech.asahiart.luvia
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -16,7 +17,7 @@ import tech.asahiart.luvia.ui.theme.LuviaTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
+        applyLuviaEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContent {
             var launchIntent by remember { mutableStateOf(intent) }
@@ -32,6 +33,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+}
+
+/** Edge-to-edge, then drop the platform nav-bar scrim [enableEdgeToEdge] turns on. */
+internal fun ComponentActivity.applyLuviaEdgeToEdge() {
+    enableEdgeToEdge()
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        window.isNavigationBarContrastEnforced = false
     }
 }
 

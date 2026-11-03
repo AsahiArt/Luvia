@@ -3,7 +3,6 @@ package tech.asahiart.luvia
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
@@ -45,7 +44,7 @@ import tech.asahiart.luvia.ui.theme.LuviaTheme
  */
 class ScreenshotActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
+        applyLuviaEdgeToEdge()
         super.onCreate(savedInstanceState)
         val screen = intent.getStringExtra("screen") ?: "pair"
         val night = intent.getBooleanExtra("night", false)
