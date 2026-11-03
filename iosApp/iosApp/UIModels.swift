@@ -798,6 +798,21 @@ enum FailureText {
         if reason == "pairing code must start with luvia1:" {
             return "这不是 luvia1: 配对码。请扫描或粘贴一条 luvia1: 码。" + draftNote
         }
+        if reason.contains("short code expired") {
+            return "六位短码已过期。在电脑上重新运行 pair --short，或粘贴 luvia1: 码。" + draftNote
+        }
+        if reason.contains("invalidated after failed") {
+            return "六位短码已因错误尝试作废。在电脑上重新运行 pair --short，或粘贴 luvia1: 码。" + draftNote
+        }
+        if reason.contains("short code needs") {
+            return "填写电脑上短码旁边的地址。" + draftNote
+        }
+        if reason.contains("short code redeem failed") {
+            return "连不上电脑兑换短码。检查地址，或粘贴 luvia1: 码。" + draftNote
+        }
+        if reason.contains("short code") {
+            return "电脑拒绝了这个短码。核对数字，或粘贴 luvia1: 码。" + draftNote
+        }
         if reason == "pairing code has no host key fingerprints" {
             return "这条配对码没有主机密钥，不能信任。请在电脑上重新生成。" + draftNote
         }

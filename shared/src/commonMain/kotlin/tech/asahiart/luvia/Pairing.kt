@@ -78,7 +78,7 @@ public fun pairCommandFor(deviceLabel: String, role: HostRole, authorizedKeysLin
             HostRole.Observer -> "observer"
             HostRole.Controller -> "controller"
         }
-    return "luvia-host pair --name ${posixSingleQuote(deviceLabel)} --role $roleFlag --key ${posixSingleQuote(authorizedKeysLine)}"
+    return "luvia-host pair --name ${posixSingleQuote(deviceLabel)} --role $roleFlag --key ${posixSingleQuote(authorizedKeysLine)} --short"
 }
 
 private const val PREFIX: String = "luvia1:"

@@ -12,6 +12,16 @@ internal fun localizeUiMessage(message: String): String {
     return when {
         lower.contains("not a luvia1") || lower.contains("must start with luvia1") ->
             "这不是 luvia1: 配对码。再扫一次，或粘贴另一条码。草稿仍然有效。"
+        lower.contains("short code expired") ->
+            "六位短码已过期。在电脑上重新运行 pair --short，或粘贴 luvia1: 码。草稿仍然有效。"
+        lower.contains("invalidated after failed") ->
+            "六位短码已因错误尝试作废。在电脑上重新运行 pair --short，或粘贴 luvia1: 码。草稿仍然有效。"
+        lower.contains("computer address shown next") || lower.contains("short code needs") ->
+            "填写电脑上短码旁边的地址。草稿仍然有效。"
+        lower.contains("could not reach the computer to redeem") || lower.contains("short code redeem failed") ->
+            "连不上电脑兑换短码。检查地址，或粘贴 luvia1: 码。草稿仍然有效。"
+        lower.contains("rejected this short code") || lower.contains("rejected for this device key") || lower.contains("short code was rejected") || lower.contains("short code device key") ->
+            "电脑拒绝了这个短码。核对数字和设备密钥，或粘贴 luvia1: 码。草稿仍然有效。"
         lower.contains("different device key") ->
             "这条配对码属于另一把设备密钥。请在电脑上运行本页的命令，再扫描它打印的码。草稿仍然有效。"
         lower.contains("no host key") || lower.contains("empty host") ->

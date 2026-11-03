@@ -40,7 +40,7 @@ class PairingTest {
     fun pairCommandQuotesLabelAndKey() {
         val command = pairCommandFor("misaka's studio", HostRole.Observer, "ssh-ed25519 AAAA key")
         assertEquals(
-            "luvia-host pair --name 'misaka'\\''s studio' --role observer --key 'ssh-ed25519 AAAA key'",
+            "luvia-host pair --name 'misaka'\\''s studio' --role observer --key 'ssh-ed25519 AAAA key' --short",
             command,
         )
     }

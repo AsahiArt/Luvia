@@ -33,6 +33,7 @@ pub mod paths;
 pub mod prelude;
 pub mod push;
 pub mod role;
+pub mod shortcode;
 pub mod sshkey;
 pub mod uhp;
 pub mod unique_json;

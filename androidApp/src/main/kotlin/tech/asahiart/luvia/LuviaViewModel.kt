@@ -95,6 +95,7 @@ class LuviaViewModel(
 
     fun completePairing(
         rawCode: String,
+        shortHost: String = "",
         host: String = "",
         port: String = "",
         user: String = "",
@@ -104,12 +105,30 @@ class LuviaViewModel(
         if (_pairing.value.completing) return
         viewModelScope.launch {
             _pairing.update { it.copy(completing = true, errorMessage = null) }
+            val trimmed = rawCode.trim()
+            val material =
+                if (looksLikeShortCode(trimmed)) {
+                    when (val redeemed = redeemShortCode(trimmed, draft.deviceKeyFingerprint, shortHost)) {
+                        is Outcome.Err -> {
+                            _pairing.update {
+                                it.copy(
+                                    completing = false,
+                                    errorMessage = pairingFailureCopy(redeemed.failure, trimmed),
+                                )
+                            }
+                            return@launch
+                        }
+                        is Outcome.Ok -> redeemed.value
+                    }
+                } else {
+                    trimmed
+                }
             val parsedPort = port.trim().toIntOrNull()
             when (
                 val result =
                     manager.completePairing(
                         draft,
-                        rawCode.trim(),
+                        material,
                         parseConnectionAddresses(host),
                         parsedPort,
                         user.trim().ifEmpty { null },
@@ -125,7 +144,7 @@ class LuviaViewModel(
                     _pairing.update {
                         it.copy(
                             completing = false,
-                            errorMessage = pairingFailureCopy(result.failure, rawCode.trim()),
+                            errorMessage = pairingFailureCopy(result.failure, material),
                         )
                     }
             }

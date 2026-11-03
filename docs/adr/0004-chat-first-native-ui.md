@@ -57,3 +57,13 @@ Unconfirmed.
   they do not change the wire protocol.
 - A host short code and pane tool events are follow-up work, not part of this
   UI change.
+
+## Amendment (2026-11-03)
+
+Decision 5's visual six-digit ritual now has a host behind it. `luvia-host pair --short`
+(and `pair-code --short`) mints an in-memory one-time ticket, default 90 seconds,
+at most five failed redeems, bound to the grant's `dk`. `POST /pair/redeem` on
+RFC1918, ULA, link-local, or an advertised Tailscale address returns the same
+`luvia1:` payload, and the phone still calls `completePairing`. Pasting or
+scanning `luvia1:` stays the fallback. `shortFingerprint` is still only a UI
+summary of the device key.

@@ -5,12 +5,6 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -31,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -57,7 +52,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -73,6 +70,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -86,6 +84,7 @@ import tech.asahiart.luvia.Outcome
 import tech.asahiart.luvia.PairingCodes
 import tech.asahiart.luvia.PairingUiState
 import tech.asahiart.luvia.R
+import tech.asahiart.luvia.looksLikeShortCode
 import tech.asahiart.luvia.shortFingerprint
 import tech.asahiart.luvia.ui.theme.LuviaTheme
 
@@ -105,7 +104,7 @@ private val ConfirmShape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.d
 fun PairingScreen(
     pairing: PairingUiState,
     onBegin: (String, HostRole) -> Unit,
-    onComplete: (String) -> Unit,
+    onComplete: (String, String) -> Unit,
     onCancel: () -> Unit,
     onClearError: () -> Unit,
     onBack: (() -> Unit)?,
@@ -215,12 +214,14 @@ private fun RoleChip(label: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun PairingRitual(
     pairing: PairingUiState,
-    onComplete: (String) -> Unit,
+    onComplete: (String, String) -> Unit,
     onClearError: () -> Unit,
     initialLongCode: String,
 ) {
     val draft = pairing.draft ?: return
     var longCode by remember { mutableStateOf(initialLongCode) }
+    var digits by remember { mutableStateOf("") }
+    var shortHost by remember { mutableStateOf("") }
     var scanning by remember { mutableStateOf(false) }
     var copied by remember { mutableStateOf(false) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -232,6 +233,14 @@ private fun PairingRitual(
     val decoded = remember(longCode) {
         (PairingCodes.decode(longCode) as? Outcome.Ok)?.value
     }
+    val pasted = longCode.trim()
+    val material =
+        when {
+            PairingCodes.looksLikeCode(pasted) -> pasted
+            digits.length == 6 -> digits
+            looksLikeShortCode(pasted) -> pasted
+            else -> pasted
+        }
     val fingerprintMatches = decoded?.deviceKeyFingerprint == draft.deviceKeyFingerprint
     val hostName = decoded?.hostLabel?.takeIf { it.isNotBlank() }
     val scanLabel = stringResource(R.string.scan_instead)
@@ -318,7 +327,35 @@ private fun PairingRitual(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
                 )
-                ShortCodeTiles()
+                ShortCodeEntry(
+                    digits = digits,
+                    onDigits = {
+                        digits = it
+                        onClearError()
+                    },
+                )
+                OutlinedTextField(
+                    value = shortHost,
+                    onValueChange = {
+                        shortHost = it
+                        onClearError()
+                    },
+                    label = { Text(stringResource(R.string.short_code_host)) },
+                    placeholder = { Text(stringResource(R.string.short_code_host_hint)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = LuviaTheme.mono),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
+                )
+                Text(
+                    stringResource(R.string.pair_short_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                )
                 if (remaining == 0L) {
                     Text(
                         stringResource(R.string.pair_window_elapsed),
@@ -462,8 +499,12 @@ private fun PairingRitual(
                 QrMark(Modifier.size(22.dp))
             }
             Button(
-                onClick = { if (!pairing.completing) onComplete(longCode.trim()) },
-                enabled = longCode.isNotBlank(),
+                onClick = {
+                    if (!pairing.completing) {
+                        onComplete(material, if (looksLikeShortCode(material)) shortHost else "")
+                    }
+                },
+                enabled = material.isNotBlank(),
                 modifier = Modifier.weight(1f).fillMaxHeight(),
                 shape = ConfirmShape,
             ) {
@@ -484,42 +525,71 @@ private fun PairingRitual(
 }
 
 @Composable
-private fun ShortCodeTiles() {
-    val caption = stringResource(R.string.pair_tiles_readonly)
-    val pulse by rememberInfiniteTransition(label = "pair-code").animateFloat(
-        initialValue = 0f,
-        targetValue = 6f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2400, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "pair-slot",
-    )
-    val hot = pulse.toInt().coerceIn(0, 5)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .semantics(mergeDescendants = true) { contentDescription = caption },
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        repeat(6) { index ->
-            if (index == 3) Spacer(Modifier.width(10.dp))
-            Box(
-                Modifier
-                    .padding(horizontal = 3.dp)
-                    .size(width = 46.dp, height = 60.dp)
-                    .clip(TileShapes[index])
-                    .background(
-                        if (index == hot) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.surface
-                        },
-                    ),
-            )
+private fun ShortCodeEntry(
+    digits: String,
+    onDigits: (String) -> Unit,
+) {
+    val focus = LocalFocusManager.current
+    val caption =
+        if (digits.isEmpty()) {
+            stringResource(R.string.pair_tiles_input)
+        } else {
+            stringResource(R.string.pair_tiles_entered, digits)
         }
-    }
+    val active = digits.length.coerceAtMost(5)
+    BasicTextField(
+        value = digits,
+        onValueChange = { raw -> onDigits(raw.filter { it.isDigit() }.take(6)) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(60.dp)
+            .semantics { contentDescription = caption },
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Number,
+            imeAction = ImeAction.Done,
+        ),
+        keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
+        singleLine = true,
+        textStyle = MaterialTheme.typography.headlineMedium.copy(color = Color.Transparent),
+        decorationBox = {
+            Box(Modifier.fillMaxWidth().height(60.dp), contentAlignment = Alignment.Center) {
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    repeat(6) { index ->
+                        if (index == 3) Spacer(Modifier.width(10.dp))
+                        val filled = index < digits.length
+                        Box(
+                            Modifier
+                                .padding(horizontal = 3.dp)
+                                .size(width = 46.dp, height = 60.dp)
+                                .clip(TileShapes[index])
+                                .background(
+                                    if (filled || index == active) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    },
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (filled) {
+                                Text(
+                                    digits[index].toString(),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontFamily = LuviaTheme.mono,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    }
+                }
+                Box(Modifier.fillMaxSize().alpha(0.01f)) { it() }
+            }
+        },
+    )
 }
 
 @Composable

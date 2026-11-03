@@ -221,8 +221,8 @@ fun ChatFirstApp(
             underlying == "pair" -> PairingScreen(
                 pairing = pairing,
                 onBegin = viewModel::beginPairing,
-                onComplete = { raw ->
-                    viewModel.completePairing(raw, onSuccess = {
+                onComplete = { raw, shortHost ->
+                    viewModel.completePairing(raw, shortHost, onSuccess = {
                         userOpenedPairing = false
                         stage = "sessions"
                     })
