@@ -156,7 +156,7 @@ final class AppModel {
                     guard let value = ok.value else {
                         return .failure(UserFacingError(message: "短码兑换没有返回配对码。草稿仍然有效。"))
                     }
-                    material = value
+                    material = value as String
                 case .err(let err):
                     return .failure(UserFacingError(message: FailureText.describe(err.failure)))
                 }
