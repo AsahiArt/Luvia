@@ -28,6 +28,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.KeyboardActionHandler
+import androidx.compose.foundation.text.input.byValue
+import androidx.compose.foundation.text.input.TextFieldDecorator
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -54,7 +61,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -74,6 +84,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import kotlin.math.PI
 import kotlin.math.cos
@@ -82,6 +93,7 @@ import kotlinx.coroutines.delay
 import tech.asahiart.luvia.HostRole
 import tech.asahiart.luvia.Outcome
 import tech.asahiart.luvia.PairingCodes
+import tech.asahiart.luvia.PairingManualEntry
 import tech.asahiart.luvia.PairingUiState
 import tech.asahiart.luvia.R
 import tech.asahiart.luvia.looksLikeShortCode
@@ -220,8 +232,13 @@ private fun PairingRitual(
 ) {
     val draft = pairing.draft ?: return
     var longCode by remember { mutableStateOf(initialLongCode) }
-    var digits by remember { mutableStateOf("") }
-    var shortHost by remember { mutableStateOf("") }
+    var entry by remember { mutableStateOf(PairingManualEntry()) }
+    val shortState = rememberTextFieldState()
+    val shortFocus = remember { ShortFieldFocus() }
+    val shortInput = remember { shortCodeInput(shortFocus) }
+    shortFocus.onEdit = onClearError
+    val digits = shortState.text.toString()
+    val shortHost = entry.host
     var scanning by remember { mutableStateOf(false) }
     var copied by remember { mutableStateOf(false) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -328,22 +345,29 @@ private fun PairingRitual(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
                 )
                 ShortCodeEntry(
-                    digits = digits,
-                    onDigits = {
-                        digits = it
-                        onClearError()
+                    state = shortState,
+                    transformation = shortInput,
+                    onFocusChange = { focused ->
+                        shortFocus.focused = focused
+                        entry = entry.focusShortField(focused)
                     },
                 )
                 OutlinedTextField(
                     value = shortHost,
-                    onValueChange = {
-                        shortHost = it
-                        onClearError()
+                    onValueChange = { proposed ->
+                        val next = entry.updateHost(proposed)
+                        if (next != entry) {
+                            entry = next
+                            onClearError()
+                        }
                     },
                     label = { Text(stringResource(R.string.short_code_host)) },
                     placeholder = { Text(stringResource(R.string.short_code_host_hint)) },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                        .zIndex(1f),
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = LuviaTheme.mono),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
@@ -526,10 +550,12 @@ private fun PairingRitual(
 
 @Composable
 private fun ShortCodeEntry(
-    digits: String,
-    onDigits: (String) -> Unit,
+    state: TextFieldState,
+    transformation: InputTransformation,
+    onFocusChange: (Boolean) -> Unit,
 ) {
     val focus = LocalFocusManager.current
+    val digits = state.text.toString()
     val caption =
         if (digits.isEmpty()) {
             stringResource(R.string.pair_tiles_input)
@@ -538,21 +564,30 @@ private fun ShortCodeEntry(
         }
     val active = digits.length.coerceAtMost(5)
     BasicTextField(
-        value = digits,
-        onValueChange = { raw -> onDigits(raw.filter { it.isDigit() }.take(6)) },
+        state = state,
+        inputTransformation = transformation,
         modifier = Modifier
             .fillMaxWidth()
             .height(60.dp)
+            .clipToBounds()
+            .onFocusChanged { onFocusChange(it.hasFocus) }
             .semantics { contentDescription = caption },
+        textStyle = MaterialTheme.typography.headlineMedium.copy(color = Color.Transparent),
         keyboardOptions = KeyboardOptions(
-            keyboardType = KeyboardType.Number,
+            keyboardType = KeyboardType.NumberPassword,
             imeAction = ImeAction.Done,
         ),
-        keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
-        singleLine = true,
-        textStyle = MaterialTheme.typography.headlineMedium.copy(color = Color.Transparent),
-        decorationBox = {
-            Box(Modifier.fillMaxWidth().height(60.dp), contentAlignment = Alignment.Center) {
+        onKeyboardAction = KeyboardActionHandler { _ -> focus.clearFocus() },
+        lineLimits = TextFieldLineLimits.SingleLine,
+        cursorBrush = SolidColor(Color.Transparent),
+        decorator = TextFieldDecorator { innerTextField ->
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(60.dp)
+                    .clipToBounds(),
+                contentAlignment = Alignment.Center,
+            ) {
                 Row(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
@@ -586,11 +621,38 @@ private fun ShortCodeEntry(
                         }
                     }
                 }
-                Box(Modifier.fillMaxSize().alpha(0.01f)) { it() }
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .clipToBounds()
+                        .alpha(0.01f),
+                ) {
+                    innerTextField()
+                }
             }
         },
     )
 }
+
+/** Latest short-code focus, read by the input transformation without waiting for recomposition. */
+private class ShortFieldFocus {
+    var focused: Boolean = false
+    var onEdit: () -> Unit = {}
+}
+
+private fun shortCodeInput(focus: ShortFieldFocus): InputTransformation =
+    InputTransformation.byValue { current, proposed ->
+        if (focus.focused && !proposed.contentEquals(current)) focus.onEdit()
+        val next = PairingManualEntry(
+            shortCode = current.toString(),
+            shortFieldFocused = focus.focused,
+        ).updateShortCode(proposed.toString()).shortCode
+        when {
+            next.contentEquals(proposed) -> proposed
+            next == current.toString() -> current
+            else -> next
+        }
+    }
 
 @Composable
 private fun CookieCountdown(progress: Float, modifier: Modifier = Modifier) {

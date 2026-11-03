@@ -30,6 +30,55 @@ class ShortCodeTest {
     }
 
     @Test
+    fun shortCodeInputRejectsLettersAndDotsAndTruncates() {
+        assertEquals("482197", applyShortCodeInput("", "482197"))
+        assertEquals("", applyShortCodeInput("", "abc"))
+        assertEquals("", applyShortCodeInput("", "12.34"))
+        assertEquals("", applyShortCodeInput("", "192.168.1.83"))
+        assertEquals("12", applyShortCodeInput("12", "12."))
+        assertEquals("12", applyShortCodeInput("12", "12a"))
+        assertEquals("12", applyShortCodeInput("12", "12a34"))
+        assertEquals("123456", applyShortCodeInput("", "1234567890"))
+        assertEquals("123456", applyShortCodeInput("123456", "1234567"))
+        assertEquals("48219", applyShortCodeInput("482197", "48219"))
+        assertEquals("", applyShortCodeInput("482197", ""))
+        assertTrue(looksLikeShortCode(applyShortCodeInput("", "482197")))
+        assertFalse(looksLikeShortCode(applyShortCodeInput("", "192.168.1.83")))
+    }
+
+    @Test
+    fun changingHostDoesNotMutateShortCode() {
+        val entered = PairingManualEntry(shortFieldFocused = true).updateShortCode("482197")
+        assertEquals("482197", entered.shortCode)
+        assertEquals("", entered.host)
+
+        var entry = entered.focusShortField(false)
+        entry = entry.updateHost("192.168.1.83")
+        assertEquals("192.168.1.83", entry.host)
+        assertEquals("482197", entry.shortCode)
+
+        val address = "192.168.1.83"
+        for (end in 1..address.length) {
+            entry = entry.updateShortCode(address.take(end))
+        }
+        entry = entry.updateShortCode("192168")
+        assertEquals("482197", entry.shortCode)
+        assertEquals("192.168.1.83", entry.host)
+
+        val focused = entry.focusShortField(true)
+        assertEquals("482197", focused.updateShortCode("192.168.1.83").shortCode)
+        assertEquals("192.168.1.83", focused.updateShortCode("192.168.1.83").host)
+        assertEquals("", PairingManualEntry(shortFieldFocused = true).updateShortCode("ab.cd").shortCode)
+        assertEquals(
+            "123456",
+            PairingManualEntry(shortFieldFocused = true).updateShortCode("123456789").shortCode,
+        )
+        val hostname = PairingManualEntry().updateHost("studio.local:8741")
+        assertEquals("studio.local:8741", hostname.host)
+        assertEquals("", hostname.shortCode)
+    }
+
+    @Test
     fun parseShortCodeHostAcceptsV4V6AndPort() {
         assertEquals(ShortCodeEndpoint("192.168.1.4", 8741), parseShortCodeHost("192.168.1.4"))
         assertEquals(ShortCodeEndpoint("192.168.1.4", 9000), parseShortCodeHost("192.168.1.4:9000"))
