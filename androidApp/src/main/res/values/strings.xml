@@ -28,7 +28,7 @@
     <string name="fingerprint_agreed">核对指纹 · 与电脑一致</string>
     <string name="pair_tiles_input">输入电脑上的六位短码</string>
     <string name="pair_tiles_entered">已输入短码 %1$s</string>
-    <string name="short_code_host">电脑地址（六位短码）</string>
+    <string name="short_code_host">电脑地址</string>
     <string name="short_code_host_hint">例如 192.168.1.4:8741</string>
     <string name="pair_short_hint">六位短码约 90 秒有效，用过即废。也可以粘贴或扫描 luvia1: 码。</string>
     <string name="pair_window_elapsed">倒计时结束。仍可用下面的 luvia1: 码配对。</string>
