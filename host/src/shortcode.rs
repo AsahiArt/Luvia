@@ -8,7 +8,7 @@
 
 use std::collections::HashSet;
 use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::os::fd::FromRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -95,16 +95,6 @@ struct PeerPolicy {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct BindAddr {
     ip: IpAddr,
-    scope_id: u32,
-}
-
-impl BindAddr {
-    fn socket(&self, port: u16) -> SocketAddr {
-        match self.ip {
-            IpAddr::V4(ip) => SocketAddr::from((ip, port)),
-            IpAddr::V6(ip) => SocketAddr::V6(SocketAddrV6::new(ip, port, 0, self.scope_id)),
-        }
-    }
 }
 
 struct ShortTicket {
@@ -358,21 +348,13 @@ pub fn start_short(
     };
     let minted = table.mint(grant, facts, ttl, unix_ms())?;
     debug_assert!(minted.luvia1.starts_with("luvia1:"));
-    let binds = select_bind_addrs(&local_bind_candidates(), &facts.addrs);
-    if binds.is_empty() {
-        return Err(Error::new(
-            "no_redeem_address",
-            "no RFC1918, ULA, link-local, or advertised Tailscale address to bind the short-code redeem service; use the luvia1 code",
-        ));
-    }
     let shared = Arc::new(Mutex::new(table));
-    let server = serve_listeners(shared.clone(), &binds, port, &facts.addrs, false)?;
-    let targets = server
-        .bound
-        .iter()
-        .map(|addr| format_target(*addr))
-        .collect::<Vec<_>>();
+    // One wildcard listener. Binding each interface address misses same-host
+    // connections to a LAN IP: macOS routes that destination out lo0, and an
+    // IP-specific socket never accepts it. Public peers are still rejected.
+    let server = serve_wildcard(shared.clone(), port, &facts.addrs, true)?;
     let bound_port = server.bound.first().map(|addr| addr.port()).unwrap_or(port);
+    let targets = banner_targets(&local_bind_candidates(), &facts.addrs, bound_port);
     Ok(RunningShort {
         table: shared,
         server,
@@ -383,32 +365,31 @@ pub fn start_short(
     })
 }
 
-fn serve_listeners(
+/// Listen on `0.0.0.0:port` and, when it succeeds, `[::]:port` with v6-only.
+/// Loopback is allowed so `curl http://127.0.0.1:<port>/pair/redeem` is a
+/// same-host smoke test. Non-LAN peers are still refused.
+fn serve_wildcard(
     table: Arc<Mutex<TicketTable>>,
-    binds: &[BindAddr],
     port: u16,
     advertised: &[String],
     allow_loopback: bool,
 ) -> Result<RedeemServer> {
-    let mut listeners = Vec::new();
-    let mut bound = Vec::new();
-    for candidate in binds {
-        let addr = candidate.socket(port);
-        match bind_listener(addr) {
-            Ok(listener) => {
-                if let Ok(actual) = listener.local_addr() {
-                    bound.push(actual);
-                    listeners.push(listener);
-                }
-            }
-            Err(_) => continue,
-        }
-    }
-    if listeners.is_empty() {
-        return Err(Error::new(
+    let v4 = SocketAddr::from((Ipv4Addr::UNSPECIFIED, port));
+    let v4_listener = bind_listener(v4).map_err(|error| {
+        Error::new(
             "redeem_bind",
-            format!("could not bind the short-code redeem service on port {port}"),
-        ));
+            format!("could not bind the short-code redeem service on {v4}: {error}"),
+        )
+    })?;
+    let v4_addr = v4_listener.local_addr()?;
+    let mut listeners = vec![v4_listener];
+    let mut bound = vec![v4_addr];
+    let v6 = SocketAddr::from((Ipv6Addr::UNSPECIFIED, v4_addr.port()));
+    if let Ok(listener) = bind_listener(v6) {
+        if let Ok(actual) = listener.local_addr() {
+            bound.push(actual);
+            listeners.push(listener);
+        }
     }
     Ok(spawn_server(
         table,
@@ -802,6 +783,43 @@ fn rank_listen(ip: IpAddr) -> u8 {
     }
 }
 
+fn is_link_local_unicast(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => is_link_local_v4(v4),
+        IpAddr::V6(v6) => v6.is_unicast_link_local(),
+    }
+}
+
+/// Addresses to print for the phone. Link-local (fe80, 169.254) is omitted:
+/// those interfaces are numerous and are not what the phone should type.
+/// The process still listens on the wildcard sockets, not on these IPs.
+fn banner_targets(local: &[BindAddr], advertised: &[String], port: u16) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut ips = Vec::new();
+    let mut push = |ip: IpAddr| {
+        if ip.is_unspecified() || ip.is_loopback() || is_link_local_unicast(ip) {
+            return;
+        }
+        if !is_redeem_listen_ip(ip, advertised) {
+            return;
+        }
+        if seen.insert(ip) {
+            ips.push(ip);
+        }
+    };
+    for text in advertised {
+        if let Some(ip) = parse_advertised_ip(text) {
+            push(ip);
+        }
+    }
+    for addr in select_bind_addrs(local, advertised) {
+        push(addr.ip);
+    }
+    ips.into_iter()
+        .map(|ip| format_target(SocketAddr::new(ip, port)))
+        .collect()
+}
+
 fn select_bind_addrs(local: &[BindAddr], advertised: &[String]) -> Vec<BindAddr> {
     let mut allowed: Vec<BindAddr> = local
         .iter()
@@ -846,19 +864,13 @@ fn local_bind_candidates() -> Vec<BindAddr> {
                     && !ip.is_broadcast()
                     && !ip.is_multicast()
                 {
-                    out.push(BindAddr {
-                        ip: IpAddr::V4(ip),
-                        scope_id: 0,
-                    });
+                    out.push(BindAddr { ip: IpAddr::V4(ip) });
                 }
             } else if family == libc::AF_INET6 {
                 let sin6 = &*(ifa.ifa_addr as *const libc::sockaddr_in6);
                 let ip = Ipv6Addr::from(sin6.sin6_addr.s6_addr);
                 if !ip.is_loopback() && !ip.is_unspecified() && !ip.is_multicast() {
-                    out.push(BindAddr {
-                        ip: IpAddr::V6(ip),
-                        scope_id: sin6.sin6_scope_id,
-                    });
+                    out.push(BindAddr { ip: IpAddr::V6(ip) });
                 }
             }
             ptr = ifa.ifa_next;
@@ -1386,23 +1398,18 @@ mod tests {
         let local = vec![
             BindAddr {
                 ip: "172.17.0.1".parse().unwrap(),
-                scope_id: 0,
             },
             BindAddr {
                 ip: "192.168.1.4".parse().unwrap(),
-                scope_id: 0,
             },
             BindAddr {
                 ip: "100.64.0.1".parse().unwrap(),
-                scope_id: 0,
             },
             BindAddr {
                 ip: "8.8.8.8".parse().unwrap(),
-                scope_id: 0,
             },
             BindAddr {
                 ip: "169.254.1.1".parse().unwrap(),
-                scope_id: 0,
             },
         ];
         let selected = select_bind_addrs(&local, &advertised);
@@ -1419,11 +1426,38 @@ mod tests {
         assert!(select_bind_addrs(
             &[BindAddr {
                 ip: "8.8.8.8".parse().unwrap(),
-                scope_id: 0,
             }],
             &["8.8.8.8".into()],
         )
         .is_empty());
+    }
+
+    #[test]
+    fn banner_targets_skip_link_local() {
+        let local = vec![
+            BindAddr {
+                ip: "192.168.1.83".parse().unwrap(),
+            },
+            BindAddr {
+                ip: "172.18.0.1".parse().unwrap(),
+            },
+            BindAddr {
+                ip: "169.254.1.1".parse().unwrap(),
+            },
+            BindAddr {
+                ip: "fe80::1".parse().unwrap(),
+            },
+        ];
+        let advertised = vec!["192.168.1.83".to_string()];
+        let targets = banner_targets(&local, &advertised, 8741);
+        assert_eq!(
+            targets.first().map(String::as_str),
+            Some("192.168.1.83:8741")
+        );
+        assert!(targets.iter().any(|target| target == "172.18.0.1:8741"));
+        assert!(targets
+            .iter()
+            .all(|target| { !target.contains("fe80") && !target.starts_with("169.254") }));
     }
 
     #[test]
@@ -1467,6 +1501,36 @@ mod tests {
             }
             Err(error) => panic!("redeem request failed: {error}"),
         }
+    }
+
+    #[test]
+    fn wildcard_bind_redeems_within_a_second() {
+        let table = Arc::new(Mutex::new(TicketTable {
+            tickets: Vec::new(),
+            end: None,
+        }));
+        let minted = table
+            .lock()
+            .unwrap()
+            .mint(&grant(), &facts(), Duration::from_secs(90), unix_ms())
+            .unwrap();
+        let server = serve_wildcard(table, 0, &["192.168.1.4".into()], true).unwrap();
+        let port = server
+            .bound
+            .iter()
+            .find(|addr| addr.is_ipv4())
+            .map(|addr| addr.port())
+            .unwrap();
+        let body = format!(r#"{{"code":"{}","dk":"SHA256:devicekey"}}"#, minted.code);
+        let started = std::time::Instant::now();
+        let (status, text) = post(port, &body);
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "redeem took {elapsed:?}; body {text}"
+        );
+        assert_eq!(status, 200, "{text}");
+        assert!(text.contains("luvia1"));
     }
 
     #[test]
