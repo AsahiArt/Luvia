@@ -13,6 +13,9 @@ struct ContentView: View {
     @State private var cwd = ""
     @State private var confirmUnpair = false
     @State private var userOpenedPairing = false
+    #if DEBUG
+    @State private var fixturePaneID = ""
+    #endif
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -25,16 +28,15 @@ struct ContentView: View {
                     TerminalPageView(
                         model: model,
                         panes: panes,
-                        selectedPaneID: model.uhp.selectedAgentID,
-                        pendingDecisions: pending.count,
-                        waitingTitle: pending.first?.title,
-                        waitingDetail: pending.first?.ask?.question,
-                        canAskFix: model.hostUhp()?.canAskFix(paneId: model.uhp.selectedAgentID) == true,
+                        selectedPaneID: shownPaneID,
+                        pendingDecisions: decisionCount,
+                        waitingTitle: waitingTitle,
+                        waitingDetail: waitingDetailText,
+                        canAskFix: canHandFix,
+                        textOverride: terminalTextOverride,
                         onBack: closeTerminal,
-                        onSelectPane: { model.openTerminal(paneId: $0) },
-                        onAskFix: { excerpt in
-                            model.hostUhp()?.askFix(excerpt: excerpt, paneId: model.uhp.selectedAgentID) == true
-                        },
+                        onSelectPane: selectPane,
+                        onAskFix: handFix,
                         glass: glass
                     )
                     .transition(.scale(scale: 0.9, anchor: .top).combined(with: .opacity))
@@ -226,7 +228,23 @@ struct ContentView: View {
         allThreads.first { $0.id == threadID }
     }
 
-    private var panes: [(id: String, title: String)] {
+    #if DEBUG
+    private var hostIsLive: Bool {
+        model.selectedHost?.connection == .live
+    }
+    #endif
+
+    /// Sample panes and a failed capture, only when this build is DEBUG and
+    /// the selected host is not live. Release never reads the fixture.
+    private var usingTerminalFixture: Bool {
+        #if DEBUG
+        return !hostIsLive
+        #else
+        return false
+        #endif
+    }
+
+    private var livePanes: [(id: String, title: String)] {
         guard let host = model.selectedHost else { return [] }
         if !host.terminalPanes.isEmpty {
             return host.terminalPanes.map { ($0.id, $0.title) }
@@ -234,6 +252,142 @@ struct ContentView: View {
         return host.paneTerminalIds.keys.sorted().map { id in
             (id, host.agents.first { $0.id == id }?.name ?? id)
         }
+    }
+
+    private var panes: [(id: String, title: String)] {
+        if !livePanes.isEmpty { return livePanes }
+        #if DEBUG
+        if usingTerminalFixture { return fixturePanes }
+        #endif
+        return []
+    }
+
+    #if DEBUG
+    private var fixturePanes: [(id: String, title: String)] {
+        let rows: [PlaytestPane] = KotlinLists.array(PlaytestTerminalKt.playtestTerminalPanes() as Any)
+        return rows.map { ($0.id, $0.title) }
+    }
+    #endif
+
+    private var shownPaneID: String? {
+        #if DEBUG
+        if usingTerminalFixture && livePanes.isEmpty {
+            return fixturePaneID.isEmpty ? PlaytestTerminalKt.PLAYTEST_TERMINAL_FAILURE_PANE : fixturePaneID
+        }
+        #endif
+        return model.uhp.selectedAgentID
+    }
+
+    private var terminalTextOverride: String? {
+        #if DEBUG
+        guard usingTerminalFixture, model.terminalText.isEmpty else { return nil }
+        let pane = shownPaneID ?? PlaytestTerminalKt.PLAYTEST_TERMINAL_FAILURE_PANE
+        return PlaytestTerminalKt.playtestTerminalText(paneId: pane)
+        #else
+        return nil
+        #endif
+    }
+
+    private var decisionCount: Int {
+        #if DEBUG
+        if hostIsLive {
+            let real = pending.filter { !isPlaytestSample($0.id) }
+            if !real.isEmpty { return real.count }
+        }
+        #endif
+        return pending.count
+    }
+
+    private var canHandFix: Bool {
+        if model.hostUhp()?.canAskFix(paneId: model.uhp.selectedAgentID) == true { return true }
+        #if DEBUG
+        if usingTerminalFixture { return true }
+        #endif
+        return false
+    }
+
+    /// The decision tied to this terminal, else the first real waiting session.
+    /// Debug builds with no live host use the TokenStore sample so the capsule can be shot.
+    private var waitingThread: AgentThread? {
+        if let linked = linkedPending() { return linked }
+        #if DEBUG
+        let real = pending.filter { !isPlaytestSample($0.id) }
+        if hostIsLive, let first = real.first { return first }
+        if let sample = pending.first(where: { $0.id == PlaytestChatKt.PLAYTEST_DECIDE_ID }) {
+            return sample
+        }
+        return real.first ?? pending.first
+        #else
+        return pending.first
+        #endif
+    }
+
+    private var waitingTitle: String? {
+        guard let thread = waitingThread else { return nil }
+        let agent = thread.agentType?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !agent.isEmpty { return agent }
+        let title = thread.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? nil : title
+    }
+
+    private var waitingDetailText: String? {
+        guard let thread = waitingThread else { return nil }
+        let summary = thread.summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !summary.isEmpty { return summary }
+        let question = thread.ask?.question?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return question.isEmpty ? nil : question
+    }
+
+    private func linkedPending() -> AgentThread? {
+        let byPane = shownPaneID.flatMap { pane in
+            pending.first { $0.paneId == pane || $0.id == pane }
+        }
+        let byThread = threadID.flatMap { id in
+            pending.first { $0.id == id }
+        }
+        let match = byPane ?? byThread
+        #if DEBUG
+        if hostIsLive, let match, isPlaytestSample(match.id) { return nil }
+        #endif
+        return match
+    }
+
+    #if DEBUG
+    private func isPlaytestSample(_ id: String) -> Bool {
+        if PlaytestChatKt.isPlaytestThread(id: id) { return true }
+        if PlaytestListKt.isPlaytestListThread(id: id) { return true }
+        if PlaytestTerminalKt.isPlaytestPane(id: id) { return true }
+        return false
+    }
+    #endif
+
+    private func selectPane(_ id: String) {
+        #if DEBUG
+        if usingTerminalFixture && livePanes.isEmpty {
+            fixturePaneID = id
+            return
+        }
+        #endif
+        model.openTerminal(paneId: id)
+    }
+
+    /// Live hosts go through HostUhp.askFix. A debug fixture has no session to
+    /// prompt, so the button opens the related chat instead.
+    private func handFix(_ excerpt: String) -> Bool {
+        if model.hostUhp()?.askFix(excerpt: excerpt, paneId: model.uhp.selectedAgentID) == true {
+            return true
+        }
+        #if DEBUG
+        if usingTerminalFixture {
+            if openThread == nil {
+                threadID = PlaytestChatKt.PLAYTEST_DIFF_ID
+            }
+            terminalReturn = "chat"
+            closeTerminal()
+            return true
+        }
+        #endif
+        return false
     }
 
     private func timeline(_ thread: AgentThread) -> [TimelineItem] {
