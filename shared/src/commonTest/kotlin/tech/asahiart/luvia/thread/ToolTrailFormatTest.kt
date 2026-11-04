@@ -114,6 +114,87 @@ class ToolTrailFormatTest {
     }
 
     @Test
+    fun highlightKeepsTheLineAndMarksTheWowTokens() {
+        val line = "private val delayMs: Long = 1000"
+        val tokens = highlightCode(line)
+        assertEquals(line, tokens.joinToString("") { it.text })
+        assertEquals(CodeTokenKind.Keyword, tokens.first { it.text == "private" }.kind)
+        assertEquals(CodeTokenKind.Keyword, tokens.first { it.text == "val" }.kind)
+        assertEquals(CodeTokenKind.Plain, tokens.first { it.text == "delayMs" }.kind)
+        assertEquals(CodeTokenKind.Type, tokens.first { it.text == "Long" }.kind)
+        assertEquals(CodeTokenKind.Number, tokens.first { it.text == "1000" }.kind)
+
+        val next = "fun next(n: Int) = minOf(base * (1 shl n), cap)"
+        val nextTokens = highlightCode(next)
+        assertEquals(next, nextTokens.joinToString("") { it.text })
+        assertEquals(CodeTokenKind.Keyword, nextTokens.first { it.text == "fun" }.kind)
+        assertEquals(CodeTokenKind.Type, nextTokens.first { it.text == "Int" }.kind)
+        assertEquals(CodeTokenKind.Number, nextTokens.first { it.text == "1" }.kind)
+        assertEquals(CodeTokenKind.Plain, nextTokens.first { it.text == "minOf" }.kind)
+
+        val dotted = highlightCode("1.seconds")
+        assertEquals("1.seconds", dotted.joinToString("") { it.text })
+        assertEquals(CodeTokenKind.Number, dotted.first().kind)
+        assertEquals("seconds", dotted.last().text)
+        assertEquals(CodeTokenKind.Plain, dotted.last().kind)
+        assertEquals(CodeTokenKind.String, highlightCode("\"a\\\"b\"").single().kind)
+        assertEquals(CodeTokenKind.Comment, highlightCode("// note").single().kind)
+        assertEquals(CodeTokenKind.Type, highlightCode("class ReconnectPolicy(").first { it.text == "ReconnectPolicy" }.kind)
+    }
+
+    @Test
+    fun diffHeaderSplitsFileAndModule() {
+        assertEquals("ReconnectPolicy.kt", diffFileTitle("shared/commonMain/ReconnectPolicy.kt"))
+        assertEquals("shared/commonMain", diffModulePath("shared/commonMain/ReconnectPolicy.kt"))
+        assertEquals("file", diffFileTitle(null))
+        assertEquals("file", diffFileTitle("  "))
+        assertNull(diffModulePath("ReconnectPolicy.kt"))
+    }
+
+    @Test
+    fun structuredDiffRequiresARealHeader() {
+        assertTrue(structuredDiffFiles("- first\n- second").isEmpty())
+        val text =
+            """
+            diff --git a/shared/commonMain/ReconnectPolicy.kt b/shared/commonMain/ReconnectPolicy.kt
+            --- a/shared/commonMain/ReconnectPolicy.kt
+            +++ b/shared/commonMain/ReconnectPolicy.kt
+            @@ -12,2 +12,2 @@
+             class ReconnectPolicy(
+            -    private val delayMs: Long = 1000
+            +    private val base: Duration = 1.seconds
+            """.trimIndent()
+        val file = structuredDiffFiles(text).single()
+        assertEquals("ReconnectPolicy.kt", diffFileTitle(file.path))
+        assertEquals("shared/commonMain", diffModulePath(file.path))
+        assertEquals(13, file.lines.first { it.marker == "-" }.oldNumber)
+        assertNull(file.lines.first { it.marker == "-" }.newNumber)
+    }
+
+    @Test
+    fun runThatAlsoEditsEmitsBothChips() {
+        val summary =
+            """
+            diff --git a/shared/ReconnectPolicy.kt b/shared/ReconnectPolicy.kt
+            +++ b/shared/ReconnectPolicy.kt
+            @@ -12,1 +12,1 @@
+            -    fun retry()
+            +    fun reconnect() // 127/128
+            """.trimIndent()
+        val parts = toolStreamParts(
+            listOf(AcpToolCall("x", "gradle test", "execute", AcpToolStatus.Failed, summary)),
+        )
+        val file = assertIs<ToolStreamPart.Edit>(parts[0])
+        assertEquals("ReconnectPolicy.kt", file.file)
+        assertEquals(1, file.additions)
+        assertEquals(1, file.deletions)
+        assertTrue(file.hasDiff)
+        val meter = assertIs<ToolStreamPart.Meter>(parts[1])
+        assertEquals(127, meter.passed)
+        assertEquals(128, meter.total)
+    }
+
+    @Test
     fun testBarIsAlways64Cells() {
         val cells = testBarCells(127, 128, markFailed = true)
         assertEquals(TEST_BAR_CELLS, cells.size)

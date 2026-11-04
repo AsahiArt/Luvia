@@ -12,7 +12,9 @@ struct ChatView: View {
     var showsChrome: Bool = true
     var glass: Namespace.ID
     var nextQuestion: String? = nil
+    var nextAgent: String? = nil
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var draft = ""
     @State private var decisionNote = ""
     @State private var selectedOptionID: String?
@@ -30,9 +32,9 @@ struct ChatView: View {
                     Image(systemName: "chevron.left")
                 }
                 .accessibilityLabel("返回")
-                VStack(alignment: .leading) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(thread.title).font(.headline).lineLimit(1)
-                    Text(headerStatus).font(.caption).foregroundStyle(.secondary)
+                    headerSubtitle.font(.caption).lineLimit(1)
                 }
                 Spacer()
                 if hostOffline, let host = model.selectedHost {
@@ -89,17 +91,29 @@ struct ChatView: View {
             if showsChrome, let ask = thread.ask {
                 decision(ask)
             }
-            if showsChrome {
+            if showsChrome, thread.ask == nil {
                 composer
             }
         }
     }
 
-    private var headerStatus: String {
+    private var headerSubtitle: Text {
         if hostOffline, let host = model.selectedHost {
-            return "\(connectionLabel(host.connection)) · 缓存"
+            return Text("\(connectionLabel(host.connection)) · 缓存").foregroundColor(.secondary)
         }
-        return sessionLabel(thread.status)
+        let agent = thread.agentType?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = agent?.isEmpty == false ? agent : nil
+        if thread.ask != nil {
+            var line = Text("")
+            if let name {
+                line = line + Text(name).foregroundColor(.secondary) + Text(" · ").foregroundColor(.secondary)
+            }
+            return line + Text("等你决定").foregroundColor(.orange)
+        }
+        if let name {
+            return Text("\(name) · \(sessionLabel(thread.status))").foregroundColor(.secondary)
+        }
+        return Text(sessionLabel(thread.status)).foregroundColor(.secondary)
     }
 
     private var visibleItems: [TimelineItem] {
@@ -148,7 +162,12 @@ struct ChatView: View {
                 bubble(text, mine: false)
             } else {
                 ForEach(Array(runs.enumerated()), id: \.offset) { _, run in
-                    if run.mono {
+                    let files: [DiffFileView] = KotlinLists.array(ToolTrailKt.structuredDiffFiles(text: run.text) as Any)
+                    if !files.isEmpty {
+                        ForEach(Array(files.enumerated()), id: \.offset) { _, file in
+                            XcodeDiffCard(file: file, scheme: colorScheme)
+                        }
+                    } else if run.mono {
                         Text(run.text)
                             .font(.custom(TerminalFont.postScriptName, size: 12))
                             .foregroundStyle(Color.primary)
@@ -184,7 +203,7 @@ struct ChatView: View {
     private func bubble(_ text: String, mine: Bool) -> some View {
         HStack {
             if mine { Spacer(minLength: 48) }
-            Text(text)
+            Text(bubbleText(text, mine: mine))
                 .foregroundStyle(mine ? Color.white : Color.primary)
                 .padding(12)
                 .background(
@@ -201,6 +220,24 @@ struct ChatView: View {
         }
     }
 
+    private func bubbleText(_ text: String, mine: Bool) -> AttributedString {
+        if mine { return AttributedString(text) }
+        let spans: [ProseSpan] = KotlinLists.array(OutputRunsKt.proseSpans(text: text) as Any)
+        if spans.isEmpty || spans.allSatisfy({ $0.kind != .code }) {
+            return AttributedString(text)
+        }
+        var result = AttributedString()
+        for span in spans {
+            var piece = AttributedString(span.text)
+            if span.kind == .code {
+                piece.font = .system(.body, design: .monospaced).weight(.semibold)
+                piece.backgroundColor = Color.primary.opacity(0.08)
+            }
+            result += piece
+        }
+        return result
+    }
+
     private var canCompose: Bool {
         model.selectedHost?.isController == true && !hostOffline
     }
@@ -209,81 +246,125 @@ struct ChatView: View {
         let options: [AskOption] = KotlinLists.array(ask.options as Any)
         let recommended = SessionListKt.recommendedOption(ask: ask)
         let peek = queueTotal > queueIndex
+        let agent = thread.agentType?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = (agent?.isEmpty == false ? agent! : thread.title)
         return ZStack(alignment: .top) {
             if peek {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(nextQuestion ?? "还有一个决定")
-                        .font(.subheadline.weight(.semibold))
+                HStack(spacing: 8) {
+                    Circle().fill(Color.orange).frame(width: 8, height: 8)
+                    Text(peekLabel)
+                        .font(.subheadline)
                         .lineLimit(1)
                         .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
-                .padding(.bottom, 22)
+                .padding(.bottom, 28)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .luviaGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-                .padding(.horizontal, 22)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .padding(.horizontal, 18)
                 .allowsHitTesting(false)
             }
-            VStack(alignment: .leading, spacing: 10) {
-                let agent = thread.agentType?.trimmingCharacters(in: .whitespacesAndNewlines)
-                let name = (agent?.isEmpty == false ? agent! : thread.title)
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
-                    Text(String(name.prefix(1)).uppercased())
+                    Image(systemName: "questionmark")
                         .font(.caption.weight(.bold))
-                        .frame(width: 28, height: 28)
-                        .background(Color.blue.opacity(0.18), in: Circle())
-                    Text("\(name) 需要你决定 · \(queueIndex)/\(queueTotal)")
+                        .foregroundStyle(.white)
+                        .frame(width: 22, height: 22)
+                        .background(Color.blue, in: Circle())
+                    Text("\(name) 需要你决定")
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text("\(queueIndex)/\(queueTotal)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
-                Text(ask.question ?? "有一个决定在等你").font(.title3.weight(.semibold))
+                Text(ask.question ?? "有一个决定在等你")
+                    .font(.title2.weight(.bold))
+                    .fixedSize(horizontal: false, vertical: true)
                 ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                     let picked = optionID(option) == (selectedOptionID ?? recommended.map(optionID))
+                    let suggested = option.recommended || optionID(option) == recommended.map(optionID)
                     Button {
                         selectedOptionID = optionID(option)
                     } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(option.label).font(.headline)
-                                Spacer()
-                                if option.recommended || optionID(option) == recommended.map(optionID) {
-                                    Text("agent 推荐").font(.caption2)
+                        HStack(alignment: .center, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 6) {
+                                    Text(option.label).font(.headline)
+                                    if suggested {
+                                        Text("推荐")
+                                            .font(.caption2.weight(.semibold))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.primary.opacity(0.06), in: Capsule())
+                                    }
+                                }
+                                if let consequence = option.consequence, !consequence.isEmpty {
+                                    Text(consequence).font(.caption).foregroundStyle(.secondary)
                                 }
                             }
-                            if let consequence = option.consequence, !consequence.isEmpty {
-                                Text(consequence).font(.caption).foregroundStyle(.secondary)
-                            }
+                            Spacer(minLength: 8)
+                            Image(systemName: picked ? "checkmark.circle.fill" : "circle")
+                                .font(.title3)
+                                .foregroundStyle(picked ? Color.blue : Color.secondary.opacity(0.45))
                         }
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(picked ? Color.blue : .clear, lineWidth: 2)
+                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                         )
                     }
                     .buttonStyle(.plain)
                 }
-                TextField("补充说明", text: $decisionNote, axis: .vertical)
-                    .padding(12)
-                    .luviaGlass(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .disabled(!canCompose)
-                Button("继续") {
-                    let choice = options.first { optionID($0) == (selectedOptionID ?? recommended.map(optionID)) }
-                    if let choice {
-                        confirm(choice)
+                HStack(alignment: .center, spacing: 10) {
+                    TextField("补充说明（可选）", text: $decisionNote, axis: .vertical)
+                        .lineLimit(1...3)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .luviaGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .disabled(!canCompose)
+                    Button("继续") {
+                        let choice = options.first { optionID($0) == (selectedOptionID ?? recommended.map(optionID)) }
+                        if let choice {
+                            confirm(choice)
+                        }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(.blue)
+                    .disabled(!canCompose)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.blue)
-                .disabled(!canCompose)
             }
             .padding(16)
-            .luviaGlass(in: RoundedRectangle(cornerRadius: 32, style: .continuous), tint: .blue)
-            .padding(.top, peek ? 36 : 0)
+            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.08), radius: 16, y: 6)
+            .padding(.top, peek ? 32 : 0)
         }
         .padding(.horizontal, 8)
+        .padding(.bottom, 8)
+    }
+
+    private var peekLabel: String {
+        let index = "\(queueIndex + 1)/\(queueTotal)"
+        let agent = nextAgent?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let question = nextQuestion?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var parts = [index]
+        if let agent, !agent.isEmpty { parts.append(agent) }
+        if let question, !question.isEmpty {
+            parts.append(question)
+        } else if agent == nil || agent?.isEmpty != false {
+            parts.append("还有一个决定")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func confirm(_ choice: AskOption) {
@@ -396,14 +477,12 @@ struct ToolStream: View {
         let parts: [ToolStreamPart] = KotlinLists.array(ToolTrailKt.toolStreamParts(calls: calls) as Any)
         let views = calls.map { ToolTrailKt.toolTrailView(call: $0) }
         VStack(alignment: .leading, spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
-                        Text(chipText(part))
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .luviaGlass(in: Capsule(), tint: chipTint(part))
+            if !parts.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
+                            chip(part)
+                        }
                     }
                 }
             }
@@ -427,93 +506,175 @@ struct ToolStream: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func chipText(_ part: ToolStreamPart) -> String {
+    @ViewBuilder
+    private func chip(_ part: ToolStreamPart) -> some View {
         switch onEnum(of: part) {
         case .reads(let row):
-            "读 ×\(row.count)"
+            chipChrome(Color.primary.opacity(0.06)) {
+                Image(systemName: "doc")
+                Text("读 ×\(row.count)")
+            }
+            .accessibilityLabel("读 \(row.count)")
         case .edit(let row):
-            if row.hasDiff {
-                "\(row.file) +\(row.additions) −\(row.deletions)"
-            } else {
-                row.file
+            chipChrome(Color.blue.opacity(0.12)) {
+                Image(systemName: "pencil")
+                    .foregroundStyle(.blue)
+                Text(row.file)
+                    .foregroundStyle(.blue)
+                    .lineLimit(1)
+                    .frame(maxWidth: 180, alignment: .leading)
+                if row.hasDiff {
+                    Text("+\(row.additions)")
+                        .foregroundStyle(Color(red: 0.16, green: 0.62, blue: 0.28))
+                    Text("−\(row.deletions)")
+                        .foregroundStyle(Color(red: 0.86, green: 0.27, blue: 0.32))
+                }
             }
         case .meter(let row):
-            "\(row.passed)/\(row.total)"
-        case .run:
-            "运行"
+            chipChrome(Color.red.opacity(0.12)) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(.red)
+                Text("\(row.passed)/\(row.total)")
+                    .foregroundStyle(.red)
+            }
+            .accessibilityLabel("\(row.passed) / \(row.total)")
+        case .run(let row):
+            chipChrome(Color.red.opacity(0.10)) {
+                Image(systemName: "play.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                Text(row.title.isEmpty ? "运行" : row.title)
+                    .lineLimit(1)
+                    .frame(maxWidth: 180, alignment: .leading)
+            }
         case .other(let row):
-            "工具 ×\(row.count)"
+            chipChrome(Color.primary.opacity(0.06)) {
+                Image(systemName: "wrench")
+                Text("工具 ×\(row.count)")
+            }
         }
     }
 
-    private func chipTint(_ part: ToolStreamPart) -> Color {
-        switch onEnum(of: part) {
-        case .reads: .secondary
-        case .edit: .blue
-        case .meter, .run: .red
-        case .other: .gray
+    private func chipChrome<Content: View>(_ fill: Color, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 4) {
+            content()
         }
+        .font(.subheadline.weight(.semibold))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(fill, in: Capsule())
+    }
+}
+
+private struct CardWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
 private struct XcodeDiffCard: View {
     var file: DiffFileView
     var scheme: ColorScheme
+    @State private var cardWidth: CGFloat = 0
 
     var body: some View {
         let lines: [DiffLineView] = KotlinLists.array(file.lines as Any)
+        let module = ToolTrailKt.diffModulePath(path: file.path)
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(file.path ?? "file")
-                    .font(.custom(TerminalFont.postScriptName, size: 12))
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(ToolTrailKt.diffFileTitle(path: file.path))
+                    .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
-                Spacer()
-                Text("+\(file.additions)")
-                    .foregroundStyle(Color.green)
-                Text("−\(file.deletions)")
-                    .foregroundStyle(Color.red)
+                Spacer(minLength: 8)
+                if let module, !module.isEmpty {
+                    Text(module)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(.secondarySystemBackground))
-            ForEach(Array(lines.prefix(40).enumerated()), id: \.offset) { _, line in
-                HStack(spacing: 0) {
-                    Text(gutter(line.oldNumber as Any?))
-                        .frame(width: 32, alignment: .trailing)
-                    Text(gutter(line.newNumber as Any?))
-                        .frame(width: 32, alignment: .trailing)
-                    Text(line.marker)
-                        .frame(width: 16)
-                        .foregroundStyle(markerColor(line.marker))
-                    Text(line.text)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            ScrollView(.horizontal, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.prefix(40).enumerated()), id: \.offset) { _, line in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(gutter(line))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 36, alignment: .trailing)
+                            highlighted(line.text)
+                        }
+                        .font(.custom(TerminalFont.postScriptName, size: 12))
+                        .padding(.vertical, 1)
+                        .padding(.trailing, 10)
+                        .frame(minWidth: cardWidth, alignment: .leading)
+                        .background(lineFill(line.marker))
+                    }
                 }
-                .font(.custom(TerminalFont.postScriptName, size: 12))
-                .foregroundStyle(Color.primary)
-                .padding(.vertical, 1)
-                .padding(.trailing, 8)
-                .background(lineFill(line.marker))
+                .padding(.vertical, 4)
             }
+            .background {
+                GeometryReader { geo in
+                    Color.clear.preference(key: CardWidthKey.self, value: geo.size.width)
+                }
+            }
+            .onPreferenceChange(CardWidthKey.self) { cardWidth = $0 }
         }
         .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
     }
 
-    private func gutter(_ value: Any?) -> String {
-        guard let number = kotlinInt(value) else { return "" }
-        return String(number)
+    private func gutter(_ line: DiffLineView) -> String {
+        if let number = kotlinInt(line.newNumber as Any?) { return String(number) }
+        if let number = kotlinInt(line.oldNumber as Any?) { return String(number) }
+        return ""
     }
 
-    private func markerColor(_ marker: String) -> Color {
-        if marker == "+" { return .green }
-        if marker == "-" { return .red }
-        return .secondary
+    private func highlighted(_ text: String) -> Text {
+        let tokens: [CodeToken] = KotlinLists.array(ToolTrailKt.highlightCode(text: text) as Any)
+        guard let first = tokens.first else {
+            return Text(text).foregroundColor(.primary)
+        }
+        var combined = Text(first.text).foregroundColor(tokenColor(first.kind))
+        for token in tokens.dropFirst() {
+            combined = combined + Text(token.text).foregroundColor(tokenColor(token.kind))
+        }
+        return combined
+    }
+
+    private func tokenColor(_ kind: CodeTokenKind) -> Color {
+        let dark = scheme == .dark
+        switch kind {
+        case .keyword:
+            return dark
+                ? Color(red: 0.988, green: 0.416, blue: 0.635)
+                : Color(red: 0.608, green: 0.137, blue: 0.576)
+        case .type:
+            return dark
+                ? Color(red: 0.404, green: 0.847, blue: 1.0)
+                : Color(red: 0.035, green: 0.216, blue: 0.388)
+        case .number:
+            return dark
+                ? Color(red: 0.839, green: 0.643, blue: 0.424)
+                : Color(red: 0.110, green: 0.0, blue: 0.812)
+        case .string:
+            return dark
+                ? Color(red: 0.988, green: 0.416, blue: 0.365)
+                : Color(red: 0.769, green: 0.102, blue: 0.086)
+        case .comment:
+            return dark
+                ? Color(red: 0.424, green: 0.475, blue: 0.529)
+                : Color(red: 0.0, green: 0.455, blue: 0.0)
+        default:
+            return .primary
+        }
     }
 
     private func lineFill(_ marker: String) -> Color {

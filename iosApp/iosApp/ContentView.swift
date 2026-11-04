@@ -100,7 +100,8 @@ struct ContentView: View {
                     onTerminal: { openTerminal(thread.paneId) },
                     showsChrome: stage != "terminal",
                     glass: glass,
-                    nextQuestion: nextQuestion(after: thread)
+                    nextQuestion: nextQuestion(after: thread),
+                    nextAgent: nextAgentName(after: thread)
                 )
             } else {
                 ContentUnavailableView("会话不在了", systemImage: "bubble.left", description: Text("回到列表。"))
@@ -208,6 +209,16 @@ struct ContentView: View {
         let next = index + 1
         guard pending.indices.contains(next) else { return nil }
         return pending[next].ask?.question
+    }
+
+    private func nextAgentName(after thread: AgentThread) -> String? {
+        guard let index = pending.firstIndex(where: { $0.id == thread.id }) else { return nil }
+        let next = index + 1
+        guard pending.indices.contains(next) else { return nil }
+        let agent = pending[next].agentType?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let agent, !agent.isEmpty { return agent }
+        let title = pending[next].title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? nil : title
     }
 
     private func queueIndex(_ thread: AgentThread) -> Int {

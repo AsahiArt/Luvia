@@ -34,6 +34,14 @@ public data class ToolTrailView(
     public val markFailed: Boolean,
 )
 
+/** One Xcode-style token. The phone picks the light and dark inks. */
+public enum class CodeTokenKind { Keyword, Type, Number, String, Comment, Plain }
+
+public data class CodeToken(
+    public val kind: CodeTokenKind,
+    public val text: String,
+)
+
 /** One fact in the horizontal chip stream. Copy stays in the platform UI. */
 public sealed class ToolStreamPart {
     public data class Reads(public val count: Int) : ToolStreamPart()
@@ -82,17 +90,14 @@ public fun toolStreamParts(calls: List<AcpToolCall>): List<ToolStreamPart> {
     views.forEach { view ->
         when (view.kind) {
             ToolTrailKind.Edit -> {
-                val additions = view.diffs.sumOf { it.additions }
-                val deletions = view.diffs.sumOf { it.deletions }
-                val file = view.diffs.firstNotNullOfOrNull { it.path }?.fileName()
-                    ?: view.path?.fileName()
-                    ?: "file"
-                parts += ToolStreamPart.Edit(file, additions, deletions, view.diffs.isNotEmpty())
+                parts += editChip(view)
+                view.meter?.let { parts += ToolStreamPart.Meter(it.passed, it.total) }
             }
             ToolTrailKind.Run -> {
+                if (view.diffs.isNotEmpty()) parts += editChip(view)
                 val meter = view.meter
                 if (meter != null) parts += ToolStreamPart.Meter(meter.passed, meter.total)
-                else parts += ToolStreamPart.Run(view.path?.fileName().orEmpty())
+                else if (view.diffs.isEmpty()) parts += ToolStreamPart.Run(view.path?.fileName().orEmpty())
             }
             ToolTrailKind.Read, ToolTrailKind.Other -> Unit
         }
@@ -100,6 +105,111 @@ public fun toolStreamParts(calls: List<AcpToolCall>): List<ToolStreamPart> {
     val others = views.count { it.kind == ToolTrailKind.Other }
     if (others > 0) parts += ToolStreamPart.Other(others)
     return parts
+}
+
+private fun editChip(view: ToolTrailView): ToolStreamPart.Edit {
+    val additions = view.diffs.sumOf { it.additions }
+    val deletions = view.diffs.sumOf { it.deletions }
+    val file = view.diffs.firstNotNullOfOrNull { it.path }?.fileName()
+        ?: view.path?.fileName()
+        ?: "file"
+    return ToolStreamPart.Edit(file, additions, deletions, view.diffs.isNotEmpty())
+}
+
+/** File name for the diff card header. Empty paths stay the literal `file`. */
+public fun diffFileTitle(path: String?): String {
+    val raw = path?.trim()?.trimEnd('/').orEmpty()
+    if (raw.isEmpty()) return "file"
+    return raw.substringAfterLast('/').ifBlank { "file" }
+}
+
+/** Parent path shown on the right of the diff header, such as `shared/commonMain`. */
+public fun diffModulePath(path: String?): String? {
+    val raw = path?.trim()?.trimEnd('/').orEmpty()
+    if (raw.isEmpty() || '/' !in raw) return null
+    return raw.substringBeforeLast('/').ifBlank { null }
+}
+
+/**
+ * A unified diff that should replace a grey code bubble.
+ * Returns empty unless the text itself starts as a diff, so a markdown list stays prose.
+ */
+public fun structuredDiffFiles(text: String): List<DiffFileView> {
+    val first = text.lineSequence().firstOrNull { it.isNotBlank() }?.trimStart() ?: return emptyList()
+    val headed = first.startsWith("diff --git ") ||
+        first.startsWith("@@") ||
+        first.startsWith("--- a/") ||
+        first.startsWith("+++ ")
+    if (!headed) return emptyList()
+    return parseDiffFiles(text)
+}
+
+/** Splits one code line into Xcode-style tokens. The concatenation of [text] is the line. */
+public fun highlightCode(text: String): List<CodeToken> {
+    if (text.isEmpty()) return emptyList()
+    val out = mutableListOf<CodeToken>()
+    var index = 0
+    fun emit(kind: CodeTokenKind, start: Int, end: Int) {
+        if (end > start) out += CodeToken(kind, text.substring(start, end))
+    }
+    while (index < text.length) {
+        val c = text[index]
+        if (c == '/' && index + 1 < text.length && text[index + 1] == '/') {
+            emit(CodeTokenKind.Comment, index, text.length)
+            break
+        }
+        if (c == '/' && index + 1 < text.length && text[index + 1] == '*') {
+            val close = text.indexOf("*/", index + 2)
+            val end = if (close < 0) text.length else close + 2
+            emit(CodeTokenKind.Comment, index, end)
+            index = end
+            continue
+        }
+        if (c == '"' || c == '\'') {
+            val end = scanString(text, index, c)
+            emit(CodeTokenKind.String, index, end)
+            index = end
+            continue
+        }
+        if (c.isDigit()) {
+            var end = index + 1
+            while (end < text.length && (text[end].isDigit() || text[end] == '_')) end++
+            if (end < text.length && text[end] == '.' && end + 1 < text.length && text[end + 1].isDigit()) {
+                end++
+                while (end < text.length && text[end].isDigit()) end++
+            }
+            emit(CodeTokenKind.Number, index, end)
+            index = end
+            continue
+        }
+        if (c.isLetter() || c == '_') {
+            var end = index + 1
+            while (end < text.length && (text[end].isLetterOrDigit() || text[end] == '_')) end++
+            val word = text.substring(index, end)
+            val kind = when {
+                word in CODE_KEYWORDS -> CodeTokenKind.Keyword
+                word.first().isUpperCase() -> CodeTokenKind.Type
+                else -> CodeTokenKind.Plain
+            }
+            emit(kind, index, end)
+            index = end
+            continue
+        }
+        if (c == '/') {
+            emit(CodeTokenKind.Plain, index, index + 1)
+            index++
+            continue
+        }
+        var end = index + 1
+        while (end < text.length) {
+            val ch = text[end]
+            if (ch.isLetterOrDigit() || ch == '_' || ch == '"' || ch == '\'' || ch == '/') break
+            end++
+        }
+        emit(CodeTokenKind.Plain, index, end)
+        index = end
+    }
+    return out
 }
 
 /** `true` marks a failed cell. The list is always [TEST_BAR_CELLS] long. */
@@ -183,6 +293,30 @@ internal fun unifiedDiff(path: String, oldText: String, newText: String): String
 
 private const val HUNK_CONTEXT: Int = 3
 private const val MAX_DIFF_LINES: Int = 80
+
+private val CODE_KEYWORDS = setOf(
+    "class", "object", "interface", "enum", "struct", "protocol", "extension", "fun", "func",
+    "val", "var", "let", "const", "function", "return", "if", "else", "when", "for", "while",
+    "do", "switch", "case", "default", "break", "continue", "try", "catch", "throw", "throws",
+    "import", "package", "from", "export", "public", "private", "internal", "protected",
+    "fileprivate", "open", "static", "final", "abstract", "override", "data", "sealed",
+    "companion", "suspend", "inline", "expect", "actual", "null", "nil", "true", "false",
+    "this", "self", "super", "init", "new", "typeof", "instanceof", "async", "await", "yield",
+    "in", "is", "as", "of", "where", "guard", "defer", "some", "any", "get", "set",
+)
+
+private fun scanString(text: String, start: Int, quote: Char): Int {
+    var index = start + 1
+    while (index < text.length) {
+        if (text[index] == '\\' && index + 1 < text.length) {
+            index += 2
+            continue
+        }
+        if (text[index] == quote) return index + 1
+        index++
+    }
+    return text.length
+}
 
 private val durationPattern =
     Regex("""(?<!\w)(\d+(?:\.\d+)?)(\s*)(ms|s|秒)(?!\w)""", RegexOption.IGNORE_CASE)

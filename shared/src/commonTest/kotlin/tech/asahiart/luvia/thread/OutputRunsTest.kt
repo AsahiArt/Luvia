@@ -2,6 +2,7 @@ package tech.asahiart.luvia.thread
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class OutputRunsTest {
     @Test
@@ -36,5 +37,31 @@ class OutputRunsTest {
     fun fencedCodeKeepsLinesAndDropsFences() {
         val runs = outputRuns("```\nval a = 1\nval b = 2\n```")
         assertEquals(listOf(OutputRun("val a = 1\nval b = 2", mono = true)), runs)
+    }
+
+    @Test
+    fun unifiedDiffStaysASeparateMonoRun() {
+        val text = "Look at this.\ndiff --git a/A.kt b/A.kt\n--- a/A.kt\n+++ b/A.kt\n@@ -1 +1 @@\n-old\n+new\nDone."
+        val runs = outputRuns(text)
+        assertEquals(listOf(false, true, false), runs.map { it.mono })
+        assertEquals("Look at this.", runs[0].text)
+        assertTrue(runs[1].text.contains("@@ -1 +1 @@"))
+        assertTrue(runs[1].text.contains("\n-old\n"))
+        assertEquals("Done.", runs[2].text)
+    }
+
+    @Test
+    fun proseSpansChipSymbolsAndKeepShortTokens() {
+        assertEquals(
+            listOf(
+                ProseSpan(ProseSpanKind.Text, "先看现有 "),
+                ProseSpan(ProseSpanKind.Code, "CompanionClient"),
+                ProseSpan(ProseSpanKind.Text, "，改 "),
+                ProseSpan(ProseSpanKind.Code, "token"),
+                ProseSpan(ProseSpanKind.Text, "。"),
+            ),
+            proseSpans("先看现有 CompanionClient，改 `token`。"),
+        )
+        assertEquals(listOf(ProseSpan(ProseSpanKind.Text, "用 iOS 就好")), proseSpans("用 iOS 就好"))
     }
 }

@@ -3,6 +3,54 @@ package tech.asahiart.luvia.thread
 /** A span of Agent output: prose in body sans, or preformatted text that keeps its columns. */
 public data class OutputRun(val text: String, val mono: Boolean)
 
+public enum class ProseSpanKind { Text, Code }
+
+/** A prose fragment. [ProseSpanKind.Code] is a symbol or a backtick span the bubble can chip. */
+public data class ProseSpan(
+    public val kind: ProseSpanKind,
+    public val text: String,
+)
+
+private val proseCode = Regex("""`([^`\n]+)`|([A-Za-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*)""")
+
+/**
+ * Marks backtick spans and hump identifiers (`CompanionClient`) so the bubble can draw a chip.
+ * Short tokens such as `iOS` stay ordinary text.
+ */
+public fun proseSpans(text: String): List<ProseSpan> {
+    if (text.isEmpty()) return emptyList()
+    val spans = mutableListOf<ProseSpan>()
+    var cursor = 0
+    fun appendText(chunk: String) {
+        if (chunk.isEmpty()) return
+        val last = spans.lastOrNull()
+        if (last != null && last.kind == ProseSpanKind.Text) {
+            spans[spans.lastIndex] = last.copy(text = last.text + chunk)
+        } else {
+            spans += ProseSpan(ProseSpanKind.Text, chunk)
+        }
+    }
+    for (match in proseCode.findAll(text)) {
+        val tick = match.groups[1]?.value
+        val hump = match.groups[2]?.value
+        val code = when {
+            !tick.isNullOrEmpty() -> tick
+            !hump.isNullOrEmpty() && hump.length >= 4 -> hump
+            else -> null
+        }
+        if (code == null) {
+            appendText(text.substring(cursor, match.range.last + 1))
+            cursor = match.range.last + 1
+            continue
+        }
+        if (match.range.first > cursor) appendText(text.substring(cursor, match.range.first))
+        spans += ProseSpan(ProseSpanKind.Code, code)
+        cursor = match.range.last + 1
+    }
+    if (cursor < text.length) appendText(text.substring(cursor))
+    return spans
+}
+
 /**
  * Splits Agent output into prose and preformatted runs. Fenced code, indented code and box
  * drawing stay mono. Prose is reflowed: a TUI hard-wraps at its own width, so lines inside a
@@ -11,12 +59,16 @@ public data class OutputRun(val text: String, val mono: Boolean)
 public fun outputRuns(text: String): List<OutputRun> {
     val runs = mutableListOf<OutputRun>()
     var fenced = false
+    var inDiff = false
     for (line in text.lines()) {
         if (line.trimStart().startsWith("```")) {
             fenced = !fenced
+            inDiff = false
             continue
         }
-        val mono = fenced || looksPreformatted(line)
+        if (inDiff && (line.isBlank() || !isDiffBody(line))) inDiff = false
+        if (!fenced && !inDiff && isDiffStart(line)) inDiff = true
+        val mono = fenced || inDiff || looksPreformatted(line)
         val last = runs.lastOrNull()
         if (last != null && last.mono == mono) {
             runs[runs.lastIndex] = last.copy(text = last.text + "\n" + line)
