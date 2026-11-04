@@ -589,11 +589,27 @@ struct SessionListView: View {
                         .lineLimit(1)
                 }
                 if let secondary {
-                    Button(secondary.label) { onAnswer(thread, secondary) }
-                        .buttonStyle(.bordered)
-                        .tint(secondary.tone == .destructive ? Color.red : Self.decide)
+                    if secondary.tone == .destructive {
+                        Button(secondary.label) { onAnswer(thread, secondary) }
+                            .buttonStyle(.bordered)
+                            .tint(.red)
+                            .disabled(!canAnswer(thread))
+                            .lineLimit(1)
+                    } else {
+                        Button {
+                            onAnswer(thread, secondary)
+                        } label: {
+                            Text(secondary.label)
+                                .font(.body.weight(.semibold))
+                                .lineLimit(1)
+                                .foregroundStyle(Color.primary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color(.tertiarySystemFill), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
                         .disabled(!canAnswer(thread))
-                        .lineLimit(1)
+                    }
                 }
                 Spacer(minLength: 0)
                 Button {
