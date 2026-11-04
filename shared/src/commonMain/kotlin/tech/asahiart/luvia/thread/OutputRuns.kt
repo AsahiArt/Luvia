@@ -14,11 +14,40 @@ public data class ProseSpan(
 private val proseCode = Regex("""`([^`\n]+)`|([A-Za-z][A-Za-z0-9]*[A-Z][A-Za-z0-9]*)""")
 
 /**
+ * Drops lines the trail already owns: `Cursor shell:`, `Read path`, `% $:`, `$:`, and unified diffs.
+ * Chips win. The grey bubble keeps only the prose that is left.
+ */
+public fun proseWithoutTrail(text: String): String {
+    if (text.isBlank()) return ""
+    val kept = mutableListOf<String>()
+    val lines = text.lines()
+    var index = 0
+    while (index < lines.size) {
+        val line = lines[index]
+        if (isDiffStart(line)) {
+            index++
+            while (index < lines.size && lines[index].isNotBlank() && isDiffBody(lines[index])) index++
+            continue
+        }
+        if (isToolCallLine(line)) {
+            index++
+            while (index < lines.size && isToolContinuation(lines[index])) index++
+            continue
+        }
+        kept += line
+        index++
+    }
+    return kept.joinToString("\n").trim()
+}
+
+/**
  * Marks backtick spans and hump identifiers (`CompanionClient`) so the bubble can draw a chip.
- * Short tokens such as `iOS` stay ordinary text.
+ * Short tokens such as `iOS` stay ordinary text. Trail-owned lines are removed first, so a shell
+ * or diff that is already a chip produces no prose spans.
  */
 public fun proseSpans(text: String): List<ProseSpan> {
-    if (text.isEmpty()) return emptyList()
+    val visible = proseWithoutTrail(text)
+    if (visible.isEmpty()) return emptyList()
     val spans = mutableListOf<ProseSpan>()
     var cursor = 0
     fun appendText(chunk: String) {
@@ -30,7 +59,7 @@ public fun proseSpans(text: String): List<ProseSpan> {
             spans += ProseSpan(ProseSpanKind.Text, chunk)
         }
     }
-    for (match in proseCode.findAll(text)) {
+    for (match in proseCode.findAll(visible)) {
         val tick = match.groups[1]?.value
         val hump = match.groups[2]?.value
         val code = when {
@@ -39,15 +68,15 @@ public fun proseSpans(text: String): List<ProseSpan> {
             else -> null
         }
         if (code == null) {
-            appendText(text.substring(cursor, match.range.last + 1))
+            appendText(visible.substring(cursor, match.range.last + 1))
             cursor = match.range.last + 1
             continue
         }
-        if (match.range.first > cursor) appendText(text.substring(cursor, match.range.first))
+        if (match.range.first > cursor) appendText(visible.substring(cursor, match.range.first))
         spans += ProseSpan(ProseSpanKind.Code, code)
         cursor = match.range.last + 1
     }
-    if (cursor < text.length) appendText(text.substring(cursor))
+    if (cursor < visible.length) appendText(visible.substring(cursor))
     return spans
 }
 

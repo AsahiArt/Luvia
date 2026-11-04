@@ -2,6 +2,7 @@ package tech.asahiart.luvia.thread
 
 import tech.asahiart.luvia.AcpToolCall
 import tech.asahiart.luvia.AcpToolStatus
+import tech.asahiart.luvia.AgentStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -169,6 +170,75 @@ class ToolTrailFormatTest {
         assertEquals("shared/commonMain", diffModulePath(file.path))
         assertEquals(13, file.lines.first { it.marker == "-" }.oldNumber)
         assertNull(file.lines.first { it.marker == "-" }.newNumber)
+    }
+
+    @Test
+    fun editChipLabelIsBasenamePlusCountsAndNeverBareFile() {
+        val summary =
+            """
+            diff --git a/shared/commonMain/ReconnectPolicy.kt b/shared/commonMain/ReconnectPolicy.kt
+            +++ b/shared/commonMain/ReconnectPolicy.kt
+            @@ -12,1 +12,2 @@
+            -    fun retry()
+            +    fun reconnect()
+            +    fun backoff()
+            """.trimIndent()
+        val parts = toolStreamParts(listOf(call("edit", "Edit ReconnectPolicy", summary)))
+        val file = assertIs<ToolStreamPart.Edit>(parts.single())
+        assertEquals("ReconnectPolicy.kt", file.file)
+        assertEquals(2, file.additions)
+        assertEquals(1, file.deletions)
+        assertEquals("ReconnectPolicy.kt +2 −1", editChipLabel(file.file, file.additions, file.deletions))
+        assertNull(editChipLabel("file", 1, 1))
+        assertNull(editChipLabel("FILE", 0, 0))
+        assertTrue(toolStreamParts(listOf(call("edit", "edit", null))).none { it is ToolStreamPart.Edit })
+    }
+
+    @Test
+    fun meterChipIsOnePassedTotal() {
+        val run = AcpToolCall("x", "gradle test", "execute", AcpToolStatus.Failed, "tests 127/128\nReconnectTest")
+        val again = run.copy(toolCallId = "y")
+        val parts = toolStreamParts(listOf(run, again))
+        val meters = parts.filterIsInstance<ToolStreamPart.Meter>()
+        assertEquals(1, meters.size)
+        assertEquals("127/128", meterChipLabel(meters.single().passed, meters.single().total))
+        assertTrue(parts.none { it is ToolStreamPart.Run })
+    }
+
+    @Test
+    fun playtestFixtureOpensADiffCardAndADecision() {
+        val calls = playtestTimeline(PLAYTEST_DIFF_ID)!!
+            .filterIsInstance<TimelineItem.Tool>()
+            .map { it.call }
+        val parts = toolStreamParts(calls)
+        val edit = parts.filterIsInstance<ToolStreamPart.Edit>().single()
+        assertEquals("ReconnectPolicy.kt +2 −1", editChipLabel(edit.file, edit.additions, edit.deletions))
+        assertTrue(edit.hasDiff)
+        val meter = parts.filterIsInstance<ToolStreamPart.Meter>().single()
+        assertEquals("127/128", meterChipLabel(meter.passed, meter.total))
+        assertTrue(parts.none { it is ToolStreamPart.Run })
+        val decide = playtestThreads().first { it.id == PLAYTEST_DECIDE_ID }
+        assertEquals(AgentStatus.Blocked, decide.status)
+        assertEquals("claude-code", decide.agentType)
+        assertTrue(decide.ask?.options?.any { it.recommended } == true)
+        assertEquals("opencode", playtestThreads().first { it.id == PLAYTEST_NEXT_ID }.agentType)
+    }
+
+    @Test
+    fun runsCollapseToShortLabels() {
+        val git = AcpToolCall("a", "% \$: git status", "bash", AcpToolStatus.Completed, null)
+        val gitAdd = AcpToolCall("b", "% \$: git add README.org", "bash", AcpToolStatus.Completed, null)
+        val cron = AcpToolCall("c", "schedule:|cron:|name:|deploy-pages", "bash", AcpToolStatus.Completed, null)
+        val parts = toolStreamParts(listOf(git, gitAdd, cron))
+        val runs = parts.filterIsInstance<ToolStreamPart.Run>()
+        assertEquals(listOf("git", RUN_CHIP_FALLBACK), runs.map { it.title })
+        assertTrue(runs.all { it.title.length <= RUN_CHIP_LIMIT })
+        val dumped = runChipLabel("schedule:|cron:|name:|deploy-pages|0 5 * * *")
+        assertEquals(RUN_CHIP_FALLBACK, dumped)
+        assertTrue(dumped.length <= RUN_CHIP_LIMIT)
+        assertTrue(!dumped.contains("|"))
+        assertEquals(RUN_CHIP_LIMIT, runChipLabel("x".repeat(40)).length)
+        assertEquals("gradle", runChipLabel("gradle test"))
     }
 
     @Test

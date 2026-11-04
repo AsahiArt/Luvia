@@ -64,4 +64,30 @@ class OutputRunsTest {
         )
         assertEquals(listOf(ProseSpan(ProseSpanKind.Text, "用 iOS 就好")), proseSpans("用 iOS 就好"))
     }
+
+    @Test
+    fun proseSpansAreEmptyForLinesTheTrailAlreadyOwns() {
+        assertEquals(emptyList(), proseSpans("% \$: git add README.org android/apk-device-install/SKILL.md && git commit → done"))
+        assertEquals(emptyList(), proseSpans("Read shared/src/Pairing.kt"))
+        assertEquals(emptyList(), proseSpans("Cursor shell: git status\n  On branch main"))
+        val diff =
+            """
+            diff --git a/A.kt b/A.kt
+            --- a/A.kt
+            +++ b/A.kt
+            @@ -1 +1 @@
+            -old
+            +new
+            """.trimIndent()
+        assertEquals(emptyList(), proseSpans(diff))
+        val kept = proseWithoutTrail("先看。\n% \$: git status\n$diff\n改完了。")
+        assertTrue(kept.contains("先看。"))
+        assertTrue(kept.contains("改完了。"))
+        assertTrue(!kept.contains("git status"))
+        assertTrue(!kept.contains("diff --git"))
+        val list = proseSpans("- first\n- second")
+        assertTrue(list.isNotEmpty())
+        assertTrue(list.all { it.kind == ProseSpanKind.Text })
+        assertTrue(structuredDiffFiles("- first\n- second").isEmpty())
+    }
 }

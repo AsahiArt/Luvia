@@ -181,6 +181,24 @@ class ThreadTest {
     }
 
     @Test
+    fun percentDollarShellLeavesTheProseBubble() {
+        val raw =
+            "先提交。\n" +
+                "% \$: git add README.org android/apk-device-install/SKILL.md && git commit → done\n" +
+                "已提交。\n"
+        val items = PaneTimeline().ingestTranscript(raw).items
+        val prose = items.filterIsInstance<TimelineItem.Output>().joinToString("\n") { it.text }
+        assertTrue(!prose.contains("% \$:"))
+        assertTrue(!prose.contains("git add"))
+        assertTrue(prose.contains("先提交。"))
+        assertTrue(prose.contains("已提交。"))
+        val tool = items.filterIsInstance<TimelineItem.Tool>().single()
+        assertEquals("bash", tool.call.kind)
+        assertEquals("git", runChipLabel(tool.call.title, tool.call.summary))
+        assertTrue(runChipLabel(tool.call.title, tool.call.summary).length <= RUN_CHIP_LIMIT)
+    }
+
+    @Test
     fun transcriptKeepsNerdGlyphs() {
         val t = PaneTimeline().ingestTranscript("\u001B[32m\uE0A0 main\u001B[0m \u25CF ok\n")
         assertEquals("\uE0A0 main \u25CF ok", (t.items.single() as TimelineItem.Output).text)

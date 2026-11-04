@@ -24,6 +24,7 @@ private val percentTool = Regex("""^%\s+[A-Za-z][\w.-]*\b""")
 private val shellTool = Regex("""^(?:[•·●]\s*)?\$:\s*\S""")
 private val clock = Regex("""^\d{1,2}:\d{2}(\s*[AP]M)?$""", RegexOption.IGNORE_CASE)
 private val percentKind = Regex("""^%\s+(\S+)""")
+private val percentShell = Regex("""^%\s+\$:\s*\S""")
 private val labeledTool = Regex(
     """^(?:[•·●]\s*)?(?:Cursor|Claude|Codex|Gemini|Agent|Pi|opencode)\s+(?:shell|read|edit|write|grep|bash|run|search|glob)\s*[:：]\s*\S""",
     RegexOption.IGNORE_CASE,
@@ -40,6 +41,7 @@ internal fun isCostStatusLine(line: String): Boolean {
 
 internal fun isToolCallLine(line: String): Boolean {
     val trimmed = line.trim()
+    if (percentShell.containsMatchIn(trimmed)) return true
     if (percentTool.containsMatchIn(trimmed) || shellTool.containsMatchIn(trimmed)) return true
     if (labeledTool.containsMatchIn(trimmed)) return true
     val verb = verbPath.find(trimmed) ?: return false
@@ -211,8 +213,8 @@ private fun looksLikeToolArg(token: String): Boolean {
 }
 
 private fun kindFromTitle(title: String): String? {
-    percentKind.find(title)?.groupValues?.get(1)?.let { return it }
     if (title.contains("$:")) return "bash"
+    percentKind.find(title)?.groupValues?.get(1)?.let { return it }
     val match = labeledKind.find(title)?.groupValues?.get(1)?.lowercase() ?: return null
     return when (match) {
         "shell", "bash", "run" -> "bash"

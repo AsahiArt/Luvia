@@ -155,27 +155,59 @@ struct ChatView: View {
         }
     }
 
+    /// Paths already drawn as tool chips. A second copy in agent text stays out of the bubble.
+    private var trailOwnedDiffs: Set<String> {
+        var owned: Set<String> = []
+        for item in visibleItems {
+            guard case .tool(let row) = onEnum(of: item) else { continue }
+            let view = ToolTrailKt.toolTrailView(call: row.call)
+            let files: [DiffFileView] = KotlinLists.array(view.diffs as Any)
+            for file in files {
+                if let path = file.path, !path.isEmpty { owned.insert(path) }
+                let name = ToolTrailKt.diffFileTitle(path: file.path)
+                if name != "file" { owned.insert(name) }
+            }
+        }
+        return owned
+    }
+
+    @ViewBuilder
     private func outputBlocks(_ text: String) -> some View {
-        let runs: [OutputRun] = KotlinLists.array(OutputRunsKt.outputRuns(text: text) as Any)
-        return VStack(alignment: .leading, spacing: 8) {
-            if runs.isEmpty {
-                bubble(text, mine: false)
-            } else {
-                ForEach(Array(runs.enumerated()), id: \.offset) { _, run in
-                    let files: [DiffFileView] = KotlinLists.array(ToolTrailKt.structuredDiffFiles(text: run.text) as Any)
-                    if !files.isEmpty {
-                        ForEach(Array(files.enumerated()), id: \.offset) { _, file in
-                            XcodeDiffCard(file: file, scheme: colorScheme)
-                        }
-                    } else if run.mono {
-                        Text(run.text)
-                            .font(.custom(TerminalFont.postScriptName, size: 12))
-                            .foregroundStyle(Color.primary)
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        let kept = OutputRunsKt.proseWithoutTrail(text: text)
+        let parsed: [DiffFileView] = KotlinLists.array(ToolTrailKt.structuredDiffFiles(text: text) as Any)
+        let owned = trailOwnedDiffs
+        let fresh = parsed.filter { file in
+            let name = ToolTrailKt.diffFileTitle(path: file.path)
+            if name == "file" { return false }
+            if owned.contains(name) { return false }
+            if let path = file.path, owned.contains(path) { return false }
+            return true
+        }
+        let prose = kept.trimmingCharacters(in: .whitespacesAndNewlines)
+        if fresh.isEmpty && prose.isEmpty {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(fresh.enumerated()), id: \.offset) { _, file in
+                    XcodeDiffCard(file: file, scheme: colorScheme)
+                }
+                if !prose.isEmpty {
+                    let runs: [OutputRun] = KotlinLists.array(OutputRunsKt.outputRuns(text: prose) as Any)
+                    if runs.isEmpty {
+                        bubble(prose, mine: false)
                     } else {
-                        bubble(run.text, mine: false)
+                        ForEach(Array(runs.enumerated()), id: \.offset) { _, run in
+                            if run.mono {
+                                Text(run.text)
+                                    .font(.custom(TerminalFont.postScriptName, size: 12))
+                                    .foregroundStyle(Color.primary)
+                                    .padding(10)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            } else {
+                                bubble(run.text, mine: false)
+                            }
+                        }
                     }
                 }
             }
@@ -221,10 +253,13 @@ struct ChatView: View {
     }
 
     private func bubbleText(_ text: String, mine: Bool) -> AttributedString {
-        if mine { return AttributedString(text) }
-        let spans: [ProseSpan] = KotlinLists.array(OutputRunsKt.proseSpans(text: text) as Any)
+        let source = mine ? text : OutputRunsKt.proseWithoutTrail(text: text)
+        if source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return AttributedString("")
+        }
+        let spans: [ProseSpan] = KotlinLists.array(OutputRunsKt.proseSpans(text: source) as Any)
         if spans.isEmpty || spans.allSatisfy({ $0.kind != .code }) {
-            return AttributedString(text)
+            return AttributedString(source)
         }
         var result = AttributedString()
         for span in spans {
@@ -368,6 +403,12 @@ struct ChatView: View {
     }
 
     private func confirm(_ choice: AskOption) {
+        #if DEBUG
+        if PlaytestChatKt.isPlaytestThread(id: thread.id) {
+            decisionNote = ""
+            return
+        }
+        #endif
         let note = decisionNote.trimmingCharacters(in: .whitespacesAndNewlines)
         if !note.isEmpty, thread.kind == .pane, case .prompt(let prompt) = onEnum(of: choice.action) {
             let base = prompt.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -405,6 +446,9 @@ struct ChatView: View {
     }
 
     private func send(_ text: String) {
+        #if DEBUG
+        if PlaytestChatKt.isPlaytestThread(id: thread.id) { return }
+        #endif
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         model.hostUhp()?.sendToThread(text: trimmed)
@@ -472,6 +516,8 @@ struct ToolStream: View {
     var canAsk: Bool
     var onFix: (String) -> Void
     @Environment(\.colorScheme) private var colorScheme
+    /// Empty means every diff card is open. Tapping its file chip inserts the basename.
+    @State private var collapsed: Set<String> = []
 
     var body: some View {
         let parts: [ToolStreamPart] = KotlinLists.array(ToolTrailKt.toolStreamParts(calls: calls) as Any)
@@ -489,7 +535,10 @@ struct ToolStream: View {
             ForEach(Array(views.enumerated()), id: \.offset) { index, view in
                 let files: [DiffFileView] = KotlinLists.array(view.diffs as Any)
                 ForEach(Array(files.enumerated()), id: \.offset) { _, file in
-                    XcodeDiffCard(file: file, scheme: colorScheme)
+                    let name = ToolTrailKt.diffFileTitle(path: file.path)
+                    if name != "file" && !collapsed.contains(name) {
+                        XcodeDiffCard(file: file, scheme: colorScheme)
+                    }
                 }
                 if let meter = view.meter {
                     TestBar(meter: meter, markFailed: view.markFailed, names: KotlinLists.array(view.failedNames as Any))
@@ -516,19 +565,33 @@ struct ToolStream: View {
             }
             .accessibilityLabel("读 \(row.count)")
         case .edit(let row):
-            chipChrome(Color.blue.opacity(0.12)) {
+            let label = chipChrome(Color.blue.opacity(0.12)) {
                 Image(systemName: "pencil")
                     .foregroundStyle(.blue)
                 Text(row.file)
                     .foregroundStyle(.blue)
                     .lineLimit(1)
                     .frame(maxWidth: 180, alignment: .leading)
-                if row.hasDiff {
-                    Text("+\(row.additions)")
-                        .foregroundStyle(Color(red: 0.16, green: 0.62, blue: 0.28))
-                    Text("−\(row.deletions)")
-                        .foregroundStyle(Color(red: 0.86, green: 0.27, blue: 0.32))
+                Text("+\(row.additions)")
+                    .foregroundStyle(Color.green)
+                Text("−\(row.deletions)")
+                    .foregroundStyle(Color.red)
+            }
+            .accessibilityLabel(ToolTrailKt.editChipLabel(file: row.file, additions: row.additions, deletions: row.deletions) ?? row.file)
+            if row.hasDiff {
+                Button {
+                    if collapsed.contains(row.file) {
+                        collapsed.remove(row.file)
+                    } else {
+                        collapsed.insert(row.file)
+                    }
+                } label: {
+                    label
                 }
+                .buttonStyle(.plain)
+                .accessibilityHint(collapsed.contains(row.file) ? "展开改动" : "收起改动")
+            } else {
+                label
             }
         case .meter(let row):
             chipChrome(Color.red.opacity(0.12)) {
@@ -545,7 +608,6 @@ struct ToolStream: View {
                     .foregroundStyle(.red)
                 Text(row.title.isEmpty ? "运行" : row.title)
                     .lineLimit(1)
-                    .frame(maxWidth: 180, alignment: .leading)
             }
         case .other(let row):
             chipChrome(Color.primary.opacity(0.06)) {

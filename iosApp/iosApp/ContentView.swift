@@ -109,10 +109,20 @@ struct ContentView: View {
             }
         default:
             if !model.hostsReady && model.hosts.isEmpty && !userOpenedPairing {
+                #if DEBUG
+                sessionList
+                #else
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                #endif
             } else {
-                SessionListView(
+                sessionList
+            }
+        }
+    }
+
+    private var sessionList: some View {
+        SessionListView(
                     model: model,
                     threads: visibleThreads,
                     pending: pending,
@@ -137,11 +147,15 @@ struct ContentView: View {
                     showsChrome: stage != "terminal",
                     glass: glass
                 )
-            }
-        }
     }
 
     private func applyPairingGate() {
+        #if DEBUG
+        if model.hosts.isEmpty && !userOpenedPairing {
+            if stage == "pair" { stage = "sessions" }
+            return
+        }
+        #endif
         let present = HostStartupKt.shouldPresentPairing(
             catalogReady: model.hostsReady,
             pairedHostCount: Int32(model.hosts.count),
@@ -163,8 +177,15 @@ struct ContentView: View {
     }
 
     private var allThreads: [AgentThread] {
-        guard let id = model.selectedHostID, let state = model.hostStates[id] else { return [] }
-        let raw: [AgentThread] = KotlinLists.array(state.threads(hostId: id) as Any)
+        var raw: [AgentThread] = []
+        if let id = model.selectedHostID, let state = model.hostStates[id] {
+            raw = KotlinLists.array(state.threads(hostId: id) as Any)
+        }
+        #if DEBUG
+        let samples: [AgentThread] = KotlinLists.array(PlaytestChatKt.playtestThreads() as Any)
+        raw.append(contentsOf: samples)
+        #endif
+        if raw.isEmpty { return [] }
         return KotlinLists.array(SessionListKt.sortSessions(threads: raw) as Any)
     }
 
@@ -201,7 +222,12 @@ struct ContentView: View {
     }
 
     private func timeline(_ thread: AgentThread) -> [TimelineItem] {
-        KotlinLists.array(model.hostUhp()?.timeline(thread: thread) as Any)
+        #if DEBUG
+        if let sample = PlaytestChatKt.playtestTimeline(id: thread.id) {
+            return KotlinLists.array(sample as Any)
+        }
+        #endif
+        return KotlinLists.array(model.hostUhp()?.timeline(thread: thread) as Any)
     }
 
     private func nextQuestion(after thread: AgentThread) -> String? {
@@ -232,6 +258,13 @@ struct ContentView: View {
     }
 
     private func open(_ thread: AgentThread) {
+        #if DEBUG
+        if PlaytestChatKt.isPlaytestThread(id: thread.id) {
+            threadID = thread.id
+            stage = "chat"
+            return
+        }
+        #endif
         if let host = model.hosts.first(where: { $0.id == thread.hostId }) {
             model.select(host)
         }
