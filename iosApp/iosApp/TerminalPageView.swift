@@ -10,6 +10,8 @@ struct TerminalPageView: View {
     var waitingDetail: String? = nil
     var canAskFix: Bool = false
     var textOverride: String? = nil
+    /// Debug fixture is on screen. A host stuck in `.connecting` still reads as 离线.
+    var fixtureOfflineChrome: Bool = false
     var onBack: () -> Void
     var onSelectPane: (String) -> Void
     var onAskFix: (String) -> Bool = { _ in false }
@@ -86,6 +88,8 @@ struct TerminalPageView: View {
                 .terminalPlate(in: Capsule(), fill: chromeFill)
             }
             .buttonStyle(.plain)
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(2)
             .accessibilityLabel("回到对话")
             .overlay(alignment: .topTrailing) {
                 if pendingDecisions > 0 {
@@ -98,7 +102,7 @@ struct TerminalPageView: View {
                 }
             }
             if !panes.isEmpty {
-                GeometryReader { geo in
+                ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 2) {
                             ForEach(Array(panes.enumerated()), id: \.element.id) { index, pane in
@@ -111,20 +115,27 @@ struct TerminalPageView: View {
                                         .foregroundStyle(selected ? Color.black : Color.white)
                                         .lineLimit(1)
                                         .fixedSize(horizontal: true, vertical: false)
-                                        .padding(.horizontal, 12)
+                                        .padding(.horizontal, 10)
                                         .padding(.vertical, 8)
                                         .background(selected ? Color.white.opacity(0.92) : Color.clear, in: Capsule())
                                 }
                                 .buttonStyle(.plain)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .id(pane.id)
                                 .accessibilityAddTraits(selected ? .isSelected : [])
                             }
                         }
                         .padding(3)
-                        .frame(minWidth: geo.size.width)
+                        .fixedSize(horizontal: true, vertical: false)
                     }
+                    .onAppear { revealSelectedPane(proxy) }
+                    .onChange(of: selectedPaneID) { _, _ in revealSelectedPane(proxy) }
+                    .onChange(of: paneIdentity) { _, _ in revealSelectedPane(proxy) }
                 }
-                .frame(height: 44)
                 .frame(minWidth: 0, maxWidth: .infinity)
+                .frame(height: 44)
+                .layoutPriority(1)
+                .clipped()
                 .terminalPlate(in: Capsule(), fill: chromeFill)
             } else {
                 Text("终端")
@@ -133,9 +144,22 @@ struct TerminalPageView: View {
                 Spacer(minLength: 0)
             }
             controlChrome
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(2)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    private var paneIdentity: String {
+        panes.map(\.id).joined(separator: "\u{1e}")
+    }
+
+    private func revealSelectedPane(_ proxy: ScrollViewProxy) {
+        guard let id = selectedPaneID, panes.contains(where: { $0.id == id }) else { return }
+        DispatchQueue.main.async {
+            proxy.scrollTo(id, anchor: .trailing)
+        }
     }
 
     @ViewBuilder
@@ -352,12 +376,14 @@ struct TerminalPageView: View {
         return host.connection != .live
     }
 
-    /// Offline and stale both read as 离线. Connecting stays 重连中, never 观察中.
+    /// Offline and stale both read as 离线. A live reconnect stays 重连中.
+    /// The debug fixture is not a live link, so a host stuck on `.connecting`
+    /// still shows 离线 and the offline capsule can be photographed.
     private var offlineWord: String {
         guard let host = model.selectedHost else { return "离线" }
         switch host.connection {
         case .connecting:
-            return "重连中"
+            return fixtureOfflineChrome ? "离线" : "重连中"
         case .stale, .offline:
             return "离线"
         default:

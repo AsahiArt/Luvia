@@ -34,6 +34,7 @@ struct ContentView: View {
                         waitingDetail: waitingDetailText,
                         canAskFix: canHandFix,
                         textOverride: terminalTextOverride,
+                        fixtureOfflineChrome: usingTerminalFixture,
                         onBack: closeTerminal,
                         onSelectPane: selectPane,
                         onAskFix: handFix,
