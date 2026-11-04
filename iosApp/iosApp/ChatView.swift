@@ -524,13 +524,13 @@ struct ToolStream: View {
         let views = calls.map { ToolTrailKt.toolTrailView(call: $0) }
         VStack(alignment: .leading, spacing: 8) {
             if !parts.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
-                            chip(part)
-                        }
+                TrailChipRow(spacing: 8) {
+                    ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
+                        chip(part)
+                            .yieldsForTestChip(chipYields(part))
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             ForEach(Array(views.enumerated()), id: \.offset) { index, view in
                 let files: [DiffFileView] = KotlinLists.array(view.diffs as Any)
@@ -555,6 +555,14 @@ struct ToolStream: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The file chip is the only one that gives up width. The test fraction stays whole.
+    private func chipYields(_ part: ToolStreamPart) -> Bool {
+        if case .edit = onEnum(of: part) {
+            return true
+        }
+        return false
+    }
+
     @ViewBuilder
     private func chip(_ part: ToolStreamPart) -> some View {
         switch onEnum(of: part) {
@@ -562,45 +570,56 @@ struct ToolStream: View {
             chipChrome(Color.primary.opacity(0.06)) {
                 Image(systemName: "doc")
                 Text("读 ×\(row.count)")
+                    .fixedSize(horizontal: true, vertical: false)
             }
+            .fixedSize(horizontal: true, vertical: false)
             .accessibilityLabel("读 \(row.count)")
         case .edit(let row):
             let label = chipChrome(Color.blue.opacity(0.12)) {
                 Image(systemName: "pencil")
                     .foregroundStyle(.blue)
-                Text(row.file)
-                    .foregroundStyle(.blue)
-                    .lineLimit(1)
-                    .frame(maxWidth: 180, alignment: .leading)
+                    .fixedSize()
+                fileChipName(row.file)
                 Text("+\(row.additions)")
                     .foregroundStyle(Color.green)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
                 Text("−\(row.deletions)")
                     .foregroundStyle(Color.red)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
             }
+            .frame(minWidth: 0, alignment: .leading)
             .accessibilityLabel(ToolTrailKt.editChipLabel(file: row.file, additions: row.additions, deletions: row.deletions) ?? row.file)
             if row.hasDiff {
-                Button {
-                    if collapsed.contains(row.file) {
-                        collapsed.remove(row.file)
-                    } else {
-                        collapsed.insert(row.file)
+                label
+                    .contentShape(Capsule())
+                    .onTapGesture {
+                        if collapsed.contains(row.file) {
+                            collapsed.remove(row.file)
+                        } else {
+                            collapsed.insert(row.file)
+                        }
                     }
-                } label: {
-                    label
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint(collapsed.contains(row.file) ? "展开改动" : "收起改动")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint(collapsed.contains(row.file) ? "展开改动" : "收起改动")
             } else {
                 label
             }
         case .meter(let row):
+            let label = ToolTrailKt.meterChipLabel(passed: row.passed, total: row.total)
             chipChrome(Color.red.opacity(0.12)) {
                 Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(.red)
-                Text("\(row.passed)/\(row.total)")
+                    .fixedSize()
+                Text(label)
                     .foregroundStyle(.red)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
             }
-            .accessibilityLabel("\(row.passed) / \(row.total)")
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityLabel(label)
         case .run(let row):
             chipChrome(Color.red.opacity(0.10)) {
                 Image(systemName: "play.fill")
@@ -608,13 +627,35 @@ struct ToolStream: View {
                     .foregroundStyle(.red)
                 Text(row.title.isEmpty ? "运行" : row.title)
                     .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
+            .fixedSize(horizontal: true, vertical: false)
         case .other(let row):
             chipChrome(Color.primary.opacity(0.06)) {
                 Image(systemName: "wrench")
                 Text("工具 ×\(row.count)")
+                    .fixedSize(horizontal: true, vertical: false)
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
+    }
+
+    /// Full basename, then no extension, then an abbreviated stem. The last copy may ellipsize.
+    private func fileChipName(_ file: String) -> some View {
+        ViewThatFits(in: .horizontal) {
+            Text(ToolTrailKt.editChipFileName(file: file, tighten: Int32(0)))
+                .fixedSize(horizontal: true, vertical: false)
+            Text(ToolTrailKt.editChipFileName(file: file, tighten: Int32(1)))
+                .fixedSize(horizontal: true, vertical: false)
+            Text(ToolTrailKt.editChipFileName(file: file, tighten: Int32(2)))
+                .fixedSize(horizontal: true, vertical: false)
+            Text(ToolTrailKt.editChipFileName(file: file, tighten: Int32(2)))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .foregroundStyle(.blue)
+        .frame(minWidth: 0, alignment: .leading)
+        .layoutPriority(-1)
     }
 
     private func chipChrome<Content: View>(_ fill: Color, @ViewBuilder content: () -> Content) -> some View {
@@ -625,6 +666,72 @@ struct ToolStream: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(fill, in: Capsule())
+    }
+}
+
+private struct ChipYieldsKey: LayoutValueKey {
+    static let defaultValue = false
+}
+
+extension View {
+    /// File chips report true so a tight row shortens them before the test chip.
+    fileprivate func yieldsForTestChip(_ yields: Bool) -> some View {
+        layoutValue(key: ChipYieldsKey.self, value: yields)
+    }
+}
+
+/// Keeps read and test chips at their full width. Only a file chip is narrowed.
+private struct TrailChipRow: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let ideals = idealSizes(subviews)
+        let height = ideals.map(\.height).max() ?? 0
+        let idealWidth = ideals.map(\.width).reduce(0, +) + gapWidth(subviews.count)
+        let width = proposal.width.map { min(idealWidth, $0) } ?? idealWidth
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let ideals = idealSizes(subviews)
+        let flex = subviews.indices.filter { subviews[$0][ChipYieldsKey.self] }
+        let fixedWidth = subviews.indices.reduce(CGFloat(0)) { partial, index in
+            subviews[index][ChipYieldsKey.self] ? partial : partial + ideals[index].width
+        }
+        let flexIdeal = flex.reduce(CGFloat(0)) { $0 + ideals[$1].width }
+        let budget = max(0, bounds.width - fixedWidth - gapWidth(subviews.count))
+        var widths = ideals.map(\.width)
+        if !flex.isEmpty, flexIdeal > budget {
+            var remaining = budget
+            for (offset, index) in flex.enumerated() {
+                if offset == flex.count - 1 {
+                    widths[index] = max(0, remaining)
+                } else {
+                    let share = ideals[index].width / flexIdeal * budget
+                    let width = min(max(0, share), remaining)
+                    widths[index] = width
+                    remaining -= width
+                }
+            }
+        }
+        var x = bounds.minX
+        for index in subviews.indices {
+            let width = widths[index]
+            subviews[index].place(
+                at: CGPoint(x: x, y: bounds.midY),
+                anchor: .leading,
+                proposal: ProposedViewSize(width: width, height: ideals[index].height)
+            )
+            x += width + spacing
+        }
+    }
+
+    private func idealSizes(_ subviews: Subviews) -> [CGSize] {
+        subviews.map { $0.sizeThatFits(.unspecified) }
+    }
+
+    private func gapWidth(_ count: Int) -> CGFloat {
+        spacing * CGFloat(max(count - 1, 0))
     }
 }
 

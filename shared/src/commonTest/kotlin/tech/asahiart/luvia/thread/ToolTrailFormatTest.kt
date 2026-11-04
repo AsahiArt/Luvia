@@ -225,6 +225,35 @@ class ToolTrailFormatTest {
     }
 
     @Test
+    fun playtestTestChipIsTheFullPassedTotal() {
+        val calls = playtestTimeline(PLAYTEST_DIFF_ID)!!
+            .filterIsInstance<TimelineItem.Tool>()
+            .map { it.call }
+        val parts = toolStreamParts(calls)
+        val edit = parts.filterIsInstance<ToolStreamPart.Edit>().single()
+        val meter = parts.filterIsInstance<ToolStreamPart.Meter>().single()
+        val label = meterChipLabel(meter.passed, meter.total)
+        assertEquals("127/128", label)
+        assertEquals("${meter.passed}/${meter.total}", label)
+        assertEquals(meter.passed.toString(), label.substringBefore("/"))
+        assertEquals(meter.total.toString(), label.substringAfter("/"))
+        assertEquals("ReconnectPolicy.kt", editChipFileName(edit.file, 0))
+        assertEquals("ReconnectPolicy", editChipFileName(edit.file, 1))
+        assertEquals("Reconnect…", editChipFileName(edit.file, 2))
+        assertEquals("ReconnectPolicy.kt +2 −1", editChipLabel(edit.file, edit.additions, edit.deletions))
+    }
+
+    @Test
+    fun editChipFileNameShortensOnlyTheBasename() {
+        assertEquals("TokenStore", editChipFileName("TokenStore.kt", 1))
+        assertEquals("TokenStore", editChipFileName("TokenStore.kt", 2))
+        assertEquals("Makefile", editChipFileName("Makefile", 1))
+        assertEquals("policy.12", editChipFileName("policy.12", 1))
+        assertEquals(".gitignore", editChipFileName(".gitignore", 2))
+        assertEquals("HTTPClient…", editChipFileName("HTTPClientConfig.kt", 2))
+    }
+
+    @Test
     fun runsCollapseToShortLabels() {
         val git = AcpToolCall("a", "% \$: git status", "bash", AcpToolStatus.Completed, null)
         val gitAdd = AcpToolCall("b", "% \$: git add README.org", "bash", AcpToolStatus.Completed, null)

@@ -92,7 +92,49 @@ public fun editChipLabel(file: String, additions: Int, deletions: Int): String? 
     return "$file +$additions −$deletions"
 }
 
-/** `127/128`. */
+/**
+ * Basename drawn on the edit chip.
+ * `0` is the full name [editChipLabel] uses (`ReconnectPolicy.kt`).
+ * `1` drops a short extension (`ReconnectPolicy`) when the row is tight.
+ * `2` abbreviates that stem (`Reconnect…`) so the test chip can stay `127/128`.
+ */
+public fun editChipFileName(file: String, tighten: Int = 0): String {
+    if (tighten <= 0) return file
+    val stem = chipStem(file)
+    if (tighten == 1) return stem
+    return abbreviateChipStem(stem)
+}
+
+/** Stems this long stay whole. Longer ones keep their first camel word. */
+private const val EDIT_CHIP_STEM_LIMIT: Int = 12
+
+private fun chipStem(file: String): String {
+    val dot = file.lastIndexOf('.')
+    if (dot <= 0 || dot == file.lastIndex) return file
+    val ext = file.substring(dot + 1)
+    if (ext.length !in 1..8 || !ext.all { it.isLetter() }) return file
+    val stem = file.substring(0, dot)
+    return stem.ifBlank { file }
+}
+
+private fun abbreviateChipStem(stem: String): String {
+    if (stem.length <= EDIT_CHIP_STEM_LIMIT) return stem
+    val head = camelHead(stem)
+    val prefix = if (head.length >= 4 && head.length < stem.length) head else stem.take(9).trimEnd()
+    return prefix + "…"
+}
+
+/** `ReconnectPolicy` → `Reconnect`. A name with no inner capital stays whole. */
+private fun camelHead(name: String): String {
+    for (index in 1 until name.length) {
+        val current = name[index]
+        if (current == '_' || current == '-' || current == ' ') return name.substring(0, index)
+        if (current.isUpperCase() && name[index - 1].isLowerCase()) return name.substring(0, index)
+    }
+    return name
+}
+
+/** `127/128`. The whole fraction, never a clipped prefix. */
 public fun meterChipLabel(passed: Int, total: Int): String = "$passed/$total"
 
 /**
