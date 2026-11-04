@@ -49,9 +49,11 @@ struct PairingView: View {
                 onUnavailable: {
                     error = "相机不可用。"
                     scanning = false
+                },
+                onCancel: {
+                    scanning = false
                 }
             )
-            .ignoresSafeArea()
         }
         .onAppear {
             if draft == nil { begin() }
