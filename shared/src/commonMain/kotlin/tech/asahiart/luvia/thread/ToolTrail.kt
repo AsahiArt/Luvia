@@ -34,6 +34,14 @@ public data class ToolTrailView(
     public val markFailed: Boolean,
 )
 
+/** One Xcode-style token. The phone picks the light and dark inks. */
+public enum class CodeTokenKind { Keyword, Type, Number, String, Comment, Plain }
+
+public data class CodeToken(
+    public val kind: CodeTokenKind,
+    public val text: String,
+)
+
 /** One fact in the horizontal chip stream. Copy stays in the platform UI. */
 public sealed class ToolStreamPart {
     public data class Reads(public val count: Int) : ToolStreamPart()
@@ -70,29 +78,120 @@ public fun toolTrailView(call: AcpToolCall): ToolTrailView {
     )
 }
 
+/** Run chips stay a short action. Longer commands and cron dumps use [RUN_CHIP_FALLBACK]. */
+public const val RUN_CHIP_LIMIT: Int = 12
+
+public const val RUN_CHIP_FALLBACK: String = "运行"
+
+/**
+ * `ReconnectPolicy.kt +2 −1`. Returns null for a blank name or the bare word `file`.
+ * The plus and minus are the unicode minus, so the phone can color each count.
+ */
+public fun editChipLabel(file: String, additions: Int, deletions: Int): String? {
+    if (!isChipBasename(file)) return null
+    return "$file +$additions −$deletions"
+}
+
+/**
+ * Basename drawn on the edit chip.
+ * `0` is the full name [editChipLabel] uses (`ReconnectPolicy.kt`).
+ * `1` drops a short extension (`ReconnectPolicy`) when the row is tight.
+ * `2` abbreviates that stem (`Reconnect…`) so the test chip can stay `127/128`.
+ */
+public fun editChipFileName(file: String, tighten: Int = 0): String {
+    if (tighten <= 0) return file
+    val stem = chipStem(file)
+    if (tighten == 1) return stem
+    return abbreviateChipStem(stem)
+}
+
+/** Stems this long stay whole. Longer ones keep their first camel word. */
+private const val EDIT_CHIP_STEM_LIMIT: Int = 12
+
+private fun chipStem(file: String): String {
+    val dot = file.lastIndexOf('.')
+    if (dot <= 0 || dot == file.lastIndex) return file
+    val ext = file.substring(dot + 1)
+    if (ext.length !in 1..8 || !ext.all { it.isLetter() }) return file
+    val stem = file.substring(0, dot)
+    return stem.ifBlank { file }
+}
+
+private fun abbreviateChipStem(stem: String): String {
+    if (stem.length <= EDIT_CHIP_STEM_LIMIT) return stem
+    val head = camelHead(stem)
+    val prefix = if (head.length >= 4 && head.length < stem.length) head else stem.take(9).trimEnd()
+    return prefix + "…"
+}
+
+/** `ReconnectPolicy` → `Reconnect`. A name with no inner capital stays whole. */
+private fun camelHead(name: String): String {
+    for (index in 1 until name.length) {
+        val current = name[index]
+        if (current == '_' || current == '-' || current == ' ') return name.substring(0, index)
+        if (current.isUpperCase() && name[index - 1].isLowerCase()) return name.substring(0, index)
+    }
+    return name
+}
+
+/** `127/128`. The whole fraction, never a clipped prefix. */
+public fun meterChipLabel(passed: Int, total: Int): String = "$passed/$total"
+
+/**
+ * A run chip title. Shell text keeps the first command word (`git`).
+ * A cron or `schedule:|…` dump becomes [RUN_CHIP_FALLBACK]. Anything longer than
+ * [RUN_CHIP_LIMIT] is cut to that limit.
+ */
+public fun runChipLabel(title: String, summary: String? = null): String {
+    val source = title.trim().ifBlank { summary?.trim().orEmpty() }
+    if (source.isEmpty() || isScheduleDump(source)) return RUN_CHIP_FALLBACK
+    val body = commandLead.find(source)?.groupValues?.get(1)?.trim()?.ifBlank { null } ?: source
+    if (isScheduleDump(body)) return RUN_CHIP_FALLBACK
+    val word = body.split(Regex("""\s+""")).firstOrNull { token ->
+        val clean = token.trim(':', '|', ',', ';', '`', '"', '\'')
+        clean.isNotEmpty() && clean != "$" && !clean.startsWith("-") && !clean.startsWith("%")
+    }?.trim(':', '|', ',', ';', '`', '"', '\'') ?: return RUN_CHIP_FALLBACK
+    if (word.isEmpty() || isScheduleDump(word)) return RUN_CHIP_FALLBACK
+    return word.take(RUN_CHIP_LIMIT)
+}
+
 /**
  * Reads first, then each edit and run in order, then any other tools.
- * A run with a meter contributes the meter instead of a second run chip.
+ * A run with a meter contributes that meter instead of a run chip.
+ * Identical run labels and identical meters collapse to one chip.
+ * An edit with no real basename is omitted — never a bare `file`.
  */
 public fun toolStreamParts(calls: List<AcpToolCall>): List<ToolStreamPart> {
     val views = calls.map(::toolTrailView)
     val parts = mutableListOf<ToolStreamPart>()
     val reads = views.count { it.kind == ToolTrailKind.Read }
     if (reads > 0) parts += ToolStreamPart.Reads(reads)
-    views.forEach { view ->
+    val seenRuns = mutableSetOf<String>()
+    val seenMeters = mutableSetOf<String>()
+    fun addMeter(view: ToolTrailView) {
+        val meter = view.meter ?: return
+        val key = meterChipLabel(meter.passed, meter.total)
+        if (seenMeters.add(key)) parts += ToolStreamPart.Meter(meter.passed, meter.total)
+    }
+    fun addRun(call: AcpToolCall) {
+        val label = runChipLabel(call.title, call.summary)
+        if (seenRuns.add(label)) parts += ToolStreamPart.Run(label)
+    }
+    calls.zip(views).forEach { (call, view) ->
         when (view.kind) {
             ToolTrailKind.Edit -> {
-                val additions = view.diffs.sumOf { it.additions }
-                val deletions = view.diffs.sumOf { it.deletions }
-                val file = view.diffs.firstNotNullOfOrNull { it.path }?.fileName()
-                    ?: view.path?.fileName()
-                    ?: "file"
-                parts += ToolStreamPart.Edit(file, additions, deletions, view.diffs.isNotEmpty())
+                val chip = editChip(call, view)
+                if (chip != null) {
+                    parts += chip
+                    addMeter(view)
+                } else if (view.diffs.isEmpty()) {
+                    addRun(call)
+                }
             }
             ToolTrailKind.Run -> {
-                val meter = view.meter
-                if (meter != null) parts += ToolStreamPart.Meter(meter.passed, meter.total)
-                else parts += ToolStreamPart.Run(view.path?.fileName().orEmpty())
+                if (view.diffs.isNotEmpty()) editChip(call, view)?.let { parts += it }
+                if (view.meter != null) addMeter(view)
+                else if (view.diffs.isEmpty()) addRun(call)
             }
             ToolTrailKind.Read, ToolTrailKind.Other -> Unit
         }
@@ -100,6 +199,129 @@ public fun toolStreamParts(calls: List<AcpToolCall>): List<ToolStreamPart> {
     val others = views.count { it.kind == ToolTrailKind.Other }
     if (others > 0) parts += ToolStreamPart.Other(others)
     return parts
+}
+
+private fun editChip(call: AcpToolCall, view: ToolTrailView): ToolStreamPart.Edit? {
+    val raw = view.diffs.firstNotNullOfOrNull { it.path }
+        ?: view.path
+        ?: findPath(call.title)
+        ?: findPath(call.summary)
+    val file = diffFileTitle(raw).takeIf(::isChipBasename) ?: return null
+    val additions = view.diffs.sumOf { it.additions }
+    val deletions = view.diffs.sumOf { it.deletions }
+    return ToolStreamPart.Edit(file, additions, deletions, view.diffs.isNotEmpty())
+}
+
+private fun isChipBasename(file: String): Boolean {
+    if (file.isBlank() || file.equals("file", ignoreCase = true)) return false
+    if (file.length > 48 || '/' in file || '|' in file) return false
+    if (file.contains("schedule:", ignoreCase = true) || file.contains("cron:", ignoreCase = true)) return false
+    return true
+}
+
+private fun isScheduleDump(text: String): Boolean {
+    val lower = text.lowercase()
+    return "schedule:" in lower || "cron:" in lower || text.count { it == '|' } >= 2
+}
+
+private val commandLead = Regex(
+    """(?i)(?:^(?:[•·●]\s*)?%\s+\$:\s*|^(?:[•·●]\s*)?\$:\s*|^(?:cursor|claude|codex|gemini|agent|pi|opencode)\s+\w+\s*[:：]\s*)(.+)$""",
+)
+
+/** File name for the diff card header. Empty paths stay the literal `file`. */
+public fun diffFileTitle(path: String?): String {
+    val raw = path?.trim()?.trimEnd('/').orEmpty()
+    if (raw.isEmpty()) return "file"
+    return raw.substringAfterLast('/').ifBlank { "file" }
+}
+
+/** Parent path shown on the right of the diff header, such as `shared/commonMain`. */
+public fun diffModulePath(path: String?): String? {
+    val raw = path?.trim()?.trimEnd('/').orEmpty()
+    if (raw.isEmpty() || '/' !in raw) return null
+    return raw.substringBeforeLast('/').ifBlank { null }
+}
+
+/**
+ * A unified diff that should replace a grey code bubble.
+ * Returns empty unless the text itself starts as a diff, so a markdown list stays prose.
+ */
+public fun structuredDiffFiles(text: String): List<DiffFileView> {
+    val first = text.lineSequence().firstOrNull { it.isNotBlank() }?.trimStart() ?: return emptyList()
+    val headed = first.startsWith("diff --git ") ||
+        first.startsWith("@@") ||
+        first.startsWith("--- a/") ||
+        first.startsWith("+++ ")
+    if (!headed) return emptyList()
+    return parseDiffFiles(text)
+}
+
+/** Splits one code line into Xcode-style tokens. The concatenation of [text] is the line. */
+public fun highlightCode(text: String): List<CodeToken> {
+    if (text.isEmpty()) return emptyList()
+    val out = mutableListOf<CodeToken>()
+    var index = 0
+    fun emit(kind: CodeTokenKind, start: Int, end: Int) {
+        if (end > start) out += CodeToken(kind, text.substring(start, end))
+    }
+    while (index < text.length) {
+        val c = text[index]
+        if (c == '/' && index + 1 < text.length && text[index + 1] == '/') {
+            emit(CodeTokenKind.Comment, index, text.length)
+            break
+        }
+        if (c == '/' && index + 1 < text.length && text[index + 1] == '*') {
+            val close = text.indexOf("*/", index + 2)
+            val end = if (close < 0) text.length else close + 2
+            emit(CodeTokenKind.Comment, index, end)
+            index = end
+            continue
+        }
+        if (c == '"' || c == '\'') {
+            val end = scanString(text, index, c)
+            emit(CodeTokenKind.String, index, end)
+            index = end
+            continue
+        }
+        if (c.isDigit()) {
+            var end = index + 1
+            while (end < text.length && (text[end].isDigit() || text[end] == '_')) end++
+            if (end < text.length && text[end] == '.' && end + 1 < text.length && text[end + 1].isDigit()) {
+                end++
+                while (end < text.length && text[end].isDigit()) end++
+            }
+            emit(CodeTokenKind.Number, index, end)
+            index = end
+            continue
+        }
+        if (c.isLetter() || c == '_') {
+            var end = index + 1
+            while (end < text.length && (text[end].isLetterOrDigit() || text[end] == '_')) end++
+            val word = text.substring(index, end)
+            val kind = when {
+                word in CODE_KEYWORDS -> CodeTokenKind.Keyword
+                word.first().isUpperCase() -> CodeTokenKind.Type
+                else -> CodeTokenKind.Plain
+            }
+            emit(kind, index, end)
+            index = end
+            continue
+        }
+        if (c == '/') {
+            emit(CodeTokenKind.Plain, index, index + 1)
+            index++
+            continue
+        }
+        var end = index + 1
+        while (end < text.length) {
+            val ch = text[end]
+            if (ch.isLetterOrDigit() || ch == '_' || ch == '"' || ch == '\'' || ch == '/') break
+            end++
+        }
+        emit(CodeTokenKind.Plain, index, end)
+        index = end
+    }
+    return out
 }
 
 /** `true` marks a failed cell. The list is always [TEST_BAR_CELLS] long. */
@@ -183,6 +405,30 @@ internal fun unifiedDiff(path: String, oldText: String, newText: String): String
 
 private const val HUNK_CONTEXT: Int = 3
 private const val MAX_DIFF_LINES: Int = 80
+
+private val CODE_KEYWORDS = setOf(
+    "class", "object", "interface", "enum", "struct", "protocol", "extension", "fun", "func",
+    "val", "var", "let", "const", "function", "return", "if", "else", "when", "for", "while",
+    "do", "switch", "case", "default", "break", "continue", "try", "catch", "throw", "throws",
+    "import", "package", "from", "export", "public", "private", "internal", "protected",
+    "fileprivate", "open", "static", "final", "abstract", "override", "data", "sealed",
+    "companion", "suspend", "inline", "expect", "actual", "null", "nil", "true", "false",
+    "this", "self", "super", "init", "new", "typeof", "instanceof", "async", "await", "yield",
+    "in", "is", "as", "of", "where", "guard", "defer", "some", "any", "get", "set",
+)
+
+private fun scanString(text: String, start: Int, quote: Char): Int {
+    var index = start + 1
+    while (index < text.length) {
+        if (text[index] == '\\' && index + 1 < text.length) {
+            index += 2
+            continue
+        }
+        if (text[index] == quote) return index + 1
+        index++
+    }
+    return text.length
+}
 
 private val durationPattern =
     Regex("""(?<!\w)(\d+(?:\.\d+)?)(\s*)(ms|s|秒)(?!\w)""", RegexOption.IGNORE_CASE)

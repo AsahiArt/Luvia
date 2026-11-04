@@ -143,6 +143,62 @@ class ThreadTest {
     }
 
     @Test
+    fun labeledToolsAndDiffsLeaveProse() {
+        val raw =
+            "先看现有代码。\n" +
+                "Read the notes before editing.\n" +
+                "Cursor shell: git status\n" +
+                "  On branch main\n" +
+                "Read shared/src/Pairing.kt\n" +
+                "  22 lines\n" +
+                "diff --git a/shared/commonMain/ReconnectPolicy.kt b/shared/commonMain/ReconnectPolicy.kt\n" +
+                "--- a/shared/commonMain/ReconnectPolicy.kt\n" +
+                "+++ b/shared/commonMain/ReconnectPolicy.kt\n" +
+                "@@ -12,2 +12,3 @@\n" +
+                " class ReconnectPolicy(\n" +
+                "-    fun retry()\n" +
+                "+    fun reconnect()\n" +
+                "+    fun backoff()\n" +
+                "准备跑测试。\n"
+        val items = PaneTimeline().ingestTranscript(raw).items
+        val prose = items[0] as TimelineItem.Output
+        assertTrue(prose.text.contains("先看现有代码"))
+        assertTrue(prose.text.contains("Read the notes"))
+        val shell = items[1] as TimelineItem.Tool
+        assertEquals("bash", shell.call.kind)
+        assertTrue(shell.call.title.contains("Cursor shell"))
+        assertTrue(shell.call.summary!!.contains("On branch main"))
+        val read = items[2] as TimelineItem.Tool
+        assertEquals("read", read.call.kind)
+        val edit = items[3] as TimelineItem.Tool
+        assertEquals("edit", edit.call.kind)
+        val file = toolTrailView(edit.call).diffs.single()
+        assertEquals("shared/commonMain/ReconnectPolicy.kt", file.path)
+        assertEquals(2, file.additions)
+        assertEquals(1, file.deletions)
+        assertEquals(13, file.lines.first { it.marker == "-" }.oldNumber)
+        assertEquals("准备跑测试。", (items[4] as TimelineItem.Output).text)
+    }
+
+    @Test
+    fun percentDollarShellLeavesTheProseBubble() {
+        val raw =
+            "先提交。\n" +
+                "% \$: git add README.org android/apk-device-install/SKILL.md && git commit → done\n" +
+                "已提交。\n"
+        val items = PaneTimeline().ingestTranscript(raw).items
+        val prose = items.filterIsInstance<TimelineItem.Output>().joinToString("\n") { it.text }
+        assertTrue(!prose.contains("% \$:"))
+        assertTrue(!prose.contains("git add"))
+        assertTrue(prose.contains("先提交。"))
+        assertTrue(prose.contains("已提交。"))
+        val tool = items.filterIsInstance<TimelineItem.Tool>().single()
+        assertEquals("bash", tool.call.kind)
+        assertEquals("git", runChipLabel(tool.call.title, tool.call.summary))
+        assertTrue(runChipLabel(tool.call.title, tool.call.summary).length <= RUN_CHIP_LIMIT)
+    }
+
+    @Test
     fun transcriptKeepsNerdGlyphs() {
         val t = PaneTimeline().ingestTranscript("\u001B[32m\uE0A0 main\u001B[0m \u25CF ok\n")
         assertEquals("\uE0A0 main \u25CF ok", (t.items.single() as TimelineItem.Output).text)
