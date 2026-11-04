@@ -8,6 +8,12 @@ private enum HomeTab: Hashable {
     case settings
 }
 
+private extension SessionListView {
+    static let decide = Color(hex: "FF9500")
+    static let done = Color(hex: "34C759")
+    static let segmentTrack = Color(red: 120 / 255, green: 120 / 255, blue: 128 / 255).opacity(0.12)
+}
+
 struct SessionListView: View {
     @Bindable var model: AppModel
     var threads: [AgentThread]
@@ -43,7 +49,7 @@ struct SessionListView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color(.systemBackground))
+        .background(tab == .sessions ? Color(.systemGroupedBackground) : Color(.systemBackground))
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if showsChrome { homeTabBar }
         }
@@ -64,27 +70,29 @@ struct SessionListView: View {
                 if waitingCount > 0 {
                     HStack {
                         Button("\(waitingCount) 个待你决定") { onFilter(.needsYou) }
+                            .foregroundStyle(Self.decide)
                         Spacer()
                         Button("全部") { onFilter(.all) }
+                            .foregroundStyle(Color.blue)
                     }
                     .font(.subheadline.weight(.semibold))
-                    .tint(.blue)
-                    .padding(.horizontal, 16)
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 20)
                     .padding(.top, 4)
                 }
                 if !visiblePending.isEmpty && filter != .running && filter != .idle {
                     stackedDecisions
                 }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        filterChip("全部 \(agentCount)", .all)
-                        filterChip("等你 \(waitingCount)", .needsYou)
-                        filterChip("运行 \(runningCount)", .running)
-                        filterChip("空闲 \(idleCount)", .idle)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                HStack(spacing: 0) {
+                    filterChip("全部 \(agentCount)", .all)
+                    filterChip("等你 \(waitingCount)", .needsYou)
+                    filterChip("运行 \(runningCount)", .running)
+                    filterChip("空闲 \(idleCount)", .idle)
                 }
+                .padding(3)
+                .background(Self.segmentTrack, in: Capsule())
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
             if shown.isEmpty {
                 ContentUnavailableView(
@@ -95,7 +103,7 @@ struct SessionListView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(shown, id: \.id) { thread in
+                        ForEach(Array(shown.enumerated()), id: \.element.id) { index, thread in
                             // Plain Button gestures inside this scroll view win hits on the
                             // tab bar. A bounded tap stays inside the row.
                             sessionRow(thread)
@@ -104,12 +112,19 @@ struct SessionListView: View {
                                 .accessibilityElement(children: .combine)
                                 .accessibilityAddTraits(.isButton)
                                 .accessibilityAction { onOpen(thread) }
-                            Divider().padding(.leading, 72)
+                            if index < shown.count - 1 {
+                                Divider().padding(.leading, 84)
+                            }
                         }
                     }
+                    .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
                 }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color(.systemGroupedBackground))
     }
 
     private var machines: some View {
@@ -216,7 +231,7 @@ struct SessionListView: View {
                         .fill(dotColor(host?.connection))
                         .frame(width: 8, height: 8)
                     Text(host?.name ?? "没有电脑")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.subheadline.weight(.semibold).monospaced())
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
                         .font(.caption.weight(.semibold))
@@ -252,7 +267,7 @@ struct SessionListView: View {
                 .font(.largeTitle.bold())
             Spacer(minLength: 12)
             Text(statsLine)
-                .font(.subheadline)
+                .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.trailing)
         }
@@ -392,211 +407,304 @@ struct SessionListView: View {
     }
 
     private func sessionRow(_ thread: AgentThread) -> some View {
-        let thumb = trails[thread.id]
-        let kinds: [ToolTrailKind] = thumb.map { KotlinLists.array($0.kinds as Any) } ?? []
-        return HStack(alignment: .top, spacing: 12) {
+        let trail = SessionListKt.listTrail(thread: thread, thumb: trails[thread.id])
+        let dots: [ListTrailDot] = KotlinLists.array(trail.dots as Any)
+        let label = trail.label?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return HStack(alignment: .top, spacing: 8) {
+            Circle()
+                .fill(thread.needsYou ? Color.blue : Color.clear)
+                .frame(width: 9, height: 9)
+                .padding(.top, 16)
             agentAvatar(thread)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(thread.title)
-                        .font(.headline)
+                        .font(.system(size: 16, weight: .semibold))
                         .lineLimit(1)
-                    Spacer()
+                    Spacer(minLength: 4)
                     if let age = sessionAge(thread.updatedEpochMs) {
                         Text(age)
-                            .font(.caption)
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.tertiary)
                 }
-                Text(rowSubtitle(thread))
-                    .font(.caption)
-                    .foregroundStyle(statusColor(thread))
-                if let detail = thumb?.label ?? thread.summary, !detail.isEmpty {
-                    Text(detail)
-                        .font(thumb == nil ? .subheadline : .caption.monospaced())
-                        .lineLimit(2)
+                HStack(spacing: 4) {
+                    if let agent = agentName(thread) {
+                        Text(agent)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.primary)
+                        Text("·")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(rowStatus(thread))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(statusColor(thread))
+                    Spacer(minLength: 4)
+                    if !dots.isEmpty {
+                        trailDots(dots)
+                    }
                 }
-                if model.selectedHost?.connection == .live && isWorking(thread.status) {
-                    if let fraction = progressFraction(thumb) {
+                if let label, !label.isEmpty {
+                    Text(label)
+                        .font(trail.useMono ? .subheadline.monospaced() : .subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if showsLiveStatus(thread) && isWorking(thread.status) {
+                    if let fraction = progressFraction(trail.progressPermille) {
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
-                                Capsule().fill(Color.blue.opacity(0.18))
-                                Capsule().fill(Color.blue).frame(width: geo.size.width * fraction)
+                                Capsule().fill(Color.blue.opacity(0.16))
+                                Capsule().fill(Color.blue).frame(width: max(0, geo.size.width * fraction))
                             }
                         }
                         .frame(height: 4)
+                        .padding(.top, 5)
                     } else {
                         ProgressView()
                             .progressViewStyle(.linear)
                             .tint(.blue)
-                    }
-                }
-                if !kinds.isEmpty {
-                    HStack(spacing: 4) {
-                        ForEach(Array(kinds.enumerated()), id: \.offset) { _, kind in
-                            RoundedRectangle(cornerRadius: kind == .run ? 2 : 4, style: .continuous)
-                                .fill(trailColor(kind))
-                                .frame(width: 8, height: 8)
-                        }
+                            .padding(.top, 5)
                     }
                 }
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.leading, 8)
+        .padding(.trailing, 16)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
     }
 
-    private func rowSubtitle(_ thread: AgentThread) -> String {
-        let status = rowStatus(thread)
-        let agent = thread.agentType ?? ""
-        if agent.isEmpty { return status }
-        return "\(agent) · \(status)"
+    private func agentName(_ thread: AgentThread) -> String? {
+        let agent = thread.agentType?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let agent, !agent.isEmpty { return agent }
+        return nil
     }
 
     private func rowStatus(_ thread: AgentThread) -> String {
-        if model.selectedHost?.connection == .live {
-            return sessionLabel(thread.status)
-        }
-        return "缓存"
+        if !showsLiveStatus(thread) { return "缓存" }
+        if thread.needsYou { return "等你" }
+        return sessionLabel(thread.status)
+    }
+
+    private func showsLiveStatus(_ thread: AgentThread) -> Bool {
+        if model.selectedHost?.connection == .live { return true }
+        #if DEBUG
+        if PlaytestChatKt.isPlaytestThread(id: thread.id) { return true }
+        #endif
+        return false
+    }
+
+    private func canAnswer(_ thread: AgentThread) -> Bool {
+        if model.selectedHost?.isController == true { return true }
+        #if DEBUG
+        if PlaytestChatKt.isPlaytestThread(id: thread.id) { return true }
+        #endif
+        return false
     }
 
     private func statusColor(_ thread: AgentThread) -> Color {
-        if model.selectedHost?.connection != .live { return .secondary }
-        if isWorking(thread.status) || isDone(thread.status) { return .green }
-        if thread.ask != nil { return .blue }
+        if !showsLiveStatus(thread) { return .secondary }
+        if thread.needsYou { return Self.decide }
+        if isWorking(thread.status) { return .blue }
+        if isDone(thread.status) { return Self.done }
         return .secondary
     }
 
     private var stackedDecisions: some View {
-        ZStack {
-            if visiblePending.count > 1 {
-                decisionCard(visiblePending[1], interactive: false)
-                    .padding(.horizontal, 28)
-                    .offset(y: 18)
-                    .opacity(0.55)
-                    .allowsHitTesting(false)
+        ZStack(alignment: .bottom) {
+            if visiblePending.count > 2 {
+                stackRim(inset: 28, opacity: 0.15)
+                    .offset(y: 20)
             }
-            decisionCard(visiblePending[0], interactive: true)
+            if visiblePending.count > 1 {
+                stackRim(inset: 14, opacity: 0.28)
+                    .offset(y: 10)
+            }
+            decisionCard(visiblePending[0])
                 .padding(.horizontal, 16)
         }
-        .padding(.bottom, visiblePending.count > 1 ? 28 : 8)
+        .padding(.bottom, visiblePending.count > 1 ? 24 : 8)
         .padding(.top, 8)
     }
 
-    private func decisionCard(_ thread: AgentThread, interactive: Bool) -> some View {
+    private func stackRim(inset: CGFloat, opacity: Double) -> some View {
+        RoundedRectangle(cornerRadius: 26, style: .continuous)
+            .fill(Color(.systemBackground))
+            .overlay(
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .stroke(Self.decide.opacity(opacity), lineWidth: 1)
+            )
+            .frame(height: 36)
+            .padding(.horizontal, 16 + inset)
+            .allowsHitTesting(false)
+    }
+
+    private func decisionCard(_ thread: AgentThread) -> some View {
         let ask = thread.ask
         let options: [AskOption] = KotlinLists.array(ask?.options as Any)
         let primary = ask.flatMap { SessionListKt.recommendedOption(ask: $0) } ?? options.first
         let secondary = options.first { $0.label != primary?.label }
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 10) {
-                agentAvatar(thread)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text([thread.agentType, thread.title].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
-                        .font(.subheadline.weight(.semibold))
+            HStack(alignment: .center, spacing: 8) {
+                agentAvatar(thread, diameter: 26)
+                HStack(spacing: 0) {
+                    if let agent = agentName(thread) {
+                        Text(agent)
+                            .font(.caption.monospaced())
+                        Text(" · ")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(thread.title)
+                        .font(.subheadline)
                         .lineLimit(1)
-                    if let age = sessionAge(thread.updatedEpochMs) {
-                        Text(age).font(.caption).foregroundStyle(.secondary)
-                    }
                 }
-                Spacer()
-                if interactive {
-                    Button {
-                        onOpen(thread)
-                    } label: {
-                        Image(systemName: "chevron.right")
-                            .font(.body.weight(.semibold))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("打开")
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 6)
+                if let age = sessionAge(thread.updatedEpochMs) {
+                    Text(age)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
             Text(ask?.question ?? thread.title)
-                .font(.headline)
+                .font(.system(size: 18, weight: .semibold))
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-                .onTapGesture {
-                    if interactive { onOpen(thread) }
+                .onTapGesture { onOpen(thread) }
+            HStack(spacing: 8) {
+                if let primary {
+                    Button(primary.label) { onAnswer(thread, primary) }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Self.decide)
+                        .disabled(!canAnswer(thread))
+                        .lineLimit(1)
                 }
-            if interactive {
-                HStack {
-                    if let primary {
-                        Button(primary.label) { onAnswer(thread, primary) }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.blue)
-                            .disabled(model.selectedHost?.isController != true)
-                    }
-                    if let secondary {
-                        Button(secondary.label) { onAnswer(thread, secondary) }
-                            .buttonStyle(.bordered)
-                            .tint(.secondary)
-                            .disabled(model.selectedHost?.isController != true)
-                    }
+                if let secondary {
+                    Button(secondary.label) { onAnswer(thread, secondary) }
+                        .buttonStyle(.bordered)
+                        .tint(secondary.tone == .destructive ? Color.red : Self.decide)
+                        .disabled(!canAnswer(thread))
+                        .lineLimit(1)
                 }
+                Spacer(minLength: 0)
+                Button {
+                    onOpen(thread)
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 40, height: 40)
+                        .background(Self.segmentTrack, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("打开")
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .luviaGlass(in: RoundedRectangle(cornerRadius: 28, style: .continuous), tint: .blue)
+        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(Self.decide.opacity(0.35), lineWidth: 1.5)
+        )
+        .shadow(color: .black.opacity(0.07), radius: 10, y: 4)
     }
 
     private func filterChip(_ title: String, _ value: SessionFilter) -> some View {
         let selected = filter == value
-        return Button(title) { onFilter(value) }
-            .font(.subheadline.weight(selected ? .semibold : .regular))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(selected ? Color(.systemBackground) : Color(.secondarySystemFill), in: Capsule())
-            .overlay(Capsule().stroke(Color.primary.opacity(selected ? 0.08 : 0), lineWidth: 1))
-            .buttonStyle(.plain)
-            .tint(selected ? .blue : .secondary)
+        return Button {
+            onFilter(value)
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(selected ? .semibold : .medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 7)
+                .background(selected ? Color(.systemBackground) : Color.clear, in: Capsule())
+                .shadow(color: selected ? .black.opacity(0.12) : .clear, radius: 3, y: 1)
+                .foregroundStyle(selected ? Color.primary : Color.secondary)
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
     }
 
-    private func agentAvatar(_ thread: AgentThread) -> some View {
-        let mark = SessionListKt.agentMark(agentType: thread.agentType, title: thread.title)
-        let slot = kotlinInt(SessionListKt.agentColorSlot(agentType: thread.agentType, title: thread.title)) ?? 0
+    private func agentAvatar(_ thread: AgentThread, diameter: CGFloat = 40) -> some View {
+        let avatar = SessionListKt.sessionAvatar(agentType: thread.agentType, name: thread.title)
+        let mark = avatar.mark
+        let fontSize = diameter <= 28 ? 10.0 : (mark.count > 1 ? 13.0 : 16.0)
         return Text(mark)
-            .font(.caption.weight(.bold))
-            .foregroundStyle(avatarInk(slot))
-            .frame(width: 40, height: 40)
-            .background(avatarFill(slot), in: Circle())
+            .font(.system(size: fontSize, weight: .bold))
+            .foregroundStyle(.white)
+            .minimumScaleFactor(0.6)
+            .lineLimit(1)
+            .frame(width: diameter, height: diameter)
+            .background(avatarGradient(avatar.palette), in: Circle())
+            .accessibilityLabel(mark)
     }
 
-    private func avatarFill(_ slot: Int) -> Color {
-        switch slot {
-        case 0: Color.blue.opacity(0.18)
-        case 1: Color.teal.opacity(0.2)
-        case 2: Color.green.opacity(0.18)
-        default: Color.gray.opacity(0.2)
+    private func avatarGradient(_ palette: AgentAvatarPalette) -> LinearGradient {
+        let pair: (Color, Color)
+        switch palette {
+        case .blue:
+            pair = (Color(hex: "5AC8FA"), Color(hex: "007AFF"))
+        case .orange:
+            pair = (Color(hex: "FFB340"), Color(hex: "FF9500"))
+        case .mint:
+            pair = (Color(hex: "66D4CF"), Color(hex: "00C7BE"))
+        case .gray:
+            pair = (Color(hex: "AEAEB2"), Color(hex: "8E8E93"))
+        case .teal:
+            pair = (Color(hex: "5EEAD4"), Color(hex: "0F766E"))
+        case .purple:
+            pair = (Color(hex: "D8B4FE"), Color(hex: "7C3AED"))
+        case .green:
+            pair = (Color(hex: "86EFAC"), Color(hex: "16A34A"))
+        case .indigo:
+            pair = (Color(hex: "A5B4FC"), Color(hex: "4338CA"))
+        case .pink:
+            pair = (Color(hex: "F9A8D4"), Color(hex: "EC4899"))
+        case .brown:
+            pair = (Color(hex: "D6B39A"), Color(hex: "A47148"))
+        default:
+            pair = (Color(hex: "AEAEB2"), Color(hex: "8E8E93"))
+        }
+        return LinearGradient(colors: [pair.0, pair.1], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    private func trailDots(_ dots: [ListTrailDot]) -> some View {
+        HStack(spacing: 2.5) {
+            ForEach(Array(dots.enumerated()), id: \.offset) { _, dot in
+                let wide = dot == .run || dot == .decide
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(trailColor(dot))
+                    .frame(width: wide ? 12 : 6, height: 6)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func trailColor(_ dot: ListTrailDot) -> Color {
+        switch dot {
+        case .read: Color(hex: "007AFF")
+        case .edit: Color(hex: "34C759")
+        case .run: Color(hex: "FF3B30")
+        case .decide: Self.decide
+        default: Color(hex: "8E8E93")
         }
     }
 
-    private func avatarInk(_ slot: Int) -> Color {
-        switch slot {
-        case 0: .blue
-        case 1: .teal
-        case 2: .green
-        default: .secondary
-        }
-    }
-
-    private func trailColor(_ kind: ToolTrailKind) -> Color {
-        switch kind {
-        case .read: .blue
-        case .edit: .teal
-        case .run: .red
-        default: .gray
-        }
-    }
-
-    private func progressFraction(_ thumb: TrailThumb?) -> CGFloat? {
-        guard let thumb, let value = kotlinInt(thumb.progressPermille) else { return nil }
+    private func progressFraction(_ permille: Any?) -> CGFloat? {
+        guard let value = kotlinInt(permille) else { return nil }
         return CGFloat(value) / 1000
     }
 

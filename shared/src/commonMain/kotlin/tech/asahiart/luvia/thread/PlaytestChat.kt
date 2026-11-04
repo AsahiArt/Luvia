@@ -16,7 +16,8 @@ public const val PLAYTEST_DECIDE_ID: String = "playtest-decide"
 public const val PLAYTEST_NEXT_ID: String = "playtest-next"
 
 public fun isPlaytestThread(id: String): Boolean =
-    id == PLAYTEST_DIFF_ID || id == PLAYTEST_DECIDE_ID || id == PLAYTEST_NEXT_ID
+    id == PLAYTEST_DIFF_ID || id == PLAYTEST_DECIDE_ID || id == PLAYTEST_NEXT_ID ||
+        isPlaytestListThread(id)
 
 public fun playtestThreads(): List<AgentThread> = listOf(diffThread, decideThread, nextThread)
 

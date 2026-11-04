@@ -11,6 +11,7 @@ import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.HostUhpState
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -163,6 +164,159 @@ class SessionListTest {
     }
 
     @Test
+    fun sessionAvatarSeparatesKnownAgentsFromGenericRuntimes() {
+        assertEquals(AgentAvatar("C", AgentAvatarPalette.Blue), sessionAvatar("codex", "修复 UHP"))
+        assertEquals(AgentAvatar("C", AgentAvatarPalette.Blue), sessionAvatar("Codex", "other title"))
+        assertEquals(AgentAvatar("CC", AgentAvatarPalette.Orange), sessionAvatar("claude-code", "重构"))
+        assertEquals(AgentAvatar("CC", AgentAvatarPalette.Orange), sessionAvatar("Claude Code", "x"))
+        assertEquals(AgentAvatar("CC", AgentAvatarPalette.Orange), sessionAvatar("claude", "x"))
+        assertEquals(AgentAvatar("O", AgentAvatarPalette.Mint), sessionAvatar("opencode", "终端"))
+        assertEquals(AgentAvatar("O", AgentAvatarPalette.Mint), sessionAvatar("open_code", "终端"))
+        assertEquals(AgentAvatar("G", AgentAvatarPalette.Gray), sessionAvatar("gemini", "迁移"))
+        assertEquals(AgentAvatar("C", AgentAvatarPalette.Blue), sessionAvatar("pi", "codex"))
+        val skills = sessionAvatar("pi", "skills")
+        val proxy = sessionAvatar("pi", "proxy")
+        assertEquals("S", skills.mark)
+        assertEquals("P", proxy.mark)
+        assertEquals(skills, sessionAvatar("PI", "skills"))
+        assertTrue(skills.palette !in reservedPalettes)
+        assertTrue(proxy.palette !in reservedPalettes)
+        assertEquals("CE", sessionAvatar("pi", "cat-emacs").mark)
+        assertEquals(sessionAvatar("pi", "cat-emacs").palette, sessionAvatar("pi", "cat-emacs").palette)
+        val grok = sessionAvatar("grok", "Compose")
+        assertEquals("G", grok.mark)
+        assertEquals(grok.palette, sessionAvatar("grok", "other title").palette)
+        assertTrue(grok.palette !in reservedPalettes)
+        assertEquals(AgentAvatar("?", AgentAvatarPalette.Gray), sessionAvatar("  ", " "))
+        assertEquals("P", agentMark("pi", "skills"))
+        assertEquals(agentColorSlot("codex", "x"), agentColorSlot("codex", "y"))
+    }
+
+    @Test
+    fun listTrailShowsQuestionMeterOrSummary() {
+        val thumb = trailThumb(
+            listOf(
+                AcpToolCall("r", "Read TokenStore.kt", "read", AcpToolStatus.Completed, null),
+                AcpToolCall("x", "allTests", "shell", AcpToolStatus.Failed, "96/128"),
+            ),
+        )
+        val waiting = thread(
+            "a",
+            AgentStatus.Blocked,
+            ask = Ask("要把 TokenStore 拆成两个 actual 吗？", emptyList()),
+        ).copy(summary = "old summary")
+        val waitingTrail = listTrail(waiting, thumb)
+        assertEquals("要把 TokenStore 拆成两个 actual 吗？", waitingTrail.label)
+        assertEquals(listOf(ListTrailDot.Read, ListTrailDot.Run, ListTrailDot.Decide), waitingTrail.dots)
+        assertFalse(waitingTrail.useMono)
+        assertNull(waitingTrail.progressPermille)
+
+        val running = thread("b", AgentStatus.Working).copy(summary = "正在改 ReconnectPolicy")
+        val runningTrail = listTrail(running, thumb)
+        assertEquals("allTests · 96/128", runningTrail.label)
+        assertEquals(listOf(ListTrailDot.Read, ListTrailDot.Run), runningTrail.dots)
+        assertTrue(runningTrail.useMono)
+        assertEquals(750, runningTrail.progressPermille)
+
+        val done = thread("g", AgentStatus.Done).copy(summary = "12 个文件变更，等你 review。")
+        val doneTrail = listTrail(done, thumb)
+        assertEquals("12 个文件变更，等你 review。", doneTrail.label)
+        assertEquals(listOf(ListTrailDot.Read, ListTrailDot.Run), doneTrail.dots)
+        assertFalse(doneTrail.useMono)
+        assertNull(doneTrail.progressPermille)
+    }
+
+    @Test
+    fun summaryTrailDoesNotInventToolsFromProse() {
+        assertNull(summaryTrail(null))
+        assertNull(summaryTrail("12 个文件变更，等你 review。"))
+        assertNull(summaryTrail("正在改 ReconnectPolicy"))
+        val parsed = summaryTrail("Read Pairing.kt")
+        assertEquals("Read Pairing.kt", parsed?.label)
+        assertEquals(listOf(ToolTrailKind.Read), parsed?.kinds)
+        val fromSummary = listTrail(
+            thread("s", AgentStatus.Idle).copy(summary = "Read Pairing.kt"),
+            null,
+        )
+        assertEquals("Read Pairing.kt", fromSummary.label)
+        assertEquals(listOf(ListTrailDot.Read), fromSummary.dots)
+        assertFalse(fromSummary.useMono)
+    }
+
+    @Test
+    fun listTrailKeepsTheNewestDots() {
+        val calls = (1..8).map { index ->
+            AcpToolCall("r$index", "Read F$index.kt", "read", AcpToolStatus.Completed, null)
+        }
+        val thumb = trailThumb(calls, limit = 8)
+        val waiting = thread("w", AgentStatus.Blocked, ask = Ask("go?", emptyList()))
+        val dots = listTrail(waiting, thumb).dots
+        assertEquals(MAX_LIST_DOTS, dots.size)
+        assertEquals(ListTrailDot.Read, dots.first())
+        assertEquals(ListTrailDot.Decide, dots.last())
+    }
+
+    @Test
+    fun playtestListFixtureMatchesWowRows() {
+        val now = 1_700_000_100_000L
+        val threads = playtestListThreads(now)
+        assertEquals(4, threads.size)
+        assertEquals(3, playtestThreads().size)
+        assertEquals(listOf("codex", "claude-code", "opencode", "gemini"), threads.map { it.agentType })
+        val trails = playtestListTrails().associate { it.threadId to it.thumb }
+        val codex = threads.first { it.id == PLAYTEST_LIST_CODEX }
+        val claude = threads.first { it.id == PLAYTEST_LIST_CLAUDE }
+        val opencode = threads.first { it.id == PLAYTEST_LIST_OPENCODE }
+        val gemini = threads.first { it.id == PLAYTEST_LIST_GEMINI }
+        assertEquals(AgentStatus.Working, codex.status)
+        assertEquals("刚刚", sessionAgeLabel(codex.updatedEpochMs, now))
+        assertEquals("2 分钟", sessionAgeLabel(claude.updatedEpochMs, now))
+        assertEquals("9 分钟", sessionAgeLabel(opencode.updatedEpochMs, now))
+        assertEquals("1 小时", sessionAgeLabel(gemini.updatedEpochMs, now))
+        val codexTrail = listTrail(codex, trails[codex.id])
+        assertEquals("allTests · 96/128", codexTrail.label)
+        assertEquals(750, codexTrail.progressPermille)
+        assertEquals(
+            listOf(ListTrailDot.Other, ListTrailDot.Other, ListTrailDot.Read, ListTrailDot.Read, ListTrailDot.Run),
+            codexTrail.dots,
+        )
+        assertEquals(AgentAvatarPalette.Blue, sessionAvatar(codex.agentType, codex.title).palette)
+        val claudeTrail = listTrail(claude, trails[claude.id])
+        assertTrue(claudeTrail.label!!.contains("TokenStore"))
+        assertEquals(ListTrailDot.Decide, claudeTrail.dots.last())
+        assertEquals(
+            listOf(ListTrailDot.Other, ListTrailDot.Read, ListTrailDot.Read, ListTrailDot.Run, ListTrailDot.Decide),
+            claudeTrail.dots,
+        )
+        assertEquals("拆成两个", claude.ask?.options?.first()?.label)
+        assertEquals(AgentAvatar("CC", AgentAvatarPalette.Orange), sessionAvatar(claude.agentType, claude.title))
+        val opencodeTrail = listTrail(opencode, trails[opencode.id])
+        assertEquals(
+            listOf(ListTrailDot.Other, ListTrailDot.Other, ListTrailDot.Run, ListTrailDot.Decide),
+            opencodeTrail.dots,
+        )
+        assertEquals(AgentAvatar("O", AgentAvatarPalette.Mint), sessionAvatar(opencode.agentType, opencode.title))
+        val geminiTrail = listTrail(gemini, trails[gemini.id])
+        assertEquals("12 个文件变更，等你 review。", geminiTrail.label)
+        assertFalse(geminiTrail.useMono)
+        assertEquals(
+            listOf(
+                ListTrailDot.Other,
+                ListTrailDot.Read,
+                ListTrailDot.Read,
+                ListTrailDot.Read,
+                ListTrailDot.Read,
+                ListTrailDot.Edit,
+            ),
+            geminiTrail.dots,
+        )
+        assertEquals(AgentAvatar("G", AgentAvatarPalette.Gray), sessionAvatar(gemini.agentType, gemini.title))
+        assertTrue(threads.all { isPlaytestListThread(it.id) && isPlaytestThread(it.id) })
+        assertFalse(isPlaytestThread("pane-1"))
+        assertFalse(isPlaytestListThread(PLAYTEST_DIFF_ID))
+    }
+
+    @Test
     fun acpTrailWithoutSessionIdStaysUnattached() {
         val state = HostUhpState(
             acp = AcpState(
@@ -182,6 +336,13 @@ class SessionListTest {
         )
         assertTrue(threadTrails(state, threads).isEmpty())
     }
+
+    private val reservedPalettes = setOf(
+        AgentAvatarPalette.Blue,
+        AgentAvatarPalette.Orange,
+        AgentAvatarPalette.Mint,
+        AgentAvatarPalette.Gray,
+    )
 
     private fun thread(
         id: String,

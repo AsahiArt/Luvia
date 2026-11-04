@@ -124,13 +124,7 @@ public fun searchSessions(threads: List<AgentThread>, query: String): List<Agent
 public fun agentMark(agentType: String?, title: String): String {
     val source = agentType?.trim()?.takeIf { it.isNotEmpty() } ?: title.trim()
     if (source.isEmpty()) return "?"
-    val parts = source.split(Regex("[\\s._-]+")).filter { it.isNotEmpty() }
-    val letters = if (parts.size >= 2) {
-        "${parts[0].first()}${parts[1].first()}"
-    } else {
-        source.first().toString()
-    }
-    return letters.uppercase()
+    return shortInitials(source)
 }
 
 /** Stable 0..3 slot so a given agent keeps the same avatar color. */
@@ -140,6 +134,50 @@ public fun agentColorSlot(agentType: String?, title: String): Int {
     var sum = 0
     for (ch in key) sum += ch.code
     return sum % 4
+}
+
+/**
+ * Palette for a session avatar. The four product colors are reserved.
+ * Anything else hashes into the remaining colors so two unknown agents
+ * do not impersonate codex, claude-code, opencode, or gemini.
+ */
+public enum class AgentAvatarPalette {
+    Blue,
+    Orange,
+    Mint,
+    Gray,
+    Teal,
+    Purple,
+    Green,
+    Indigo,
+    Pink,
+    Brown,
+}
+
+/** Initials plus a stable color. Android can adopt this later; iOS draws it. */
+public data class AgentAvatar(
+    public val mark: String,
+    public val palette: AgentAvatarPalette,
+)
+
+/**
+ * Avatar for one session row.
+ *
+ * Known products win on the agent id (`codex` → C blue, `claude-code` → CC orange,
+ * `opencode` → O mint, `gemini` → G gray). A generic runtime such as `pi` is not
+ * an identity: the session name supplies the initials and the color hash.
+ * Unknown specific agents use their own name, not the session title.
+ */
+public fun sessionAvatar(agentType: String?, name: String): AgentAvatar {
+    val typeKey = agentKey(agentType)
+    knownAvatar(typeKey)?.let { return it }
+    val nameKey = agentKey(name)
+    if (typeKey.isEmpty() || typeKey in genericAgentTypes) {
+        knownAvatar(nameKey)?.let { return it }
+        val source = name.trim().ifEmpty { agentType?.trim().orEmpty() }
+        return hashedAvatar(source)
+    }
+    return hashedAvatar(agentType?.trim().orEmpty())
 }
 
 /**
@@ -191,6 +229,69 @@ public fun trailThumb(calls: List<AcpToolCall>, limit: Int = 5): TrailThumb? {
     return TrailThumb(label, recent.map { toolTrailKind(it.kind, it.title) }, progress)
 }
 
+/** How many trajectory dots fit on a session row. Newest steps stay. */
+public const val MAX_LIST_DOTS: Int = 6
+
+/** List-density trail mark. Decide is a waiting row, not a tool the host sent. */
+public enum class ListTrailDot { Read, Edit, Run, Decide, Other }
+
+/**
+ * What one session row can show under the title: a recent step, its dots,
+ * and a progress fraction when a running meter is already known.
+ */
+public data class ListTrail(
+    public val label: String?,
+    public val dots: List<ListTrailDot>,
+    public val progressPermille: Int?,
+    /** True when [label] is a `passed/total` tool line and should be monospaced. */
+    public val useMono: Boolean,
+)
+
+/**
+ * A tool line already stored as the session summary. Prose stays prose:
+ * this returns null instead of inventing a read, edit, or run.
+ */
+public fun summaryTrail(summary: String?): TrailThumb? {
+    if (summary.isNullOrBlank()) return null
+    val tools = splitPaneTranscript(summary.lines()).filterIsInstance<PanePiece.Tool>()
+    if (tools.isEmpty()) return null
+    val calls = tools.mapIndexed { index, tool ->
+        AcpToolCall(
+            toolCallId = "s$index",
+            title = tool.title,
+            kind = tool.kind,
+            status = tool.status,
+            summary = tool.detail,
+        )
+    }
+    return trailThumb(calls, limit = MAX_LIST_DOTS)
+}
+
+/**
+ * Row subtitle and dots. A pending question wins the subtitle. A running
+ * meter wins over prose. Dots come only from tool calls the phone already
+ * has, plus one decide mark when the thread is waiting.
+ */
+public fun listTrail(thread: AgentThread, thumb: TrailThumb?): ListTrail {
+    val derived = thumb ?: summaryTrail(thread.summary)
+    val dots = mutableListOf<ListTrailDot>()
+    derived?.kinds?.mapTo(dots) { it.asListDot() }
+    if (thread.needsYou) dots += ListTrailDot.Decide
+    val shown = if (dots.size > MAX_LIST_DOTS) dots.takeLast(MAX_LIST_DOTS) else dots
+    val question = thread.ask?.question?.trim()?.takeIf { it.isNotEmpty() }
+    val toolLabel = derived?.label?.trim()?.takeIf { it.isNotEmpty() }
+    val prose = thread.summary?.trim()?.takeIf { it.isNotEmpty() }
+    val progress = if (thread.status == AgentStatus.Working) derived?.progressPermille else null
+    val label = when {
+        question != null -> question
+        progress != null && toolLabel != null -> toolLabel
+        prose != null -> prose
+        else -> toolLabel
+    }
+    val useMono = toolLabel != null && label == toolLabel && derived.progressPermille != null
+    return ListTrail(label, shown, progress, useMono)
+}
+
 /**
  * Trail thumbs from transcripts the phone already holds. Does not read a pane
  * or an ACP session that is not the one currently open.
@@ -218,6 +319,76 @@ public fun threadTrails(state: HostUhpState, threads: List<AgentThread>): List<T
     }
     return found
 }
+
+private val genericAgentTypes = setOf(
+    "pi",
+    "agent",
+    "pane",
+    "shell",
+    "terminal",
+    "unknown",
+    "default",
+)
+
+private val hashedPalettes = listOf(
+    AgentAvatarPalette.Teal,
+    AgentAvatarPalette.Purple,
+    AgentAvatarPalette.Green,
+    AgentAvatarPalette.Indigo,
+    AgentAvatarPalette.Pink,
+    AgentAvatarPalette.Brown,
+)
+
+private fun knownAvatar(key: String): AgentAvatar? =
+    when (key) {
+        "codex" -> AgentAvatar("C", AgentAvatarPalette.Blue)
+        "claude-code", "claude" -> AgentAvatar("CC", AgentAvatarPalette.Orange)
+        "opencode", "open-code" -> AgentAvatar("O", AgentAvatarPalette.Mint)
+        "gemini" -> AgentAvatar("G", AgentAvatarPalette.Gray)
+        else -> null
+    }
+
+private fun hashedAvatar(source: String): AgentAvatar {
+    val trimmed = source.trim()
+    if (trimmed.isEmpty()) return AgentAvatar("?", AgentAvatarPalette.Gray)
+    return AgentAvatar(shortInitials(trimmed), hashPalette(agentKey(trimmed)))
+}
+
+private fun shortInitials(source: String): String {
+    val parts = source.split(Regex("[\\s._-]+")).filter { it.isNotEmpty() }
+    val letters = if (parts.size >= 2) {
+        "${parts[0].first()}${parts[1].first()}"
+    } else {
+        source.first().toString()
+    }
+    return letters.uppercase()
+}
+
+private fun agentKey(raw: String?): String {
+    if (raw.isNullOrBlank()) return ""
+    return raw.trim().lowercase().replace(Regex("[\\s._]+"), "-")
+}
+
+/** Stable across platforms. Reserved product colors are not in [hashedPalettes]. */
+private fun hashPalette(key: String): AgentAvatarPalette {
+    if (key.isEmpty()) return AgentAvatarPalette.Gray
+    var hash = 0
+    for (ch in key) {
+        hash = (hash * 33) + ch.code
+    }
+    val size = hashedPalettes.size
+    val mod = hash % size
+    val index = if (mod < 0) mod + size else mod
+    return hashedPalettes[index]
+}
+
+private fun ToolTrailKind.asListDot(): ListTrailDot =
+    when (this) {
+        ToolTrailKind.Read -> ListTrailDot.Read
+        ToolTrailKind.Edit -> ListTrailDot.Edit
+        ToolTrailKind.Run -> ListTrailDot.Run
+        ToolTrailKind.Other -> ListTrailDot.Other
+    }
 
 private fun hasWord(blob: String, word: String): Boolean {
     var from = 0

@@ -132,6 +132,9 @@ struct ContentView: View {
                     onFilter: { filter = $0 },
                     onOpen: open,
                     onAnswer: { thread, option in
+                        #if DEBUG
+                        if PlaytestChatKt.isPlaytestThread(id: thread.id) { return }
+                        #endif
                         model.uhpRegistry.answer(thread: thread, option: option)
                     },
                     onPair: {
@@ -183,7 +186,12 @@ struct ContentView: View {
         }
         #if DEBUG
         let samples: [AgentThread] = KotlinLists.array(PlaytestChatKt.playtestThreads() as Any)
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let listSamples: [AgentThread] = KotlinLists.array(
+            PlaytestListKt.playtestListThreads(nowEpochMs: now) as Any
+        )
         raw.append(contentsOf: samples)
+        raw.append(contentsOf: listSamples)
         #endif
         if raw.isEmpty { return [] }
         return KotlinLists.array(SessionListKt.sortSessions(threads: raw) as Any)
@@ -198,12 +206,19 @@ struct ContentView: View {
     }
 
     private var threadTrails: [String: TrailThumb] {
-        guard let id = model.selectedHostID, let state = model.hostStates[id] else { return [:] }
-        let rows: [ThreadTrail] = KotlinLists.array(SessionListKt.threadTrails(state: state, threads: allThreads) as Any)
         var map: [String: TrailThumb] = [:]
-        for row in rows {
+        if let id = model.selectedHostID, let state = model.hostStates[id] {
+            let rows: [ThreadTrail] = KotlinLists.array(SessionListKt.threadTrails(state: state, threads: allThreads) as Any)
+            for row in rows {
+                map[row.threadId] = row.thumb
+            }
+        }
+        #if DEBUG
+        let samples: [ThreadTrail] = KotlinLists.array(PlaytestListKt.playtestListTrails() as Any)
+        for row in samples where map[row.threadId] == nil {
             map[row.threadId] = row.thumb
         }
+        #endif
         return map
     }
 
@@ -223,8 +238,11 @@ struct ContentView: View {
 
     private func timeline(_ thread: AgentThread) -> [TimelineItem] {
         #if DEBUG
-        if let sample = PlaytestChatKt.playtestTimeline(id: thread.id) {
-            return KotlinLists.array(sample as Any)
+        if PlaytestChatKt.isPlaytestThread(id: thread.id) {
+            if let sample = PlaytestChatKt.playtestTimeline(id: thread.id) {
+                return KotlinLists.array(sample as Any)
+            }
+            return []
         }
         #endif
         return KotlinLists.array(model.hostUhp()?.timeline(thread: thread) as Any)
