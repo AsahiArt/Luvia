@@ -2,7 +2,112 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
-struct QRScannerView: UIViewControllerRepresentable {
+struct QRScannerView: View {
+    var onCode: (String) -> Void
+    var onUnavailable: () -> Void
+    var onCancel: () -> Void
+
+    var body: some View {
+        ZStack {
+            QRScannerRepresentable(onCode: onCode, onUnavailable: onUnavailable)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
+            scanChrome
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.ignoresSafeArea())
+        .presentationBackground(Color.black)
+        .preferredColorScheme(.dark)
+    }
+
+    private var scanChrome: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button(action: onCancel) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text("取消")
+                            .font(.system(size: 17, weight: .semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 44)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay {
+                        Capsule().stroke(Color.white.opacity(0.35), lineWidth: 0.6)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("取消")
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            Spacer(minLength: 0)
+            CornerBrackets()
+                .stroke(
+                    Color.white,
+                    style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
+                )
+                .shadow(color: .black.opacity(0.55), radius: 3, y: 1)
+                .frame(width: 248, height: 248)
+                .accessibilityHidden(true)
+            Text("对准电脑上的码")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.55), radius: 6, y: 1)
+                .padding(.top, 22)
+                .accessibilityAddTraits(.isStaticText)
+            Spacer(minLength: 0)
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct CornerBrackets: Shape {
+    var arm: CGFloat = 36
+    var radius: CGFloat = 18
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let r = min(radius, arm, rect.width / 2, rect.height / 2)
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + arm))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX + r, y: rect.minY),
+            control: CGPoint(x: rect.minX, y: rect.minY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + arm, y: rect.minY))
+
+        path.move(to: CGPoint(x: rect.maxX - arm, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX, y: rect.minY + r),
+            control: CGPoint(x: rect.maxX, y: rect.minY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + arm))
+
+        path.move(to: CGPoint(x: rect.maxX, y: rect.maxY - arm))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.maxX - r, y: rect.maxY),
+            control: CGPoint(x: rect.maxX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.maxX - arm, y: rect.maxY))
+
+        path.move(to: CGPoint(x: rect.minX + arm, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        path.addQuadCurve(
+            to: CGPoint(x: rect.minX, y: rect.maxY - r),
+            control: CGPoint(x: rect.minX, y: rect.maxY)
+        )
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - arm))
+        return path
+    }
+}
+
+private struct QRScannerRepresentable: UIViewControllerRepresentable {
     var onCode: (String) -> Void
     var onUnavailable: () -> Void
 
@@ -29,31 +134,39 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
 
     private let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "tech.asahiart.luvia.qr")
-    private var previewLayer: AVCaptureVideoPreviewLayer?
+    private var camera: AVCaptureDevice?
     private var didEmit = false
     private var configured = false
+    private var appeared = false
+
+    override func loadView() {
+        let host = CameraPreviewView()
+        host.videoLayer.session = session
+        host.videoLayer.videoGravity = .resizeAspectFill
+        host.backgroundColor = .black
+        view = host
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .black
         authorize()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        previewLayer?.frame = view.bounds
+        updateOrientation()
     }
 
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        sessionQueue.async { [weak self] in
-            guard let self, self.configured, !self.session.isRunning else { return }
-            self.session.startRunning()
-        }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        appeared = true
+        updateOrientation()
+        startIfNeeded()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        appeared = false
         tearDown()
     }
 
@@ -66,7 +179,7 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
 
     private func authorize() {
         guard AVCaptureDevice.default(for: .video) != nil else {
-            onUnavailable?()
+            reportUnavailable()
             return
         }
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -78,14 +191,14 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
                     if granted {
                         self?.configureSession()
                     } else {
-                        self?.onUnavailable?()
+                        self?.reportUnavailable()
                     }
                 }
             }
         case .denied, .restricted:
-            onUnavailable?()
+            reportUnavailable()
         @unknown default:
-            onUnavailable?()
+            reportUnavailable()
         }
     }
 
@@ -96,20 +209,22 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
             self.session.sessionPreset = .high
 
             guard
-                let device = AVCaptureDevice.default(for: .video),
+                let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+                    ?? AVCaptureDevice.default(for: .video),
                 let input = try? AVCaptureDeviceInput(device: device),
                 self.session.canAddInput(input)
             else {
                 self.session.commitConfiguration()
-                DispatchQueue.main.async { self.onUnavailable?() }
+                DispatchQueue.main.async { self.reportUnavailable() }
                 return
             }
             self.session.addInput(input)
+            self.camera = device
 
             let output = AVCaptureMetadataOutput()
             guard self.session.canAddOutput(output) else {
                 self.session.commitConfiguration()
-                DispatchQueue.main.async { self.onUnavailable?() }
+                DispatchQueue.main.async { self.reportUnavailable() }
                 return
             }
             self.session.addOutput(output)
@@ -119,18 +234,36 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
             }
             self.session.commitConfiguration()
             self.configured = true
-
             DispatchQueue.main.async {
-                let preview = AVCaptureVideoPreviewLayer(session: self.session)
-                preview.videoGravity = .resizeAspectFill
-                preview.frame = self.view.bounds
-                self.view.layer.insertSublayer(preview, at: 0)
-                self.previewLayer = preview
+                self.updateOrientation()
+                self.startIfNeeded()
             }
+        }
+    }
 
-            if !self.session.isRunning {
-                self.session.startRunning()
-            }
+    private func startIfNeeded() {
+        guard appeared, configured else { return }
+        sessionQueue.async { [weak self] in
+            guard let self, self.configured, !self.session.isRunning else { return }
+            self.session.startRunning()
+            DispatchQueue.main.async { self.updateOrientation() }
+        }
+    }
+
+    private func updateOrientation() {
+        guard let camera, let preview = (view as? CameraPreviewView)?.videoLayer else { return }
+        let coordinator = AVCaptureDevice.RotationCoordinator(device: camera, previewLayer: preview)
+        let angle = coordinator.videoRotationAngleForHorizonLevelPreview
+        guard let connection = preview.connection, connection.isVideoRotationAngleSupported(angle) else { return }
+        if connection.videoRotationAngle != angle {
+            connection.videoRotationAngle = angle
+        }
+    }
+
+    private func reportUnavailable() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.isBeingDismissed else { return }
+            self.onUnavailable?()
         }
     }
 
@@ -150,5 +283,13 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
         DispatchQueue.main.async { [weak self] in
             self?.onCode?(value)
         }
+    }
+}
+
+private final class CameraPreviewView: UIView {
+    override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+
+    var videoLayer: AVCaptureVideoPreviewLayer {
+        layer as! AVCaptureVideoPreviewLayer
     }
 }

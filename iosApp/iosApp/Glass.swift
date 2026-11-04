@@ -42,5 +42,5 @@ struct LuviaGlassContainer<Content: View>: View {
 }
 
 enum ChatPalette {
-    static let pairBackground = Color(hex: "070B16")
+    static let pairBackground = Color(hex: "03060C")
 }
