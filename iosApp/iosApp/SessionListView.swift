@@ -1,5 +1,6 @@
 import LuviaShared
 import SwiftUI
+import UIKit
 
 private enum HomeTab: Hashable {
     case sessions
@@ -28,6 +29,7 @@ struct SessionListView: View {
     @State private var tab: HomeTab = .sessions
     @State private var searching = false
     @State private var query = ""
+    @State private var lastChromeTapUptime: TimeInterval = -.infinity
 
     var body: some View {
         Group {
@@ -94,13 +96,14 @@ struct SessionListView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(shown, id: \.id) { thread in
-                            Button {
-                                onOpen(thread)
-                            } label: {
-                                sessionRow(thread)
-                            }
-                            .buttonStyle(.plain)
-                            .contentShape(Rectangle())
+                            // Plain Button gestures inside this scroll view win hits on the
+                            // tab bar. A bounded tap stays inside the row.
+                            sessionRow(thread)
+                                .contentShape(.interaction, Rectangle())
+                                .onTapGesture { onOpen(thread) }
+                                .accessibilityElement(children: .combine)
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityAction { onOpen(thread) }
                             Divider().padding(.leading, 72)
                         }
                     }
@@ -126,32 +129,36 @@ struct SessionListView: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(model.hosts) { host in
-                            Button {
+                            HStack(spacing: 12) {
+                                Circle()
+                                    .fill(dotColor(host.connection))
+                                    .frame(width: 10, height: 10)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(host.name).font(.headline)
+                                    Text(connectionLabel(host.connection))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if host.id == model.selectedHostID {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(.interaction, Rectangle())
+                            .onTapGesture {
                                 model.select(host)
                                 tab = .sessions
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Circle()
-                                        .fill(dotColor(host.connection))
-                                        .frame(width: 10, height: 10)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(host.name).font(.headline)
-                                        Text(connectionLabel(host.connection))
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    if host.id == model.selectedHostID {
-                                        Image(systemName: "checkmark")
-                                            .foregroundStyle(.blue)
-                                    }
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 14)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction {
+                                model.select(host)
+                                tab = .sessions
+                            }
                         }
                     }
                 }
@@ -268,37 +275,95 @@ struct SessionListView: View {
         return parts.joined(separator: " · ")
     }
 
+    /// Floating glass over the session list. The glass view hit-tests the glyph only,
+    /// so a tap on 机器 used to fall through and open the row underneath.
+    /// [ChromeHitShield] sits in front of the glass and owns the whole band.
     private var homeTabBar: some View {
-        HStack(spacing: 12) {
+        let layout = HomeChromeLayout.shared
+        return HStack(spacing: CGFloat(layout.clusterGap)) {
             HStack(spacing: 0) {
                 tabButton("会话", "bubble.left.and.bubble.right", .sessions)
                 tabButton("机器", "laptopcomputer", .machines)
                 tabButton("设置", "gearshape", .settings)
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 6)
+            .padding(.horizontal, CGFloat(layout.capsuleInset))
+            .padding(.vertical, CGFloat(layout.capsuleInset))
             .luviaGlass(in: Capsule())
             Button {
-                searching.toggle()
-                if !searching { query = "" }
-                if searching { tab = .sessions }
+                guard claimChromeTap() else { return }
+                toggleSearch()
             } label: {
                 Image(systemName: "magnifyingglass")
                     .font(.body.weight(.semibold))
-                    .frame(width: 48, height: 48)
+                    .frame(width: CGFloat(layout.searchDiameter), height: CGFloat(layout.searchDiameter))
+                    .contentShape(Circle())
                     .luviaGlass(in: Circle())
             }
             .buttonStyle(.plain)
+            .contentShape(.interaction, Circle())
             .foregroundStyle(searching ? Color.blue : Color.primary)
             .accessibilityLabel("搜索")
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 6)
+        .padding(.horizontal, CGFloat(layout.horizontalInset))
+        .padding(.bottom, CGFloat(layout.barBottomInset))
+        .frame(maxWidth: .infinity)
+        .overlay {
+            GeometryReader { geo in
+                ChromeHitShield { x, _ in
+                    applyChromeTap(x: x, width: geo.size.width)
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+                .contentShape(Rectangle())
+                .highPriorityGesture(
+                    SpatialTapGesture().onEnded { event in
+                        applyChromeTap(x: event.location.x, width: geo.size.width)
+                    }
+                )
+            }
+            .accessibilityHidden(true)
+        }
+        .zIndex(1)
         .matchedGeometryEffect(id: "home-tabs", in: glass)
+    }
+
+    private func claimChromeTap() -> Bool {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastChromeTapUptime > 0.08 else { return false }
+        lastChromeTapUptime = now
+        return true
+    }
+
+    private func toggleSearch() {
+        searching.toggle()
+        if !searching { query = "" }
+        if searching { tab = .sessions }
+    }
+
+    /// Touch path for the bar. The row under the finger must not win.
+    private func applyChromeTap(x: CGFloat, width: CGFloat) {
+        guard width > 1, claimChromeTap() else { return }
+        let winner = HomeChromeHitKt.resolveOverlappingTap(
+            slot: HomeChromeHitKt.homeChromeSlot(x: Double(x), width: Double(width)),
+            inChromeBand: true,
+            rowContainsPoint: true
+        )
+        switch winner {
+        case .sessions:
+            tab = .sessions
+        case .machines:
+            tab = .machines
+        case .settings:
+            tab = .settings
+        case .search:
+            toggleSearch()
+        default:
+            break
+        }
     }
 
     private func tabButton(_ title: String, _ symbol: String, _ value: HomeTab) -> some View {
         Button {
+            guard claimChromeTap() else { return }
             tab = value
         } label: {
             VStack(spacing: 2) {
@@ -309,9 +374,11 @@ struct SessionListView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
+            .contentShape(Rectangle())
             .foregroundStyle(tab == value ? Color.blue : Color.secondary)
         }
         .buttonStyle(.plain)
+        .contentShape(.interaction, Rectangle())
         .accessibilityAddTraits(tab == value ? .isSelected : [])
     }
 
@@ -592,4 +659,73 @@ func hostSubtitle(_ host: HostViewState?) -> String {
     }
     if host.address.isEmpty { return connectionLabel(host.connection) }
     return "\(connectionLabel(host.connection)) · \(host.address)"
+}
+
+/// Claims every point in the tab band so a session row scrolling underneath cannot take the touch.
+private struct ChromeHitShield: UIViewRepresentable {
+    var onTap: (CGFloat, CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onTap: onTap)
+    }
+
+    func makeUIView(context: Context) -> ShieldView {
+        let view = ShieldView()
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ uiView: ShieldView, context: Context) {
+        context.coordinator.onTap = onTap
+        uiView.coordinator = context.coordinator
+        uiView.isUserInteractionEnabled = true
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: ShieldView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
+    }
+
+    final class Coordinator {
+        var onTap: (CGFloat, CGFloat) -> Void
+        init(onTap: @escaping (CGFloat, CGFloat) -> Void) {
+            self.onTap = onTap
+        }
+    }
+
+    final class ShieldView: UIView {
+        var coordinator: Coordinator?
+        private var origin: CGPoint?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isAccessibilityElement = false
+            backgroundColor = .clear
+            isUserInteractionEnabled = true
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+            bounds.contains(point)
+        }
+
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+            origin = touches.first?.location(in: self)
+        }
+
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+            defer { origin = nil }
+            guard let origin, let end = touches.first?.location(in: self), bounds.contains(end) else { return }
+            let dx = end.x - origin.x
+            let dy = end.y - origin.y
+            guard dx * dx + dy * dy <= 12 * 12 else { return }
+            coordinator?.onTap(end.x, bounds.width)
+        }
+
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+            origin = nil
+        }
+    }
 }
