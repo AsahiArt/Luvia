@@ -8,6 +8,7 @@ struct TerminalCanvas: UIViewRepresentable {
     var wrap: Bool
     @Binding var stickToBottom: Bool
     var outlinedLines: [Int] = []
+    var bottomInset: CGFloat = 0
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -75,6 +76,13 @@ struct TerminalCanvas: UIViewRepresentable {
                 relayout(forceZoom: true)
             } else if outlineChanged {
                 refreshOutline()
+            }
+
+            if let scrollView = host?.scrollView, abs(scrollView.contentInset.bottom - parent.bottomInset) > 0.5 {
+                scrollView.contentInset.bottom = parent.bottomInset
+                if parent.stickToBottom {
+                    scrollToBottom()
+                }
             }
 
             if parent.stickToBottom, !appliedStick {
@@ -281,8 +289,7 @@ struct TerminalCanvas: UIViewRepresentable {
         private func scrollToBottom() {
             guard let scrollView = host?.scrollView else { return }
             scrollView.layoutIfNeeded()
-            let maxY = max(0, scrollView.contentSize.height - scrollView.bounds.height)
-            let offset = CGPoint(x: scrollView.contentOffset.x, y: maxY)
+            let offset = CGPoint(x: scrollView.contentOffset.x, y: bottomOffset(scrollView))
             ignoringScroll = true
             scrollView.setContentOffset(offset, animated: false)
             ignoringScroll = false
@@ -290,8 +297,14 @@ struct TerminalCanvas: UIViewRepresentable {
         }
 
         private func isNearBottom(_ scrollView: UIScrollView) -> Bool {
-            let maxY = max(0, scrollView.contentSize.height - scrollView.bounds.height)
-            return scrollView.contentOffset.y >= maxY - 8
+            scrollView.contentOffset.y >= bottomOffset(scrollView) - 8
+        }
+
+        private func bottomOffset(_ scrollView: UIScrollView) -> CGFloat {
+            let inset = scrollView.adjustedContentInset
+            let minY = -inset.top
+            let maxY = scrollView.contentSize.height - scrollView.bounds.height + inset.bottom
+            return max(minY, maxY)
         }
 
         private func setStuck(_ stuck: Bool) {
@@ -335,11 +348,15 @@ final class FailureOutlineView: UIView {
         var run: [CGRect] = []
         func flush() {
             guard let first = run.first else { return }
-            let union = run.dropFirst().reduce(first) { $0.union($1) }.insetBy(dx: -3, dy: -1)
-            let path = UIBezierPath(roundedRect: union, cornerRadius: 6)
+            let union = run.dropFirst().reduce(first) { $0.union($1) }.insetBy(dx: -4, dy: -2)
+            let glow = UIBezierPath(roundedRect: union.insetBy(dx: -3, dy: -2), cornerRadius: 12)
+            UIColor.systemRed.withAlphaComponent(0.28).setStroke()
+            glow.lineWidth = 7
+            glow.stroke()
+            let path = UIBezierPath(roundedRect: union, cornerRadius: 10)
             UIColor.systemRed.withAlphaComponent(0.16).setFill()
             path.fill()
-            UIColor.systemRed.setStroke()
+            UIColor(red: 1, green: 0.41, blue: 0.38, alpha: 0.85).setStroke()
             path.lineWidth = 1.5
             path.stroke()
             run.removeAll()

@@ -9,6 +9,9 @@ struct TerminalPageView: View {
     var waitingTitle: String? = nil
     var waitingDetail: String? = nil
     var canAskFix: Bool = false
+    var textOverride: String? = nil
+    /// Debug fixture is on screen. A host stuck in `.connecting` still reads as 离线.
+    var fixtureOfflineChrome: Bool = false
     var onBack: () -> Void
     var onSelectPane: (String) -> Void
     var onAskFix: (String) -> Bool = { _ in false }
@@ -23,12 +26,13 @@ struct TerminalPageView: View {
         VStack(spacing: 0) {
             header
             Text(subtitle)
-                .font(.caption.weight(emphasizeSubtitle ? .semibold : .regular))
-                .foregroundStyle(emphasizeSubtitle ? TerminalPalette.foreground : TerminalPalette.foreground.opacity(0.72))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(subtitleColor)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 4)
-            if let status = model.terminalStatus, !status.isEmpty, !linkDown {
+                .accessibilityLabel(subtitle)
+            if let status = model.terminalStatus, !status.isEmpty, !linkDown, textOverride == nil {
                 Text(status)
                     .font(.caption)
                     .foregroundStyle(.red)
@@ -37,11 +41,12 @@ struct TerminalPageView: View {
             }
             ZStack(alignment: .bottom) {
                 TerminalCanvas(
-                    text: model.terminalText,
-                    ansi: model.terminalAnsi,
+                    text: shownText,
+                    ansi: shownAnsi,
                     wrap: true,
                     stickToBottom: $stickToBottom,
-                    outlinedLines: outlinedLineIndexes
+                    outlinedLines: outlinedLineIndexes,
+                    bottomInset: failureBanner == nil ? 0 : 96
                 )
                 .background(TerminalPalette.background)
                 if let banner = failureBanner {
@@ -54,6 +59,7 @@ struct TerminalPageView: View {
                 decisionPill
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
+                    .padding(.bottom, 4)
             }
             keyBar
             if model.holdsTerminalControl && !linkDown {
@@ -62,6 +68,10 @@ struct TerminalPageView: View {
         }
         .background(TerminalPalette.background.ignoresSafeArea())
         .foregroundStyle(TerminalPalette.foreground)
+        .preferredColorScheme(.dark)
+        .onChange(of: shownText) { _, _ in
+            fixRefused = false
+        }
     }
 
     private var header: some View {
@@ -71,99 +81,151 @@ struct TerminalPageView: View {
                     Image(systemName: "chevron.left")
                     Text("对话")
                 }
+                .font(.body.weight(.medium))
+                .padding(.leading, 10)
+                .padding(.trailing, 14)
+                .padding(.vertical, 8)
+                .terminalPlate(in: Capsule(), fill: chromeFill)
             }
+            .buttonStyle(.plain)
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(2)
             .accessibilityLabel("回到对话")
             .overlay(alignment: .topTrailing) {
                 if pendingDecisions > 0 {
                     Circle()
-                        .fill(Color.orange)
+                        .fill(decisionOrange)
                         .frame(width: 8, height: 8)
-                        .offset(x: 6, y: -4)
+                        .overlay(Circle().stroke(Color.black, lineWidth: 1.5))
+                        .offset(x: -2, y: 4)
+                        .accessibilityHidden(true)
                 }
             }
-            if panes.count > 1 {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 2) {
-                        ForEach(Array(panes.enumerated()), id: \.element.id) { index, pane in
-                            let selected = pane.id == selectedPaneID
-                            Button {
-                                onSelectPane(pane.id)
-                            } label: {
-                                Text(TerminalChromeKt.terminalSegmentLabel(index: Int32(index), title: pane.title))
-                                    .font(.subheadline.weight(selected ? .bold : .semibold))
-                                    .foregroundStyle(selected ? Color.white : TerminalPalette.foreground)
-                                    .lineLimit(1)
-                                    .fixedSize(horizontal: true, vertical: false)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(selected ? Color.accentColor : Color.clear, in: Capsule())
+            if !panes.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 2) {
+                            ForEach(Array(panes.enumerated()), id: \.element.id) { index, pane in
+                                let selected = pane.id == selectedPaneID
+                                Button {
+                                    onSelectPane(pane.id)
+                                } label: {
+                                    Text(TerminalChromeKt.terminalSegmentLabel(index: Int32(index), title: pane.title))
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(selected ? Color.black : Color.white)
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 8)
+                                        .background(selected ? Color.white.opacity(0.92) : Color.clear, in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .id(pane.id)
+                                .accessibilityAddTraits(selected ? .isSelected : [])
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityAddTraits(selected ? .isSelected : [])
                         }
+                        .padding(3)
+                        .fixedSize(horizontal: true, vertical: false)
                     }
-                    .padding(3)
+                    .onAppear { revealSelectedPane(proxy) }
+                    .onChange(of: selectedPaneID) { _, _ in revealSelectedPane(proxy) }
+                    .onChange(of: paneIdentity) { _, _ in revealSelectedPane(proxy) }
                 }
                 .frame(minWidth: 0, maxWidth: .infinity)
-                .luviaGlass(in: Capsule())
+                .frame(height: 44)
+                .layoutPriority(1)
+                .clipped()
+                .terminalPlate(in: Capsule(), fill: chromeFill)
             } else {
-                Text(paneHeading)
+                Text("终端")
                     .font(.headline)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
             controlChrome
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(2)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
     }
 
+    private var paneIdentity: String {
+        panes.map(\.id).joined(separator: "\u{1e}")
+    }
+
+    private func revealSelectedPane(_ proxy: ScrollViewProxy) {
+        guard let id = selectedPaneID, panes.contains(where: { $0.id == id }) else { return }
+        DispatchQueue.main.async {
+            proxy.scrollTo(id, anchor: .trailing)
+        }
+    }
+
     @ViewBuilder
     private var controlChrome: some View {
         if linkDown {
-            Text(offlineLabel)
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .luviaGlass(in: Capsule())
-            if model.selectedHost?.isController == true {
-                Button("接管") {}
-                    .buttonStyle(.bordered)
-                    .tint(.gray)
-                    .disabled(true)
+            HStack(spacing: 8) {
+                Text(offlineWord)
+                    .font(.subheadline.weight(.semibold))
+                if model.selectedHost?.isController == true {
+                    Text("接管")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.white.opacity(0.38))
+                }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .terminalPlate(in: Capsule(), fill: chromeFill)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(
+                model.selectedHost?.isController == true ? "\(offlineWord)，接管不可用" : offlineWord
+            )
         } else if model.holdsTerminalControl {
             Label("已接管", systemImage: "lock.fill")
                 .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color(hex: "30D158"))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(Color.green.opacity(0.22), in: Capsule())
-                .overlay(Capsule().stroke(Color.green.opacity(0.85), lineWidth: 1))
+                .terminalPlate(in: Capsule(), fill: chromeFill)
         } else if model.selectedHost?.isController == true {
             Button("接管") {
                 model.requestTerminalControl()
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.accentColor)
+            .buttonStyle(.plain)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .terminalPlate(in: Capsule(), fill: chromeFill)
         }
     }
 
     private var decisionPill: some View {
         HStack(spacing: 10) {
             Circle()
-                .fill(Color.orange)
+                .fill(decisionOrange)
                 .frame(width: 8, height: 8)
+                .shadow(color: decisionOrange, radius: 6)
             Text(waitingLine)
-                .font(.subheadline.weight(.semibold))
+                .font(.subheadline.weight(.medium))
                 .lineLimit(1)
-            Spacer(minLength: 8)
-            Button("回到对话", action: onBack)
-                .buttonStyle(.borderedProminent)
-                .tint(.accentColor)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: onBack) {
+                Text("回到对话")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(decisionOrange, in: Capsule())
+            }
+            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .luviaGlass(in: Capsule(), tint: .orange)
+        .padding(.leading, 14)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .terminalPlate(in: Capsule(), fill: decisionFill)
+        .accessibilityElement(children: .contain)
     }
 
     private var keyBar: some View {
@@ -211,7 +273,7 @@ struct TerminalPageView: View {
             }
         }
         .padding(12)
-        .luviaGlass(in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .terminalPlate(in: RoundedRectangle(cornerRadius: 20, style: .continuous), fill: chromeFill)
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
     }
@@ -223,10 +285,10 @@ struct TerminalPageView: View {
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
                 if let title = banner.failedTitle, !title.isEmpty {
-                    Text(title)
-                        .font(.caption)
+                    Text(title.replacingOccurrences(of: " > ", with: " › "))
+                        .font(.caption.monospaced())
                         .lineLimit(1)
-                        .foregroundStyle(TerminalPalette.foreground.opacity(0.8))
+                        .foregroundStyle(Color(hex: "FF9F99"))
                 }
                 if fixRefused {
                     Text("没发出去")
@@ -234,19 +296,35 @@ struct TerminalPageView: View {
                         .foregroundStyle(.red)
                 }
             }
-            Spacer(minLength: 8)
-            Button("交给 claude 修") {
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
                 fixRefused = !onAskFix(banner.excerpt)
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles")
+                        .font(.caption.weight(.bold))
+                    Text("让 claude 修")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(canAskFix ? Color.black : Color.black.opacity(0.45))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(canAskFix ? 0.94 : 0.38), in: Capsule())
             }
-            .font(.caption.weight(.semibold))
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
+            .buttonStyle(.plain)
             .disabled(!canAskFix)
+            .accessibilityLabel("让 claude 修")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .luviaGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous), tint: .red)
-        .shadow(color: Color.red.opacity(0.45), radius: 18, y: 4)
+        .padding(.leading, 14)
+        .padding(.trailing, 10)
+        .padding(.vertical, 10)
+        .terminalPlate(
+            in: RoundedRectangle(cornerRadius: 24, style: .continuous),
+            fill: failureFill,
+            halo: Color.red.opacity(0.45)
+        )
     }
 
     private func key(_ title: String, _ value: TerminalKey) -> some View {
@@ -268,8 +346,16 @@ struct TerminalPageView: View {
             .luviaGlass(in: Capsule(), tint: selected ? .blue : nil)
     }
 
+    private var shownText: String {
+        textOverride ?? model.terminalText
+    }
+
+    private var shownAnsi: Bool {
+        textOverride == nil && model.terminalAnsi
+    }
+
     private var failureBanner: TerminalFailureBanner? {
-        TerminalChromeKt.terminalFailureBanner(text: model.terminalText)
+        TerminalChromeKt.terminalFailureBanner(text: shownText)
     }
 
     private var outlinedLineIndexes: [Int] {
@@ -280,7 +366,7 @@ struct TerminalPageView: View {
     }
 
     private func failureSummary(_ banner: TerminalFailureBanner) -> String {
-        let head = "\(banner.passed)/\(banner.total) · \(banner.failed)失败"
+        let head = "\(banner.passed)/\(banner.total) · \(banner.failed) 个失败"
         guard let duration = banner.duration, !duration.isEmpty else { return head }
         return "\(head) · \(duration)"
     }
@@ -290,9 +376,19 @@ struct TerminalPageView: View {
         return host.connection != .live
     }
 
-    private var offlineLabel: String {
+    /// Offline and stale both read as 离线. A live reconnect stays 重连中.
+    /// The debug fixture is not a live link, so a host stuck on `.connecting`
+    /// still shows 离线 and the offline capsule can be photographed.
+    private var offlineWord: String {
         guard let host = model.selectedHost else { return "离线" }
-        return connectionLabel(host.connection)
+        switch host.connection {
+        case .connecting:
+            return fixtureOfflineChrome ? "离线" : "重连中"
+        case .stale, .offline:
+            return "离线"
+        default:
+            return "离线"
+        }
     }
 
     private var paneTitle: String {
@@ -302,23 +398,29 @@ struct TerminalPageView: View {
         return panes.first?.title ?? "终端"
     }
 
-    private var paneHeading: String {
+    private var activeSegment: String {
         if let selectedPaneID, let index = panes.firstIndex(where: { $0.id == selectedPaneID }) {
-            return "pane \(index + 1)"
+            return TerminalChromeKt.terminalSegmentLabel(index: Int32(index), title: panes[index].title)
+        }
+        if let first = panes.first {
+            return TerminalChromeKt.terminalSegmentLabel(index: 0, title: first.title)
         }
         return paneTitle
     }
 
     private var subtitle: String {
-        if linkDown { return offlineLabel }
+        if linkDown { return offlineWord }
         if model.holdsTerminalControl {
-            return model.terminalText.isEmpty ? paneTitle : "\(paneTitle) · 已同步"
+            return shownText.isEmpty ? activeSegment : "\(activeSegment) · 已同步"
         }
         return "观察中"
     }
 
-    private var emphasizeSubtitle: Bool {
-        linkDown || !model.holdsTerminalControl
+    private var subtitleColor: Color {
+        if linkDown || !model.holdsTerminalControl {
+            return Color.white
+        }
+        return Color.white.opacity(0.82)
     }
 
     private var waitingLine: String {
@@ -327,5 +429,33 @@ struct TerminalPageView: View {
         let detail = waitingDetail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if detail.isEmpty { return "\(name) 在等你决定" }
         return "\(name) 在等你决定 · \(detail)"
+    }
+
+    private var chromeFill: Color {
+        Color.white.opacity(0.10)
+    }
+
+    private var failureFill: Color {
+        Color(red: 0.32, green: 0.08, blue: 0.08).opacity(0.82)
+    }
+
+    private var decisionFill: Color {
+        Color(red: 0.36, green: 0.20, blue: 0.02).opacity(0.82)
+    }
+
+    private var decisionOrange: Color {
+        Color(hex: "FF9F0A")
+    }
+}
+
+private extension View {
+    func terminalPlate(in shape: some Shape, fill: Color, halo: Color? = nil) -> some View {
+        background {
+            shape
+                .fill(.ultraThinMaterial)
+                .overlay(shape.fill(fill))
+                .overlay(shape.stroke(Color.white.opacity(0.16), lineWidth: 0.6))
+        }
+        .shadow(color: halo ?? .clear, radius: halo == nil ? 0 : 18, y: 4)
     }
 }
