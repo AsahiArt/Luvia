@@ -711,10 +711,6 @@ private struct ChromeHitShield: UIViewRepresentable {
             bounds.contains(point)
         }
 
-        override func accessibilityHitTest(_ point: CGPoint) -> UIView? {
-            nil
-        }
-
         override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
             origin = touches.first?.location(in: self)
         }
