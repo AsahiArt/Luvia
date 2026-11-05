@@ -776,7 +776,7 @@ private fun DecisionPreview(
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                AgentAvatar(thread.agentType, thread.title, brand = false, size = 36.dp)
+                AgentAvatar(thread.agentType, thread.title, size = 36.dp)
                 Spacer(Modifier.width(10.dp))
                 Text(
                     listOfNotNull(thread.title, age).joinToString(" · "),
