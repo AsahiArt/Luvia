@@ -4,7 +4,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.R
+import tech.asahiart.luvia.thread.PanePiece
 import tech.asahiart.luvia.thread.ToolTrailKind
+import tech.asahiart.luvia.thread.splitPaneTranscript
 
 /** Maps shared English failure copy onto the Chinese UI without changing protocol strings. */
 internal fun localizeUiMessage(message: String): String {
@@ -88,3 +90,60 @@ internal fun ToolTrailKind.shortLabel(): String =
         ToolTrailKind.Run -> stringResource(R.string.tool_run)
         ToolTrailKind.Other -> stringResource(R.string.tool_other)
     }
+
+/**
+ * Prose stays prose. Tool lines, diffs, cost bars, and a `DONE` receipt leave the grey bubble.
+ * Does not invent a plan or a permission; those still come from the host.
+ */
+internal fun chatSurfacePieces(text: String): List<PanePiece> {
+    if (text.isBlank()) return emptyList()
+    return splitPaneTranscript(text.lines()).flatMap { piece ->
+        when (piece) {
+            is PanePiece.Prose -> splitDoneReceipt(piece.text)
+            else -> listOf(piece)
+        }
+    }
+}
+
+internal fun splitDoneReceipt(text: String): List<PanePiece> {
+    if (text.isBlank()) return emptyList()
+    val pieces = mutableListOf<PanePiece>()
+    val prose = mutableListOf<String>()
+    fun flushProse() {
+        val body = prose.joinToString("\n").trim('\n')
+        prose.clear()
+        if (body.isNotBlank()) pieces += PanePiece.Prose(body)
+    }
+    val lines = text.lines()
+    var index = 0
+    while (index < lines.size) {
+        val line = lines[index]
+        val trimmed = line.trim()
+        if (trimmed == "DONE" || trimmed.startsWith("DONE ") || trimmed.startsWith("DONE\t")) {
+            val block = mutableListOf(trimmed)
+            var next = index + 1
+            while (next < lines.size && lines[next].isBlank()) next++
+            while (next < lines.size && isDoneContinuation(lines[next])) {
+                block += lines[next].trim()
+                next++
+            }
+            if (block.size > 1 || '=' in trimmed) {
+                flushProse()
+                pieces += PanePiece.Status(block.joinToString(" · "))
+                index = next
+                continue
+            }
+        }
+        prose += line
+        index++
+    }
+    flushProse()
+    return pieces
+}
+
+private fun isDoneContinuation(line: String): Boolean {
+    val trimmed = line.trim()
+    if (trimmed.isEmpty()) return false
+    if (trimmed.any { it.code in 0x4E00..0x9FFF }) return false
+    return '=' in trimmed
+}

@@ -303,11 +303,7 @@ struct ChatView: View {
             }
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
-                    Image(systemName: "questionmark")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 22, height: 22)
-                        .background(Color.blue, in: Circle())
+                    decisionAvatar()
                     Text("\(name) 需要你决定")
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
@@ -400,6 +396,63 @@ struct ChatView: View {
             parts.append("还有一个决定")
         }
         return parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private func decisionAvatar() -> some View {
+        let logo = SessionListKt.agentBrandLogo(agentType: thread.agentType, title: thread.title)
+        if let logo, let name = decisionAssetName(logo.assetId) {
+            let diameter: CGFloat = 22
+            let glyph = diameter * CGFloat(logo.inset)
+            if logo.preservesColor {
+                Image(name)
+                    .resizable()
+                    .renderingMode(.original)
+                    .scaledToFit()
+                    .frame(width: glyph, height: glyph)
+                    .frame(width: diameter, height: diameter)
+                    .clipShape(Circle())
+                    .accessibilityLabel(decisionAssetLabel(logo.assetId))
+            } else {
+                ZStack {
+                    Circle().fill(Color(hex: logo.backgroundHex))
+                    Image(name)
+                        .resizable()
+                        .renderingMode(.template)
+                        .scaledToFit()
+                        .foregroundStyle(Color(hex: logo.foregroundHex))
+                        .frame(width: glyph, height: glyph)
+                }
+                .frame(width: diameter, height: diameter)
+                .accessibilityLabel(decisionAssetLabel(logo.assetId))
+            }
+        } else {
+            Image(systemName: "questionmark")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(Color.blue, in: Circle())
+        }
+    }
+
+    private func decisionAssetName(_ assetId: String) -> String? {
+        switch assetId {
+        case "claude": "agent-logo-claude"
+        case "openai": "agent-logo-openai"
+        case "lobe-grok": "agent-logo-lobe-grok"
+        case "pi": "agent-logo-pi"
+        default: nil
+        }
+    }
+
+    private func decisionAssetLabel(_ assetId: String) -> String {
+        switch assetId {
+        case "claude": "Claude"
+        case "openai": "OpenAI"
+        case "lobe-grok": "Grok"
+        case "pi": "Pi"
+        default: assetId
+        }
     }
 
     private func confirm(_ choice: AskOption) {

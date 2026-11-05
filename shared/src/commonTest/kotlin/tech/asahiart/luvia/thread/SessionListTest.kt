@@ -282,12 +282,22 @@ class SessionListTest {
     }
 
     @Test
-    fun agentBrandLogoMapsKnownAgentsAndLeavesPiAsLetter() {
+    fun agentBrandLogoMapsKnownAgentsAndPiMark() {
         val claude = AgentBrandLogo(AGENT_BRAND_ASSET_CLAUDE, "#D97757", "#FFFFFF")
         val codex = AgentBrandLogo(AGENT_BRAND_ASSET_OPENAI, "#000000", "#FFFFFF")
         val grok = AgentBrandLogo(AGENT_BRAND_ASSET_GROK, "#000000", "#FFFFFF")
+        val pi = AgentBrandLogo(
+            AGENT_BRAND_ASSET_PI,
+            "#00000000",
+            "#00000000",
+            AGENT_BRAND_PI_INSET,
+            preservesColor = true,
+        )
         assertEquals(0.58, AGENT_BRAND_LOGO_INSET, 0.0)
         assertEquals(0.58, claude.inset, 0.0)
+        assertEquals(0.70, pi.inset, 0.0)
+        assertTrue(pi.preservesColor)
+        assertFalse(claude.preservesColor)
         assertEquals(claude, agentBrandLogo("claude-code", "重构"))
         assertEquals(claude, agentBrandLogo("claude", "x"))
         assertEquals(claude, agentBrandLogo("Claude Code", "x"))
@@ -296,14 +306,18 @@ class SessionListTest {
         assertEquals(codex, agentBrandLogo("Codex", "other title"))
         assertEquals(grok, agentBrandLogo("grok", "Compose"))
         assertEquals(grok, agentBrandLogo("Grok", "other title"))
-        assertNull(agentBrandLogo("pi", "skills"))
-        assertNull(agentBrandLogo("pi", "proxy"))
+        assertEquals(pi, agentBrandLogo("pi", "skills"))
+        assertEquals(pi, agentBrandLogo("pi", "proxy"))
+        assertEquals(pi, agentBrandLogo("PI", "logos-pi"))
+        assertEquals(pi, agentBrandLogo("logos-pi", "quote0"))
         assertNull(agentBrandLogo("opencode", "终端"))
         assertNull(agentBrandLogo("gemini", "迁移"))
+        assertNull(agentBrandLogo("api", "spike"))
         assertNull(agentBrandLogo("  ", " "))
-        assertEquals(grok, agentBrandLogo("pi", "清理 grok token"))
+        assertEquals(pi, agentBrandLogo("pi", "清理 grok token"))
         assertEquals(codex, agentBrandLogo(null, "codex"))
         assertEquals(claude, agentBrandLogo("claude-code", "compare with grok"))
+        assertEquals(claude, agentBrandLogo("claude-code", "pi review"))
     }
 
     @Test

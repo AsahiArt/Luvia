@@ -661,17 +661,30 @@ struct SessionListView: View {
         let logo = brand ? SessionListKt.agentBrandLogo(agentType: thread.agentType, title: thread.title) : nil
         if let logo, let name = brandAssetName(logo.assetId) {
             let glyph = diameter * CGFloat(logo.inset)
-            ZStack {
-                Circle().fill(Color(hex: logo.backgroundHex))
-                Image(name)
-                    .resizable()
-                    .renderingMode(.template)
-                    .scaledToFit()
-                    .foregroundStyle(Color(hex: logo.foregroundHex))
-                    .frame(width: glyph, height: glyph)
-                    .accessibilityHidden(true)
+            Group {
+                if logo.preservesColor {
+                    Image(name)
+                        .resizable()
+                        .renderingMode(.original)
+                        .scaledToFit()
+                        .frame(width: glyph, height: glyph)
+                        .frame(width: diameter, height: diameter)
+                        .clipShape(Circle())
+                        .accessibilityHidden(true)
+                } else {
+                    ZStack {
+                        Circle().fill(Color(hex: logo.backgroundHex))
+                        Image(name)
+                            .resizable()
+                            .renderingMode(.template)
+                            .scaledToFit()
+                            .foregroundStyle(Color(hex: logo.foregroundHex))
+                            .frame(width: glyph, height: glyph)
+                            .accessibilityHidden(true)
+                    }
+                    .frame(width: diameter, height: diameter)
+                }
             }
-            .frame(width: diameter, height: diameter)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(brandAccessibilityName(logo.assetId))
         } else {
@@ -698,6 +711,7 @@ struct SessionListView: View {
         case "claude": "agent-logo-claude"
         case "openai": "agent-logo-openai"
         case "lobe-grok": "agent-logo-lobe-grok"
+        case "pi": "agent-logo-pi"
         default: nil
         }
     }
@@ -707,6 +721,7 @@ struct SessionListView: View {
         case "claude": "Claude"
         case "openai": "OpenAI"
         case "lobe-grok": "Grok"
+        case "pi": "Pi"
         default: assetId
         }
     }

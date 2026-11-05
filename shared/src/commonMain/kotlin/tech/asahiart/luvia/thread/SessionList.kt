@@ -295,26 +295,40 @@ public data class AgentBrandLogo(
     public val backgroundHex: String,
     public val foregroundHex: String,
     public val inset: Double = AGENT_BRAND_LOGO_INSET,
+    /** Color mark. Platforms must not tint it or paint a brand plate behind it. */
+    public val preservesColor: Boolean = false,
 )
 
 public const val AGENT_BRAND_ASSET_CLAUDE: String = "claude"
 public const val AGENT_BRAND_ASSET_OPENAI: String = "openai"
 public const val AGENT_BRAND_ASSET_GROK: String = "lobe-grok"
+public const val AGENT_BRAND_ASSET_PI: String = "pi"
 
 /** Glyph size as a fraction of the avatar diameter. Matches wow-d `logos.py`. */
 public const val AGENT_BRAND_LOGO_INSET: Double = 0.58
 
+/** Pi mark size. 0.70 leaves about 15% padding inside the circular crop. */
+public const val AGENT_BRAND_PI_INSET: Double = 0.70
+
 private val claudeBrand = AgentBrandLogo(AGENT_BRAND_ASSET_CLAUDE, "#D97757", "#FFFFFF")
 private val openAiBrand = AgentBrandLogo(AGENT_BRAND_ASSET_OPENAI, "#000000", "#FFFFFF")
 private val grokBrand = AgentBrandLogo(AGENT_BRAND_ASSET_GROK, "#000000", "#FFFFFF")
+private val piBrand = AgentBrandLogo(
+    AGENT_BRAND_ASSET_PI,
+    "#00000000",
+    "#00000000",
+    AGENT_BRAND_PI_INSET,
+    preservesColor = true,
+)
 
 /**
  * Brand logo for one session row, or null when the row keeps [sessionAvatar].
  *
  * [agentType] wins over [title]. Both are trimmed and lowercased; spaces, dots,
  * and underscores are hyphens. A hit is a substring: `claude` (including
- * `claude-code`), `codex`, or `grok`. Unknown agents such as `pi` return null
- * unless the other field names a brand.
+ * `claude-code`), `codex`, or `grok`. `pi` matches a whole token (`pi`,
+ * `logos-pi`), not a substring of `api`. Unknown agents return null unless the
+ * other field names a brand.
  */
 public fun agentBrandLogo(agentType: String?, title: String): AgentBrandLogo? =
     brandLogoIn(agentType) ?: brandLogoIn(title)
@@ -516,9 +530,14 @@ private fun brandLogoIn(raw: String?): AgentBrandLogo? {
         "claude" in haystack -> claudeBrand
         "codex" in haystack -> openAiBrand
         "grok" in haystack -> grokBrand
+        isPiToken(haystack) -> piBrand
         else -> null
     }
 }
+
+/** `pi` and `logos-pi` count. `api` and `spike` do not. */
+private fun isPiToken(haystack: String): Boolean =
+    haystack.split(Regex("[^a-z0-9]+")).any { it == "pi" }
 
 /** Stable across platforms. Reserved product colors are not in [hashedPalettes]. */
 private fun hashPalette(key: String): AgentAvatarPalette {
