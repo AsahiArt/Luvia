@@ -1,6 +1,7 @@
 package tech.asahiart.luvia.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -62,6 +63,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
@@ -69,6 +71,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.R
@@ -81,6 +84,7 @@ import tech.asahiart.luvia.thread.TrailThumb
 import tech.asahiart.luvia.thread.AGENT_BRAND_ASSET_CLAUDE
 import tech.asahiart.luvia.thread.AGENT_BRAND_ASSET_GROK
 import tech.asahiart.luvia.thread.AGENT_BRAND_ASSET_OPENAI
+import tech.asahiart.luvia.thread.AGENT_BRAND_ASSET_PI
 import tech.asahiart.luvia.thread.agentBrandLogo
 import tech.asahiart.luvia.thread.agentColorSlot
 import tech.asahiart.luvia.thread.agentMark
@@ -631,20 +635,36 @@ private fun statusColor(status: AgentStatus, cached: Boolean): androidx.compose.
 }
 
 @Composable
-private fun AgentAvatar(agentType: String?, title: String, brand: Boolean = true) {
+internal fun AgentAvatar(
+    agentType: String?,
+    title: String,
+    brand: Boolean = true,
+    size: Dp = 40.dp,
+) {
     val logo = if (brand) agentBrandLogo(agentType, title) else null
     val drawable = logo?.let { brandDrawable(it.assetId) }
     if (logo != null && drawable != null) {
-        Box(
-            Modifier.size(40.dp).background(brandColor(logo.backgroundHex), CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painterResource(drawable),
-                contentDescription = brandContentDescription(logo.assetId),
-                tint = brandColor(logo.foregroundHex),
-                modifier = Modifier.size(40.dp * logo.inset.toFloat()),
-            )
+        val glyph = size * logo.inset.toFloat()
+        if (logo.preservesColor) {
+            Box(Modifier.size(size).clip(CircleShape), contentAlignment = Alignment.Center) {
+                Image(
+                    painterResource(drawable),
+                    contentDescription = brandContentDescription(logo.assetId),
+                    modifier = Modifier.size(glyph),
+                )
+            }
+        } else {
+            Box(
+                Modifier.size(size).background(brandColor(logo.backgroundHex), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painterResource(drawable),
+                    contentDescription = brandContentDescription(logo.assetId),
+                    tint = brandColor(logo.foregroundHex),
+                    modifier = Modifier.size(glyph),
+                )
+            }
         }
         return
     }
@@ -655,8 +675,13 @@ private fun AgentAvatar(agentType: String?, title: String, brand: Boolean = true
         2 -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
         else -> MaterialTheme.colorScheme.surfaceVariant to MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Box(Modifier.size(40.dp).background(bg, CircleShape), contentAlignment = Alignment.Center) {
-        Text(mark, color = fg, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+    Box(Modifier.size(size).background(bg, CircleShape), contentAlignment = Alignment.Center) {
+        Text(
+            mark,
+            color = fg,
+            fontWeight = FontWeight.Bold,
+            style = if (size < 32.dp) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelLarge,
+        )
     }
 }
 
@@ -664,6 +689,7 @@ private fun brandDrawable(assetId: String): Int? = when (assetId) {
     AGENT_BRAND_ASSET_CLAUDE -> R.drawable.ic_agent_claude
     AGENT_BRAND_ASSET_OPENAI -> R.drawable.ic_agent_openai
     AGENT_BRAND_ASSET_GROK -> R.drawable.ic_agent_grok
+    AGENT_BRAND_ASSET_PI -> R.drawable.ic_agent_pi
     else -> null
 }
 
@@ -671,6 +697,7 @@ private fun brandContentDescription(assetId: String): String = when (assetId) {
     AGENT_BRAND_ASSET_CLAUDE -> "Claude"
     AGENT_BRAND_ASSET_OPENAI -> "OpenAI"
     AGENT_BRAND_ASSET_GROK -> "Grok"
+    AGENT_BRAND_ASSET_PI -> "Pi"
     else -> assetId
 }
 
