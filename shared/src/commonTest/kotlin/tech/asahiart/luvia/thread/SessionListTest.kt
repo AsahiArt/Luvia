@@ -10,7 +10,9 @@ import tech.asahiart.luvia.AcpTranscriptItem
 import tech.asahiart.luvia.AgentDetailState
 import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.AgentStatus
+import tech.asahiart.luvia.AgentSummary
 import tech.asahiart.luvia.HostUhpState
+import tech.asahiart.luvia.StoredPanePreview
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -496,6 +498,111 @@ class SessionListTest {
         val sibling = history("sess_next", "codex", "/repo")
         val merged = mergeAcpHistory(listOf(live), listOf(duplicate, sibling))
         assertEquals(listOf("acp:sess_live", "acp:sess_next"), merged.map { it.id })
+    }
+
+    @Test
+    fun listTrailTonesFollowToolStatus() {
+        val thumb = trailThumb(
+            listOf(
+                AcpToolCall("r", "Read Pairing.kt", "read", AcpToolStatus.Completed, null),
+                AcpToolCall("x", "allTests", "shell", AcpToolStatus.Failed, "96/128"),
+            ),
+        )
+        assertEquals(listOf(ListTrailTone.Ok, ListTrailTone.Failed), thumb?.tones)
+        val waiting = thread("w", AgentStatus.Blocked, ask = Ask("go?", emptyList()))
+        val trail = listTrail(waiting, thumb)
+        assertEquals(
+            listOf(ListTrailTone.Ok, ListTrailTone.Failed, ListTrailTone.Pending),
+            trail.tones,
+        )
+        assertEquals(ListTrailDot.Decide, trail.dots.last())
+    }
+
+    @Test
+    fun workingRowPrefersTheToolOverStatusChrome() {
+        val thumb = trailThumb(
+            listOf(
+                AcpToolCall(
+                    "x",
+                    "% " + "$" + ": ./gradlew :shared:allTests",
+                    "bash",
+                    AcpToolStatus.Completed,
+                    null,
+                ),
+            ),
+        )
+        val running = thread("b", AgentStatus.Working).copy(summary = "↑213k ↓46k R7.2M CH97%")
+        val trail = listTrail(running, thumb)
+        assertTrue(trail.label!!.contains("gradlew"))
+        assertEquals(listOf(ListTrailDot.Run), trail.dots)
+        val preview = paneListPreview(
+            "% bash\n  • " + "$" + ": ./gradlew :shared:allTests → done\n% grep\n  • Pairing.kt → 2 results\n",
+        )
+        assertEquals(listOf(ToolTrailKind.Run, ToolTrailKind.Read), preview?.kinds)
+        assertTrue(preview?.label!!.contains("Pairing.kt"))
+        assertFalse(preview.label!!.startsWith("% grep"))
+    }
+
+    @Test
+    fun storedPreviewFeedsBlockedQuestionAndOtherRowDots() {
+        val running = "% read Pairing.kt\n% " + "$" + ": ./gradlew :shared:allTests → 96/128\n"
+        val blocked = "要把 TokenStore 拆成两个 actual 吗？"
+        val state = HostUhpState(
+            agents = listOf(
+                AgentSummary(paneId = "run", name = "wow", status = AgentStatus.Working, agent = "pi"),
+                AgentSummary(paneId = "wait", name = "pair", status = AgentStatus.Blocked, agent = "pi"),
+                AgentSummary(paneId = "idle", name = "idle", status = AgentStatus.Idle, agent = "pi"),
+            ),
+            panePreviews = mapOf(
+                "run" to StoredPanePreview(running, AgentStatus.Working),
+                "wait" to StoredPanePreview(blocked, AgentStatus.Blocked),
+                "idle" to StoredPanePreview("Read Old.kt", AgentStatus.Working),
+            ),
+        )
+        val threads = state.threads("h").associateBy { it.id }
+        assertEquals(blocked, threads.getValue("wait").ask?.question)
+        assertEquals(blocked, threads.getValue("wait").summary)
+        assertNull(threads.getValue("idle").summary)
+        val trails = threadTrails(state, threads.values.toList()).associate { it.threadId to it.thumb }
+        assertEquals(listOf(ToolTrailKind.Read, ToolTrailKind.Run), trails["run"]?.kinds)
+        assertEquals(listOf(ListTrailTone.Pending, ListTrailTone.Ok), trails["run"]?.tones)
+        assertNull(trails["idle"])
+        assertNull(trails["wait"])
+        val runTrail = listTrail(threads.getValue("run"), trails["run"])
+        assertTrue(runTrail.label!!.contains("gradlew"))
+        assertEquals(listOf(ListTrailDot.Read, ListTrailDot.Run), runTrail.dots)
+        val openWins = state.copy(
+            agentDetail = AgentDetailState(
+                paneId = "run",
+                timeline = tech.asahiart.luvia.thread.PaneTimeline(
+                    items = listOf(
+                        TimelineItem.Tool(
+                            "x",
+                            AcpToolCall("x", "allTests", "shell", AcpToolStatus.Failed, "96/128"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val openTrail = threadTrails(openWins, openWins.threads("h")).first { it.threadId == "run" }
+        assertEquals("allTests · 96/128", openTrail.thumb.label)
+        assertEquals(listOf(ListTrailTone.Failed), openTrail.thumb.tones)
+    }
+
+    @Test
+    fun listPreviewReadsBlockedBeforeStaleWorking() {
+        val agents = listOf(
+            AgentSummary("idle", null, AgentStatus.Idle),
+            AgentSummary("run", null, AgentStatus.Working),
+            AgentSummary("wait", null, AgentStatus.Blocked),
+            AgentSummary("done", null, AgentStatus.Done),
+        )
+        val fresh = mapOf("run" to StoredPanePreview("x", AgentStatus.Working))
+        assertEquals(listOf("wait"), listPreviewPaneIds(agents, fresh, refreshWorking = false))
+        assertEquals(listOf("wait", "run"), listPreviewPaneIds(agents, fresh, refreshWorking = true))
+        assertEquals(listOf("wait", "run"), listPreviewPaneIds(agents, emptyMap(), refreshWorking = false))
+        val many = (1..8).map { AgentSummary("b$it", null, AgentStatus.Blocked) }
+        assertEquals(MAX_LIST_PREVIEWS, listPreviewPaneIds(many, emptyMap(), refreshWorking = false).size)
     }
 
     @Test

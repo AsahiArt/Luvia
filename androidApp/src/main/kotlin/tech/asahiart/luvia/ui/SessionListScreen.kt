@@ -63,6 +63,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -77,10 +78,12 @@ import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.R
 import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.AskOption
+import tech.asahiart.luvia.thread.ListTrailDot
+import tech.asahiart.luvia.thread.ListTrailTone
 import tech.asahiart.luvia.thread.SessionFilter
 import tech.asahiart.luvia.thread.SessionRoster
-import tech.asahiart.luvia.thread.ToolTrailKind
 import tech.asahiart.luvia.thread.TrailThumb
+import tech.asahiart.luvia.thread.listTrail
 import tech.asahiart.luvia.thread.AGENT_BRAND_ASSET_CLAUDE
 import tech.asahiart.luvia.thread.AGENT_BRAND_ASSET_GROK
 import tech.asahiart.luvia.thread.AGENT_BRAND_ASSET_OPENAI
@@ -566,7 +569,8 @@ private fun SessionRow(
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        val trail = listTrail(thread, thumb)
+        Row(verticalAlignment = Alignment.Top) {
             AgentAvatar(thread.agentType, thread.title)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -584,22 +588,43 @@ private fun SessionRow(
                 }
                 val status = if (cached) stringResource(R.string.cached) else thread.status.sessionLabel()
                 val subtitle = listOfNotNull(thread.agentType, status).joinToString(" · ")
-                if (subtitle.isNotBlank()) {
-                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = statusColor(thread.status, cached), maxLines = 1)
+                if (subtitle.isNotBlank() || trail.dots.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        if (subtitle.isNotBlank()) {
+                            Text(
+                                subtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = statusColor(thread.status, cached),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            Spacer(Modifier.weight(1f))
+                        }
+                        if (trail.dots.isNotEmpty()) {
+                            TrailDots(
+                                dots = trail.dots,
+                                tones = trail.tones,
+                                faded = thread.status == AgentStatus.Idle,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
+                    }
                 }
-                val detail = thumb?.label ?: thread.summary
+                val detail = trail.label
                 if (!detail.isNullOrBlank()) {
                     Text(
                         detail,
                         style = MaterialTheme.typography.bodyMedium,
-                        fontFamily = if (thumb != null) LuviaTheme.mono else FontFamily.Default,
-                        maxLines = 2,
+                        fontFamily = if (trail.useMono) LuviaTheme.mono else FontFamily.Default,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
                 if (running) {
-                    val fraction = thumb?.progressPermille?.let { it / 1000f }
+                    val fraction = trail.progressPermille?.let { it / 1000f }
                     if (fraction != null) {
                         LinearWavyProgressIndicator(
                             progress = { fraction },
@@ -614,9 +639,6 @@ private fun SessionRow(
                             trackColor = MaterialTheme.colorScheme.surfaceVariant,
                         )
                     }
-                }
-                if (thumb != null && thumb.kinds.isNotEmpty()) {
-                    TrailDots(thumb.kinds, Modifier.padding(top = 8.dp))
                 }
             }
         }
@@ -712,17 +734,26 @@ private fun brandColor(hex: String): Color {
 }
 
 @Composable
-private fun TrailDots(kinds: List<ToolTrailKind>, modifier: Modifier = Modifier) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        kinds.forEach { kind ->
-            val color = when (kind) {
-                ToolTrailKind.Read -> MaterialTheme.colorScheme.secondary
-                ToolTrailKind.Edit -> MaterialTheme.colorScheme.primary
-                ToolTrailKind.Run -> MaterialTheme.colorScheme.error
-                ToolTrailKind.Other -> MaterialTheme.colorScheme.outline
+private fun TrailDots(
+    dots: List<ListTrailDot>,
+    tones: List<ListTrailTone>,
+    faded: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier.alpha(if (faded) 0.4f else 1f),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        dots.forEachIndexed { index, dot ->
+            val tone = tones.getOrNull(index) ?: ListTrailTone.Pending
+            val color = when {
+                dot == ListTrailDot.Decide -> MaterialTheme.colorScheme.tertiary
+                tone == ListTrailTone.Failed -> MaterialTheme.colorScheme.error
+                tone == ListTrailTone.Ok -> LuviaTheme.extended.live
+                else -> MaterialTheme.colorScheme.outline
             }
-            val shape = if (kind == ToolTrailKind.Run) RoundedCornerShape(2.dp) else CircleShape
-            Box(Modifier.size(8.dp).background(color, shape))
+            Box(Modifier.size(8.dp).background(color, CircleShape))
         }
     }
 }
@@ -745,20 +776,16 @@ private fun DecisionPreview(
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                AgentAvatar(thread.agentType, thread.title, brand = false)
+                AgentAvatar(thread.agentType, thread.title, brand = false, size = 36.dp)
                 Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        listOfNotNull(thread.agentType, thread.title).joinToString(" · "),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    age?.let {
-                        Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
-                    }
-                }
+                Text(
+                    listOfNotNull(thread.title, age).joinToString(" · "),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             Text(
                 ask.question ?: thread.title,
@@ -768,12 +795,29 @@ private fun DecisionPreview(
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
-            Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                primary?.let { option ->
-                    Button(onClick = { onAnswer(option) }, enabled = enabled) { Text(option.label) }
-                }
-                secondary?.let { option ->
-                    FilledTonalButton(onClick = { onAnswer(option) }, enabled = enabled) { Text(option.label) }
+            if (primary != null || secondary != null) {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    primary?.let { option ->
+                        Button(
+                            onClick = { onAnswer(option) },
+                            enabled = enabled,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(option.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    secondary?.let { option ->
+                        FilledTonalButton(
+                            onClick = { onAnswer(option) },
+                            enabled = enabled,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(option.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
         }

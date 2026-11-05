@@ -72,7 +72,7 @@ public data class Ask(
 )
 
 public fun HostUhpState.threads(hostId: String): List<AgentThread> {
-    val panes = agents.map { it.toThread(hostId, cachedTranscriptFor(it.paneId)) }
+    val panes = agents.map { it.toThread(hostId, cachedTranscriptFor(it.paneId, it.status)) }
     val live = acp.takeIf { it.open }?.toThread(hostId)
     val base = if (live == null) panes else panes + live
     return mergeAcpHistory(base, acp.history.map { it.toHistoryThread(hostId) })
@@ -96,8 +96,12 @@ public fun awaitingAcpThread(state: HostUhpState, hostId: String): AgentThread? 
     }
 }
 
-private fun HostUhpState.cachedTranscriptFor(paneId: String): String? =
-    agentDetail.transcript?.takeIf { agentDetail.paneId == paneId }?.text
+private fun HostUhpState.cachedTranscriptFor(paneId: String, status: AgentStatus): String? {
+    agentDetail.transcript?.takeIf { agentDetail.paneId == paneId }?.text?.let { return it }
+    val preview = panePreviews[paneId] ?: return null
+    if (preview.status != status || preview.text.isBlank()) return null
+    return preview.text
+}
 
 internal fun AgentSummary.toThread(hostId: String, transcript: String?): AgentThread {
     val last = lastNonEmptyLine(transcript?.let(::stripAnsi))
