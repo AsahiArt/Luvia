@@ -362,6 +362,65 @@ class SessionListTest {
         assertTrue(threadTrails(state, threads).isEmpty())
     }
 
+    @Test
+    fun mergeDropsAcpHistoryWhenPaneHasSameAgentAndCwd() {
+        val pane =
+            thread("pane", AgentStatus.Working).copy(
+                agentType = "claude-code",
+                cwd = "/repo/",
+            )
+        val same =
+            history("sess_same", "claude", "/repo")
+        val otherDir =
+            history("sess_other", "claude", "/else")
+        val otherAgent =
+            history("sess_pi", "pi", "/repo")
+        val merged = mergeAcpHistory(listOf(pane), listOf(same, otherDir, otherAgent))
+        assertEquals(listOf("pane", "acp:sess_other", "acp:sess_pi"), merged.map { it.id })
+        assertEquals(true, merged.first { it.id == "acp:sess_other" }.acpHistory)
+    }
+
+    @Test
+    fun mergeKeepsDistinctAcpSessionsAndSkipsTheOpenOne() {
+        val live =
+            thread("acp:sess_live", AgentStatus.Working).copy(
+                kind = AgentKind.Acp,
+                acpSessionId = "sess_live",
+                agentType = "codex",
+                cwd = "/repo",
+            )
+        val duplicate = history("sess_live", "codex", "/repo")
+        val sibling = history("sess_next", "codex", "/repo")
+        val merged = mergeAcpHistory(listOf(live), listOf(duplicate, sibling))
+        assertEquals(listOf("acp:sess_live", "acp:sess_next"), merged.map { it.id })
+    }
+
+    @Test
+    fun rfc3339SortKeyParsesZuluAndOffset() {
+        assertEquals(1_762_300_800_000L, rfc3339EpochMs("2025-11-05T00:00:00Z"))
+        assertEquals(1_762_300_800_000L, rfc3339EpochMs("2025-11-05T08:00:00+08:00"))
+        assertEquals(null, rfc3339EpochMs("yesterday"))
+    }
+
+    private fun history(sessionId: String, agent: String, cwd: String) =
+        AgentThread(
+            id = "acp:$sessionId",
+            kind = AgentKind.Acp,
+            hostId = "h",
+            projectKey = cwd,
+            projectLabel = null,
+            title = sessionId,
+            agentType = agent,
+            status = AgentStatus.Idle,
+            ask = null,
+            summary = null,
+            updatedEpochMs = null,
+            acpSessionId = sessionId,
+            cwd = cwd,
+            acpHistory = true,
+            acpAgentId = agent,
+        )
+
     private val reservedPalettes = setOf(
         AgentAvatarPalette.Blue,
         AgentAvatarPalette.Orange,

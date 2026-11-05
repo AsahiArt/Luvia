@@ -130,7 +130,15 @@ fun ChatFirstApp(
         viewModel.autoConnect(id)
         viewModel.refresh(id)
         viewModel.workspace(id).shown()
-        viewModel.workspace(id).loadAcpAgents()
+        if (state?.connected == true) {
+            viewModel.workspace(id).loadAcpAgents()
+        }
+    }
+    LaunchedEffect(selected?.id, state?.connected) {
+        val id = selected?.id ?: return@LaunchedEffect
+        if (state?.connected == true) {
+            viewModel.workspace(id).loadAcpAgents()
+        }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, selected?.id) {
@@ -166,7 +174,9 @@ fun ChatFirstApp(
         }
         if (state?.acp?.open == true) {
             viewModel.workspace(id).viewAcp()
-            val thread = state.threads(id).firstOrNull { it.kind == AgentKind.Acp }
+            val thread =
+                state.threads(id).firstOrNull { it.kind == AgentKind.Acp && !it.acpHistory }
+                    ?: state.threads(id).firstOrNull { it.kind == AgentKind.Acp }
             if (thread != null) {
                 threadId = thread.id
                 viewModel.markViewed(thread)
@@ -183,6 +193,16 @@ fun ChatFirstApp(
         threadId = thread.id
         viewModel.markViewed(thread)
         val workspace = viewModel.workspace(id)
+        if (thread.acpHistory) {
+            val agentId = thread.acpAgentId
+            val cwd = thread.cwd
+            val sessionId = thread.acpSessionId
+            if (agentId != null && !cwd.isNullOrBlank() && sessionId != null) {
+                workspace.resumeAcp(agentId, cwd, sessionId)
+                awaitingAcp = true
+                return
+            }
+        }
         when (thread.kind) {
             AgentKind.Acp -> workspace.viewAcp()
             AgentKind.Pane -> thread.paneId?.let { workspace.openAgent(it) }

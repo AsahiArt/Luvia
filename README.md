@@ -152,7 +152,7 @@ Each surface is confined to one class per platform (`LiveActivityController`, `S
 
 ## ACP agents
 
-Besides Luvus panes, Luvia can launch any [Agent Client Protocol](https://agentclientprotocol.com) agent (Codex, Claude Code, Gemini CLI, …) directly on the host. `luvia-host bridge` acts as the ACP client: it spawns the agent as a child process, speaks JSON-RPC to it over stdio, and exposes the session to the phone as the `luvia.acp.*` UHP methods — streamed messages, tool calls, plan, and permission prompts you answer from the phone. Agents never see the SSH or Luvus credentials. Built-in agents are auto-detected on `PATH`; add or override entries in `~/.config/luvia/host/acp-agents.json` (`[{"id","name","command","args"}]`). Controller role required. The wire contract is in [`docs/acp-contract.md`](docs/acp-contract.md).
+Besides Luvus panes, Luvia can launch any [Agent Client Protocol](https://agentclientprotocol.com) agent (Codex, Claude Code, Gemini CLI, Antigravity via `agy acp`, Pi via `pi-acp`, …) directly on the host. Recoverable ACP sessions show in the same session list as panes; opening one resumes it with replay. `luvia-host bridge` acts as the ACP client: it spawns the agent as a child process, speaks JSON-RPC to it over stdio, and exposes the session to the phone as the `luvia.acp.*` UHP methods — streamed messages, tool calls, plan, and permission prompts you answer from the phone. Agents never see the SSH or Luvus credentials. Built-in agents are auto-detected on `PATH`; add or override entries in `~/.config/luvia/host/acp-agents.json` (`[{"id","name","command","args"}]`). Controller role required. The wire contract is in [`docs/acp-contract.md`](docs/acp-contract.md).
 
 ## Push wakes
 

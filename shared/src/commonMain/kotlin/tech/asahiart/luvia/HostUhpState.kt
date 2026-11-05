@@ -76,6 +76,7 @@ public data class HostCapabilities(
     public val paneRename: Boolean = false,
     public val acpAgents: Boolean = false,
     public val acpSession: Boolean = false,
+    public val acpSessionList: Boolean = false,
     public val taskRetry: Boolean = false,
     public val push: Boolean = false,
 
@@ -242,6 +243,8 @@ public data class AcpState(
     public val draft: String = "",
     public val errorText: String? = null,
     public val exitMessage: String? = null,
+    public val history: List<AcpHistorySession> = emptyList(),
+    public val historyLoading: Boolean = false,
 )
 
 public data class ProjectChoice(
@@ -472,6 +475,7 @@ internal fun LuviaSession.toCapabilities(): HostCapabilities =
         paneRename = supports(UhpMethods.PANE_RENAME),
         acpAgents = supports(UhpMethods.ACP_AGENTS),
         acpSession = supports(UhpMethods.ACP_SESSION_OPEN),
+        acpSessionList = supports(UhpMethods.ACP_SESSION_LIST),
         taskRetry = supports(UhpMethods.TASK_RETRY),
         push = supports(UhpMethods.PUSH_REGISTER),
 

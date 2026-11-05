@@ -153,6 +153,17 @@ struct ContentView: View {
                     showsChrome: stage != "terminal",
                     glass: glass
                 )
+                .task(id: acpLoadKey) {
+                    guard let id = model.selectedHostID else { return }
+                    guard model.hostStates[id]?.connected == true else { return }
+                    model.loadAcpAgents()
+                }
+    }
+
+    private var acpLoadKey: String {
+        let id = model.selectedHostID ?? ""
+        let connected = model.hostStates[id]?.connected == true
+        return "\(id)-\(connected)"
     }
 
     private func applyPairingGate() {
@@ -448,7 +459,12 @@ struct ContentView: View {
             model.select(host)
         }
         model.uhpRegistry.markViewed(thread: thread)
-        if thread.kind == .acp {
+        if thread.acpHistory,
+           let agent = thread.acpAgentId,
+           let cwd = thread.cwd,
+           let session = thread.acpSessionId {
+            model.hostUhp()?.resumeAcp(agentId: agent, cwd: cwd, sessionId: session)
+        } else if thread.kind == .acp {
             model.hostUhp()?.viewAcp()
         } else if let pane = thread.paneId {
             model.hostUhp()?.openAgent(paneId: pane)

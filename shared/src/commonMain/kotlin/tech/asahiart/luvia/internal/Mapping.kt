@@ -120,6 +120,7 @@ internal object Methods {
     const val TERMINAL_SUBMIT: String = "terminal.backend.submit_text"
     const val TERMINAL_KEY: String = "terminal.backend.send_key"
     const val ACP_AGENTS: String = "luvia.acp.agents"
+    const val ACP_SESSION_LIST: String = "luvia.acp.session.list"
     const val ACP_SESSION_OPEN: String = "luvia.acp.session.open"
 
     val MUTATIONS: Set<String> =

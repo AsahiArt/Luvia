@@ -1,5 +1,6 @@
 package tech.asahiart.luvia.thread
 
+import tech.asahiart.luvia.AcpHistorySession
 import tech.asahiart.luvia.AcpPermissionKind
 import tech.asahiart.luvia.AcpRunState
 import tech.asahiart.luvia.AcpState
@@ -28,6 +29,11 @@ public data class AgentThread(
     public val updatedEpochMs: Long?,
     public val paneId: String? = null,
     public val acpSessionId: String? = null,
+    /** Working directory, when the host actually named one. Used to dedup ACP history. */
+    public val cwd: String? = null,
+    /** True when this row is an ACP session that is not open yet. Tap resumes it. */
+    public val acpHistory: Boolean = false,
+    public val acpAgentId: String? = null,
 ) {
     public val needsYou: Boolean get() = ask != null
 
@@ -67,8 +73,9 @@ public data class Ask(
 
 public fun HostUhpState.threads(hostId: String): List<AgentThread> {
     val panes = agents.map { it.toThread(hostId, cachedTranscriptFor(it.paneId)) }
-    val acpThread = acp.takeIf { it.open }?.toThread(hostId) ?: return panes
-    return panes + acpThread
+    val live = acp.takeIf { it.open }?.toThread(hostId)
+    val base = if (live == null) panes else panes + live
+    return mergeAcpHistory(base, acp.history.map { it.toHistoryThread(hostId) })
 }
 
 private fun HostUhpState.cachedTranscriptFor(paneId: String): String? =
@@ -89,6 +96,7 @@ internal fun AgentSummary.toThread(hostId: String, transcript: String?): AgentTh
         summary = last,
         updatedEpochMs = null,
         paneId = paneId,
+        cwd = cwd,
     )
 }
 
@@ -127,6 +135,29 @@ public fun AcpState.toThread(hostId: String): AgentThread {
         summary = lastNonEmptyLine(lastMessage?.text),
         updatedEpochMs = null,
         acpSessionId = info?.sessionId,
+        cwd = cwd,
+        acpAgentId = info?.agentId,
+    )
+}
+
+internal fun AcpHistorySession.toHistoryThread(hostId: String): AgentThread {
+    val cwd = cwd.trim()
+    return AgentThread(
+        id = "acp:$sessionId",
+        kind = AgentKind.Acp,
+        hostId = hostId,
+        projectKey = cwd,
+        projectLabel = cwd.trimEnd('/').substringAfterLast('/').ifBlank { cwd },
+        title = title?.takeIf { it.isNotBlank() } ?: agentName.ifBlank { agentId },
+        agentType = agentId,
+        status = AgentStatus.Idle,
+        ask = null,
+        summary = null,
+        updatedEpochMs = rfc3339EpochMs(updatedAt),
+        acpSessionId = sessionId,
+        cwd = cwd,
+        acpHistory = true,
+        acpAgentId = agentId,
     )
 }
 

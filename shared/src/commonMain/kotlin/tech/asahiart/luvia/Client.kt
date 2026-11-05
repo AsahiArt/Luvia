@@ -44,6 +44,7 @@ import tech.asahiart.luvia.internal.optionalBoolean
 
 import tech.asahiart.luvia.internal.mapAcpAgents
 import tech.asahiart.luvia.internal.mapAcpSessionAck
+import tech.asahiart.luvia.internal.mapAcpSessionList
 
 public class LuviaClient internal constructor(
     channels: ByteChannelFactory,
@@ -575,11 +576,38 @@ public class LuviaSession internal constructor(
             mapAcpAgents(it)
         }
 
-    public suspend fun openAcpSession(agentId: String, cwd: String): Outcome<AcpSession> {
+    public suspend fun acpSessionList(
+        agent: String,
+        cwd: String? = null,
+        cursor: String? = null,
+    ): Outcome<AcpSessionList> {
+        val params =
+            buildJsonObject {
+                put("agent", agent)
+                if (!cwd.isNullOrEmpty()) put("cwd", cwd)
+                if (!cursor.isNullOrEmpty()) put("cursor", cursor)
+            }
+        return engine.unary(UhpMethods.ACP_SESSION_LIST, params, mutation = false) {
+            mapAcpSessionList(it)
+        }
+    }
+
+    public suspend fun openAcpSession(
+        agentId: String,
+        cwd: String,
+        mode: AcpOpenMode = AcpOpenMode.New,
+        sessionId: String? = null,
+        replay: Boolean = false,
+    ): Outcome<AcpSession> {
         val params =
             buildJsonObject {
                 put("agent", agentId)
                 put("cwd", cwd)
+                if (mode == AcpOpenMode.Resume) {
+                    put("mode", "resume")
+                    if (!sessionId.isNullOrEmpty()) put("session_id", sessionId)
+                    put("replay", replay)
+                }
             }
         return when (val opened = engine.openAcp(params)) {
             is Outcome.Ok -> {

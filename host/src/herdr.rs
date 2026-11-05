@@ -208,6 +208,14 @@ fn handle_luvia(
             crate::acp::handle_agents(id, paths, output)?;
             Ok(LuviaOutcome::Handled)
         }
+        "luvia.acp.session.list" => {
+            let params = parse_unique_value(request)
+                .ok()
+                .and_then(|value| value.get("params").cloned())
+                .unwrap_or(Value::Null);
+            crate::acp::handle_session_list(paths, id, &params, output)?;
+            Ok(LuviaOutcome::Handled)
+        }
         "luvia.acp.session.open" => {
             let params = parse_unique_value(request)
                 .ok()

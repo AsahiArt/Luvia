@@ -27,6 +27,103 @@ public fun filterSessions(threads: List<AgentThread>, filter: SessionFilter): Li
 
 public fun pendingReplyCount(threads: List<AgentThread>): Int = threads.count { it.needsYou }
 
+/**
+ * One session list. Pane threads and ACP history share it; there is no second entrance.
+ *
+ * Dedup key is canonical agent id + cwd with trailing slashes removed.
+ * Pane session ids and ACP session ids are not the same id space, so they are not compared.
+ *
+ * - A pane thread wins over every ACP history row with the same agent and cwd.
+ *   The pane is the live terminal for that agent in that directory.
+ * - Distinct ACP sessions that share an agent and cwd, and do not match a pane, all stay.
+ * - An already-open ACP session is not repeated when its session id is already in the list.
+ * - Agents without `session/list` never produce rows (`acp_unsupported` or no `supports`).
+ */
+public fun mergeAcpHistory(threads: List<AgentThread>, history: List<AgentThread>): List<AgentThread> {
+    if (history.isEmpty()) return threads
+    val paneKeys =
+        threads.mapNotNull { thread ->
+            if (thread.kind != AgentKind.Pane) return@mapNotNull null
+            val agent = canonicalAcpAgent(thread.agentType) ?: return@mapNotNull null
+            val cwd = normalizeSessionCwd(thread.cwd) ?: return@mapNotNull null
+            agent to cwd
+        }.toSet()
+    val openIds = threads.mapNotNull { thread ->
+        if (thread.acpHistory) null else thread.acpSessionId
+    }.toSet()
+    val added = ArrayList<AgentThread>()
+    val seen = openIds.toMutableSet()
+    for (row in history) {
+        if (!row.acpHistory) continue
+        val sessionId = row.acpSessionId ?: continue
+        if (!seen.add(sessionId)) continue
+        val agent = canonicalAcpAgent(row.acpAgentId ?: row.agentType)
+        val cwd = normalizeSessionCwd(row.cwd)
+        if (agent != null && cwd != null && (agent to cwd) in paneKeys) continue
+        added += row
+    }
+    return if (added.isEmpty()) threads else threads + added
+}
+
+internal fun canonicalAcpAgent(raw: String?): String? {
+    val key = raw?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null
+    return when (key) {
+        "claude", "claude-code", "claude-code-acp" -> "claude"
+        "codex", "codex-acp" -> "codex"
+        "gemini", "gemini-cli" -> "gemini"
+        "agy", "antigravity" -> "agy"
+        "pi", "pi-acp" -> "pi"
+        else -> key
+    }
+}
+
+internal fun normalizeSessionCwd(raw: String?): String? =
+    raw?.trim()?.trimEnd('/')?.ifEmpty { null }
+
+/** RFC3339 timestamp to epoch millis. Null when the text is not a timestamp. */
+internal fun rfc3339EpochMs(raw: String?): Long? {
+    val text = raw?.trim()?.takeIf { it.length >= 20 && it[4] == '-' && it[7] == '-' && it[10] == 'T' } ?: return null
+    val year = text.substring(0, 4).toIntOrNull() ?: return null
+    val month = text.substring(5, 7).toIntOrNull() ?: return null
+    val day = text.substring(8, 10).toIntOrNull() ?: return null
+    val hour = text.substring(11, 13).toIntOrNull() ?: return null
+    val minute = text.substring(14, 16).toIntOrNull() ?: return null
+    val second = text.substring(17, 19).toIntOrNull() ?: return null
+    if (month !in 1..12 || day !in 1..31 || hour !in 0..23 || minute !in 0..59 || second !in 0..60) return null
+    val zoneStart =
+        if (text.length > 19 && text[19] == '.') {
+            text.indexOfAny(charArrayOf('Z', '+', '-'), startIndex = 20).takeIf { it >= 0 } ?: return null
+        } else {
+            19
+        }
+    val zone = text.substring(zoneStart)
+    val offsetMinutes =
+        when {
+            zone == "Z" -> 0
+            zone.startsWith("+") || zone.startsWith("-") -> {
+                val sign = if (zone[0] == '-') -1 else 1
+                val body = zone.substring(1)
+                val hh = body.substringBefore(':').toIntOrNull() ?: return null
+                val mm = body.substringAfter(':', "0").take(2).toIntOrNull() ?: return null
+                if (hh !in 0..23 || mm !in 0..59) return null
+                sign * (hh * 60 + mm)
+            }
+            else -> return null
+        }
+    val days = civilDaysSinceEpoch(year, month, day) ?: return null
+    return (days * 86_400L + hour * 3_600L + minute * 60L + second - offsetMinutes * 60L) * 1_000L
+}
+
+private fun civilDaysSinceEpoch(year: Int, month: Int, day: Int): Long? {
+    if (year !in 1970..9999) return null
+    val y = year - if (month <= 2) 1 else 0
+    val era = if (y >= 0) y / 400 else (y - 399) / 400
+    val yoe = (y - era * 400).toLong()
+    val doy = (153 * (month + if (month > 2) -3 else 9) + 2) / 5 + day - 1
+    val doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+    return era.toLong() * 146_097 + doe - 719_468
+}
+
 /** Needs-you first, then running, then idle and done. Newer rows win ties. */
 public fun sortSessions(threads: List<AgentThread>): List<AgentThread> =
     threads.sortedWith(
