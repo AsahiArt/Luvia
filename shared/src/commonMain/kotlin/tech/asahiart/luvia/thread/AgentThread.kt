@@ -78,6 +78,24 @@ public fun HostUhpState.threads(hostId: String): List<AgentThread> {
     return mergeAcpHistory(base, acp.history.map { it.toHistoryThread(hostId) })
 }
 
+/**
+ * Live ACP row to open after launch or resume.
+ *
+ * `open` is set before the host names a session, and the live row id is then
+ * the placeholder `"acp"`. That id disappears on ack. Null until
+ * [AcpState.info] carries a session id, then the row `acp:<sessionId>`.
+ */
+public fun awaitingAcpThread(state: HostUhpState, hostId: String): AgentThread? {
+    if (!state.acp.open) return null
+    val sessionId = state.acp.info?.sessionId?.takeIf { it.isNotBlank() } ?: return null
+    return state.threads(hostId).firstOrNull { thread ->
+        thread.kind == AgentKind.Acp &&
+            !thread.acpHistory &&
+            thread.id != "acp" &&
+            (thread.id == "acp:$sessionId" || thread.acpSessionId == sessionId)
+    }
+}
+
 private fun HostUhpState.cachedTranscriptFor(paneId: String): String? =
     agentDetail.transcript?.takeIf { agentDetail.paneId == paneId }?.text
 
@@ -121,7 +139,7 @@ public fun AcpState.toThread(hostId: String): AgentThread {
         hostId = hostId,
         projectKey = cwd,
         projectLabel = cwd?.trimEnd('/')?.substringAfterLast('/'),
-        title = info?.agentName?.takeIf { it.isNotBlank() } ?: "Agent",
+        title = historyTitle(info?.sessionId) ?: info?.agentName?.takeIf { it.isNotBlank() } ?: "Agent",
         agentType = info?.agentId,
         status = run.toAgentStatus(),
         ask = request?.let { req ->
@@ -138,6 +156,11 @@ public fun AcpState.toThread(hostId: String): AgentThread {
         cwd = cwd,
         acpAgentId = info?.agentId,
     )
+}
+
+private fun AcpState.historyTitle(sessionId: String?): String? {
+    val sid = sessionId?.takeIf { it.isNotBlank() } ?: return null
+    return history.firstOrNull { it.sessionId == sid }?.title?.takeIf { it.isNotBlank() }
 }
 
 internal fun AcpHistorySession.toHistoryThread(hostId: String): AgentThread {

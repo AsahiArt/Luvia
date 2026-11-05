@@ -124,11 +124,16 @@ private fun civilDaysSinceEpoch(year: Int, month: Int, day: Int): Long? {
     return era.toLong() * 146_097 + doe - 719_468
 }
 
-/** Needs-you first, then running, then idle and done. Newer rows win ties. */
+/**
+ * Needs-you, then running, then live idle, then live done.
+ * ACP history stays last even when its [AgentThread.updatedEpochMs] is newer
+ * than a live pane that never reported one. Newer rows win inside a bucket.
+ */
 public fun sortSessions(threads: List<AgentThread>): List<AgentThread> =
     threads.sortedWith(
         compareBy<AgentThread> { thread ->
             when {
+                thread.acpHistory -> 4
                 thread.needsYou -> 0
                 thread.status == AgentStatus.Working -> 1
                 thread.status == AgentStatus.Idle -> 2

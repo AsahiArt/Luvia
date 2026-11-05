@@ -25,6 +25,9 @@ internal class AcpBoard(private val ctx: UhpContext) {
     private var collector: Job? = null
     private var nextItem: Int = 0
 
+    /** Replay after resume is history, not a live turn. Cleared when the user prompts. */
+    private var replaying: Boolean = false
+
     fun loadAgents() {
         val session = ctx.session() ?: return
         if (!session.supports(UhpMethods.ACP_AGENTS)) return
@@ -133,6 +136,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
         }
         stop()
         nextItem = 0
+        replaying = false
         ctx.update {
             it.copy(
                 acp =
@@ -163,6 +167,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
         if (cwd.isBlank() || sessionId.isBlank()) return
         stop()
         nextItem = 0
+        replaying = true
         ctx.update {
             it.copy(
                 acp =
@@ -222,6 +227,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
         if (!state.canMutate || !state.acp.open) return false
         val text = state.acp.draft.trim()
         if (text.isEmpty()) return false
+        replaying = false
         ctx.update {
             it.copy(
                 acp =
@@ -264,6 +270,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
     fun answerPermission(optionId: String) {
         val acpSession = session ?: return
         val request = ctx.value().acp.permission ?: return
+        replaying = false
         ctx.update { it.copy(acp = it.acp.copy(permission = null, run = AcpRunState.Working)) }
         ctx.launch {
             when (val result = acpSession.answerPermission(request.requestId, optionId)) {
@@ -297,6 +304,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
 
     fun close() {
         stop()
+        replaying = false
         ctx.update {
             it.copy(
                 acp = it.acp.copy(open = false, viewing = false, run = AcpRunState.Idle, permission = null),
@@ -399,7 +407,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
     }
 
     private fun AcpState.maybeWorking(): AcpState =
-        if (run == AcpRunState.Ready) copy(run = AcpRunState.Working) else this
+        if (run == AcpRunState.Ready && !replaying) copy(run = AcpRunState.Working) else this
 
     private fun nextId(): String {
         nextItem += 1

@@ -23,6 +23,7 @@ import kotlinx.serialization.json.put
 import tech.asahiart.luvia.internal.Methods
 import tech.asahiart.luvia.internal.NdjsonFramer
 import tech.asahiart.luvia.internal.uhp.startingReplay
+import tech.asahiart.luvia.thread.threads
 import tech.asahiart.luvia.internal.UhpRequest
 import tech.asahiart.luvia.internal.decodeAcpEvent
 import tech.asahiart.luvia.internal.decodeUhpEvent
@@ -235,6 +236,34 @@ class AcpTest {
         assertEquals("sess_old", params.getValue("session_id").jsonPrimitive.content)
         assertEquals("true", params.getValue("replay").jsonPrimitive.content)
         assertEquals("codex", params.getValue("agent").jsonPrimitive.content)
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun resumeReplayStaysIdleAfterAck() = runTest {
+        val session =
+            openAcpClient(
+                backgroundScope,
+                streamEvents = listOf(AGENT_HELLO),
+            )
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        uhp.resumeAcp("codex", "/tmp/work", "sess_1")
+        val state =
+            withTimeout(2.seconds) {
+                uhp.state.first { current ->
+                    current.acp.info?.sessionId == "sess_1" &&
+                        current.acp.transcript.any { item ->
+                            item is AcpTranscriptItem.Message && item.text == "Hello"
+                        }
+                }
+            }
+        assertEquals(AcpRunState.Ready, state.acp.run)
+        val live = state.threads(runtime.profile.id).first { it.kind == AgentKind.Acp && !it.acpHistory }
+        assertEquals("acp:sess_1", live.id)
+        assertEquals(AgentStatus.Idle, live.status)
         uhp.close()
         session.close()
     }
