@@ -53,6 +53,7 @@ import tech.asahiart.luvia.toSortedUi
 import tech.asahiart.luvia.StatusNotificationController
 import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.SessionFilter
+import tech.asahiart.luvia.thread.awaitingAcpThread
 import tech.asahiart.luvia.thread.filterSessions
 import tech.asahiart.luvia.thread.pendingReplyCount
 import tech.asahiart.luvia.thread.sessionRoster
@@ -130,7 +131,15 @@ fun ChatFirstApp(
         viewModel.autoConnect(id)
         viewModel.refresh(id)
         viewModel.workspace(id).shown()
-        viewModel.workspace(id).loadAcpAgents()
+        if (state?.connected == true) {
+            viewModel.workspace(id).loadAcpAgents()
+        }
+    }
+    LaunchedEffect(selected?.id, state?.connected) {
+        val id = selected?.id ?: return@LaunchedEffect
+        if (state?.connected == true) {
+            viewModel.workspace(id).loadAcpAgents()
+        }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, selected?.id) {
@@ -157,24 +166,26 @@ fun ChatFirstApp(
             consumedLaunch = true
         }
     }
-    LaunchedEffect(awaitingAcp, state?.acp?.open, state?.acp?.errorText) {
+    LaunchedEffect(
+        awaitingAcp,
+        state?.acp?.open,
+        state?.acp?.errorText,
+        state?.acp?.info?.sessionId,
+    ) {
         if (!awaitingAcp) return@LaunchedEffect
         val id = selected?.id ?: return@LaunchedEffect
-        if (state?.acp?.errorText != null && state.acp.open.not()) {
+        val hostState = state ?: return@LaunchedEffect
+        if (hostState.acp.errorText != null && !hostState.acp.open) {
             awaitingAcp = false
             return@LaunchedEffect
         }
-        if (state?.acp?.open == true) {
-            viewModel.workspace(id).viewAcp()
-            val thread = state.threads(id).firstOrNull { it.kind == AgentKind.Acp }
-            if (thread != null) {
-                threadId = thread.id
-                viewModel.markViewed(thread)
-                stage = "chat"
-                showNewSession = false
-                awaitingAcp = false
-            }
-        }
+        val thread = awaitingAcpThread(hostState, id) ?: return@LaunchedEffect
+        viewModel.workspace(id).viewAcp()
+        threadId = thread.id
+        viewModel.markViewed(thread)
+        stage = "chat"
+        showNewSession = false
+        awaitingAcp = false
     }
 
     fun openThread(thread: AgentThread) {
@@ -183,6 +194,16 @@ fun ChatFirstApp(
         threadId = thread.id
         viewModel.markViewed(thread)
         val workspace = viewModel.workspace(id)
+        if (thread.acpHistory) {
+            val agentId = thread.acpAgentId
+            val cwd = thread.cwd
+            val sessionId = thread.acpSessionId
+            if (agentId != null && !cwd.isNullOrBlank() && sessionId != null) {
+                workspace.resumeAcp(agentId, cwd, sessionId)
+                awaitingAcp = true
+                return
+            }
+        }
         when (thread.kind) {
             AgentKind.Acp -> workspace.viewAcp()
             AgentKind.Pane -> thread.paneId?.let { workspace.openAgent(it) }

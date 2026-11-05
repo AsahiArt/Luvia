@@ -11,14 +11,18 @@ agents the user started in a pane. ACP is the surface for agents the phone start
 
 ## Availability
 
-The bridge appends `luvia.acp.agents` and `luvia.acp.session.open` to the
-`uhp.capabilities` result (`methods[]`, and `method_contracts[]` when present, with
-`access`/`scope` below) only when at least one ACP agent is available on the Host.
-The phone gates on `LuviaSession.supports(...)` as for every other method.
+The bridge appends `luvia.acp.agents`, `luvia.acp.session.list`, and
+`luvia.acp.session.open` to the `uhp.capabilities` result (`methods[]`, and
+`method_contracts[]` when present, with `access`/`scope` below) only when at
+least one ACP agent is available on the Host. The phone gates on
+`LuviaSession.supports(...)` as for every other method. `session.list` is the
+history entrance; a specific agent that does not advertise list answers
+`acp_unsupported` and the phone hides that agent's history rows.
 
 | method | access | scope | role |
 |---|---|---|---|
 | `luvia.acp.agents` | read | read | Observer, Controller |
+| `luvia.acp.session.list` | read | read | Observer, Controller |
 | `luvia.acp.session.open` | write | agent | Controller |
 
 ## Agent catalog
@@ -30,6 +34,8 @@ Built-in defaults, each `available` when its command resolves on `PATH`:
 | `codex` | Codex | `codex-acp` |
 | `claude` | Claude Code | `claude-code-acp` |
 | `gemini` | Gemini CLI | `gemini --experimental-acp` |
+| `agy` | Antigravity | `agy acp` |
+| `pi` | Pi | `pi-acp` |
 
 Optional `${config_dir}/acp-agents.json` (`Paths.config_dir`, same permissions rules
 as grants) adds or overrides entries:
@@ -46,16 +52,45 @@ Params: `{}`.
 {"type":"acp_agents","agents":[{"id":"codex","name":"Codex","command":"codex-acp","available":true}]}
 ```
 
+## `luvia.acp.session.list` (unary)
+
+Params: `{"agent":"codex","cwd":"/abs/optional","cursor":null}`. `cwd`, when set, must be
+absolute and an existing directory. The bridge spawns the agent, `initialize`s
+at protocol version 2, calls ACP `session/list` only if the agent advertised
+list (`sessionCapabilities.list` on v1, `capabilities.session` on v2), then
+kills the process. It does not open a phone stream and does not read session
+files.
+
+```json
+{"type":"acp_session_list","agent":"codex","sessions":[{"session_id":"sess_…","cwd":"/abs","title":null,"updated_at":null}],"next_cursor":null,"protocol_version":1}
+```
+
+Errors: `invalid_params`, `unknown_agent`, `agent_unavailable`, `spawn_failed`,
+`acp_unsupported` (no list capability), `acp_error`.
+
 ## `luvia.acp.session.open` (bidirectional stream)
 
-Params: `{"agent":"codex","cwd":"/abs/dir"}`. `cwd` must be absolute and an existing
-directory. Errors on the ack: `forbidden` (Observer), `invalid_params`,
-`unknown_agent`, `agent_unavailable`, `spawn_failed`, `acp_error` (initialize or
-`session/new` failed; message carries the agent's error).
+Params: `{"agent":"codex","cwd":"/abs/dir"}` still means `mode: "new"`.
+Extended params: `mode` `new|resume`, `session_id` (required for resume),
+`replay` (bool, default false). `cwd` must be absolute and an existing
+directory. The phone does not send a protocol version.
 
-Bridge sequence: spawn `command args` with `cwd`, stdio piped, stderr discarded;
-`initialize {protocolVersion:1, clientCapabilities:{fs:{readTextFile:false,writeTextFile:false},terminal:false}}`;
-`session/new {cwd, mcpServers:[]}`. Then ack:
+| mode | replay | ACP |
+|---|---|---|
+| `new` | ignored | `session/new` |
+| `resume` | `true` | v1 `session/load`; v2 `session/resume` with `replayFrom: {type: start}` |
+| `resume` | `false` | `session/resume` |
+
+Errors on the ack: `forbidden` (Observer), `invalid_params`,
+`unknown_agent`, `agent_unavailable`, `spawn_failed`, `acp_unsupported`
+(resume/load not advertised), `acp_error` (initialize or the session method
+failed; message carries the agent's error).
+
+Bridge sequence: spawn `command args` with `cwd`, stdio piped;
+`initialize` offers protocol version 2 and maps whatever the agent returns
+(1 or 2); then the session method above. Replay `session/update`s that arrive
+before the ACP result are emitted as `acp.update` after the ack. The phone
+clears `transcript` when resume+replay starts. Then ack:
 
 ```json
 {"id":"…","result":{"type":"acp_session","session_id":"sess_…","agent":"codex","agent_name":"Codex","protocol_version":1,"cwd":"/abs/dir"}}
@@ -130,7 +165,8 @@ public sealed class AcpEvent {
 
 // LuviaSession additions
 public suspend fun acpAgents(): Outcome<List<AcpAgentKind>>
-public suspend fun openAcpSession(agentId: String, cwd: String): Outcome<AcpSession>
+public suspend fun acpSessionList(agent: String, cwd: String? = null, cursor: String? = null): Outcome<AcpSessionList>
+public suspend fun openAcpSession(agentId: String, cwd: String, mode: AcpOpenMode = New, sessionId: String? = null, replay: Boolean = false): Outcome<AcpSession>
 
 public class AcpSession {
     public val info: AcpSessionInfo
@@ -143,11 +179,13 @@ public class AcpSession {
 
 // UhpMethods additions
 public const val ACP_AGENTS: String = "luvia.acp.agents"
+public const val ACP_SESSION_LIST: String = "luvia.acp.session.list"
 public const val ACP_SESSION_OPEN: String = "luvia.acp.session.open"
 
 // HostCapabilities additions
 public val acpAgents: Boolean = false
 public val acpSession: Boolean = false
+public val acpSessionList: Boolean = false
 
 // HostUhpState additions
 public enum class AcpTranscriptRole { User, Agent, Thought }

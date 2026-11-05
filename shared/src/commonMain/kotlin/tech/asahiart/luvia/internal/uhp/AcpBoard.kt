@@ -4,9 +4,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
 import tech.asahiart.luvia.AcpEvent
+import tech.asahiart.luvia.AcpHistorySession
+import tech.asahiart.luvia.AcpOpenMode
 import tech.asahiart.luvia.AcpRunState
 import tech.asahiart.luvia.AcpSession
 import tech.asahiart.luvia.AcpState
+import tech.asahiart.luvia.Failure
 import tech.asahiart.luvia.AcpStopReason
 import tech.asahiart.luvia.AcpToolCall
 import tech.asahiart.luvia.AcpToolCallUpdate
@@ -22,14 +25,19 @@ internal class AcpBoard(private val ctx: UhpContext) {
     private var collector: Job? = null
     private var nextItem: Int = 0
 
+    /** Replay after resume is history, not a live turn. Cleared when the user prompts. */
+    private var replaying: Boolean = false
+
     fun loadAgents() {
         val session = ctx.session() ?: return
         if (!session.supports(UhpMethods.ACP_AGENTS)) return
         ctx.update { it.copy(acp = it.acp.copy(agentsLoading = true, errorText = null)) }
         ctx.launch {
             when (val result = session.acpAgents()) {
-                is Outcome.Ok ->
+                is Outcome.Ok -> {
                     ctx.update { it.copy(acp = it.acp.copy(agents = result.value, agentsLoading = false)) }
+                    loadHistory()
+                }
                 is Outcome.Err ->
                     ctx.update {
                         it.copy(acp = it.acp.copy(agentsLoading = false, errorText = result.failure.userMessage()))
@@ -54,6 +62,65 @@ internal class AcpBoard(private val ctx: UhpContext) {
         ctx.update { it.copy(acp = it.acp.copy(draft = text)) }
     }
 
+    /**
+     * Lists recoverable ACP sessions for agents already loaded.
+     * Agents that answer `acp_unsupported` are omitted (hidden), not shown as rows.
+     * The whole source stays empty when the host does not advertise [UhpMethods.ACP_SESSION_LIST].
+     */
+    fun loadHistory() {
+        val client = ctx.session() ?: return
+        if (!client.supports(UhpMethods.ACP_SESSION_LIST)) {
+            ctx.update { it.copy(acp = it.acp.copy(history = emptyList(), historyLoading = false)) }
+            return
+        }
+        val agents = ctx.value().acp.agents.filter { it.available }
+        if (agents.isEmpty()) {
+            ctx.update { it.copy(acp = it.acp.copy(history = emptyList(), historyLoading = false)) }
+            return
+        }
+        ctx.update { it.copy(acp = it.acp.copy(historyLoading = true, errorText = null)) }
+        ctx.launch {
+            val rows = ArrayList<AcpHistorySession>()
+            for (agent in agents) {
+                var cursor: String? = null
+                var pages = 0
+                while (pages < 8) {
+                    pages += 1
+                    when (val result = client.acpSessionList(agent.id, cursor = cursor)) {
+                        is Outcome.Ok -> {
+                            for (session in result.value.sessions) {
+                                val cwd = session.cwd?.takeIf { it.isNotBlank() } ?: continue
+                                rows +=
+                                    AcpHistorySession(
+                                        agentId = agent.id,
+                                        agentName = agent.name,
+                                        sessionId = session.sessionId,
+                                        cwd = cwd,
+                                        title = session.title,
+                                        updatedAt = session.updatedAt,
+                                    )
+                            }
+                            val next = result.value.nextCursor?.takeIf { it.isNotBlank() && it != cursor }
+                            if (next == null) break
+                            cursor = next
+                        }
+                        is Outcome.Err -> {
+                            val unsupported =
+                                result.failure is Failure.Remote && result.failure.code == "acp_unsupported"
+                            if (!unsupported && rows.isEmpty()) {
+                                ctx.update {
+                                    it.copy(acp = it.acp.copy(errorText = result.failure.userMessage()))
+                                }
+                            }
+                            break
+                        }
+                    }
+                }
+            }
+            ctx.update { it.copy(acp = it.acp.copy(history = rows, historyLoading = false)) }
+        }
+    }
+
     fun launch() {
         val client = ctx.session() ?: return
         val state = ctx.value()
@@ -69,6 +136,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
         }
         stop()
         nextItem = 0
+        replaying = false
         ctx.update {
             it.copy(
                 acp =
@@ -87,34 +155,69 @@ internal class AcpBoard(private val ctx: UhpContext) {
             )
         }
         ctx.launch {
-            when (val result = client.openAcpSession(agentId, cwd)) {
-                is Outcome.Ok -> {
-                    session = result.value
-                    ctx.update {
-                        it.copy(acp = it.acp.copy(info = result.value.info, run = AcpRunState.Ready, viewing = true))
-                    }
-                    collector =
-                        ctx.launch {
-                            try {
-                                result.value.events().collect { event -> applyEvent(event) }
-                            } catch (e: CancellationException) {
-                                throw e
-                            }
-                        }
+            openAndCollect(client.openAcpSession(agentId, cwd))
+        }
+    }
+
+    /** Resume an ACP history row. Replay starts from an empty transcript. */
+    fun resume(agentId: String, cwd: String, sessionId: String) {
+        val client = ctx.session() ?: return
+        val state = ctx.value()
+        if (!state.canMutate || !client.supports(UhpMethods.ACP_SESSION_OPEN)) return
+        if (cwd.isBlank() || sessionId.isBlank()) return
+        stop()
+        nextItem = 0
+        replaying = true
+        ctx.update {
+            it.copy(
+                acp =
+                    it.acp.startingReplay().copy(
+                        launchAgentId = agentId,
+                        launchCwd = cwd,
+                    ),
+            )
+        }
+        ctx.launch {
+            openAndCollect(
+                client.openAcpSession(
+                    agentId,
+                    cwd,
+                    mode = AcpOpenMode.Resume,
+                    sessionId = sessionId,
+                    replay = true,
+                ),
+            )
+        }
+    }
+
+    private suspend fun openAndCollect(opened: Outcome<AcpSession>) {
+        when (opened) {
+            is Outcome.Ok -> {
+                session = opened.value
+                ctx.update {
+                    it.copy(acp = it.acp.copy(info = opened.value.info, run = AcpRunState.Ready, viewing = true))
                 }
-                is Outcome.Err ->
-                    ctx.update {
-                        it.copy(
-                            acp =
-                                it.acp.copy(
-                                    run = AcpRunState.Idle,
-                                    open = false,
-                                    viewing = false,
-                                    errorText = result.failure.userMessage(),
-                                ),
-                        )
+                collector =
+                    ctx.launch {
+                        try {
+                            opened.value.events().collect { event -> applyEvent(event) }
+                        } catch (e: CancellationException) {
+                            throw e
+                        }
                     }
             }
+            is Outcome.Err ->
+                ctx.update {
+                    it.copy(
+                        acp =
+                            it.acp.copy(
+                                run = AcpRunState.Idle,
+                                open = false,
+                                viewing = false,
+                                errorText = opened.failure.userMessage(),
+                            ),
+                    )
+                }
         }
     }
 
@@ -124,6 +227,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
         if (!state.canMutate || !state.acp.open) return false
         val text = state.acp.draft.trim()
         if (text.isEmpty()) return false
+        replaying = false
         ctx.update {
             it.copy(
                 acp =
@@ -166,6 +270,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
     fun answerPermission(optionId: String) {
         val acpSession = session ?: return
         val request = ctx.value().acp.permission ?: return
+        replaying = false
         ctx.update { it.copy(acp = it.acp.copy(permission = null, run = AcpRunState.Working)) }
         ctx.launch {
             when (val result = acpSession.answerPermission(request.requestId, optionId)) {
@@ -199,6 +304,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
 
     fun close() {
         stop()
+        replaying = false
         ctx.update {
             it.copy(
                 acp = it.acp.copy(open = false, viewing = false, run = AcpRunState.Idle, permission = null),
@@ -301,10 +407,25 @@ internal class AcpBoard(private val ctx: UhpContext) {
     }
 
     private fun AcpState.maybeWorking(): AcpState =
-        if (run == AcpRunState.Ready) copy(run = AcpRunState.Working) else this
+        if (run == AcpRunState.Ready && !replaying) copy(run = AcpRunState.Working) else this
 
     private fun nextId(): String {
         nextItem += 1
         return "acp-$nextItem"
     }
 }
+
+/** Resume+replay replaces whatever transcript the phone was showing. */
+internal fun AcpState.startingReplay(): AcpState =
+    copy(
+        run = AcpRunState.Starting,
+        open = true,
+        viewing = true,
+        showLaunch = false,
+        info = null,
+        transcript = emptyList(),
+        plan = emptyList(),
+        permission = null,
+        errorText = null,
+        exitMessage = null,
+    )

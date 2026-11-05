@@ -1,5 +1,7 @@
 package tech.asahiart.luvia.thread
 
+import tech.asahiart.luvia.AcpHistorySession
+import tech.asahiart.luvia.AcpRunState
 import tech.asahiart.luvia.AcpSessionInfo
 import tech.asahiart.luvia.AcpState
 import tech.asahiart.luvia.AcpToolCall
@@ -40,6 +42,93 @@ class SessionListTest {
             thread("done", AgentStatus.Done, updated = 99),
         )
         assertEquals(listOf("ask", "run", "idle", "done"), sortSessions(threads).map { it.id })
+    }
+
+    @Test
+    fun sortPutsAcpHistoryAfterLiveRows() {
+        val threads = listOf(
+            thread("idle", AgentStatus.Idle, updated = 50),
+            thread("run", AgentStatus.Working, updated = 10),
+            thread("ask", AgentStatus.Blocked, ask = Ask(null, emptyList()), updated = 1),
+            thread("done", AgentStatus.Done, updated = 99),
+            history("sess_old", "pi", "/work").copy(updatedEpochMs = 1),
+            history("sess_new", "pi", "/work").copy(updatedEpochMs = 1_000),
+            thread("live-pane", AgentStatus.Idle, updated = 5),
+            thread("acp:sess_live", AgentStatus.Idle, updated = 4).copy(
+                kind = AgentKind.Acp,
+                acpSessionId = "sess_live",
+                acpHistory = false,
+            ),
+        )
+        assertEquals(
+            listOf(
+                "ask",
+                "run",
+                "idle",
+                "live-pane",
+                "acp:sess_live",
+                "done",
+                "acp:sess_new",
+                "acp:sess_old",
+            ),
+            sortSessions(threads).map { it.id },
+        )
+    }
+
+    @Test
+    fun awaitingAcpBindsRealSessionIdAndKeepsHistoryTitle() {
+        val history =
+            AcpHistorySession(
+                agentId = "pi",
+                agentName = "Pi",
+                sessionId = "sess_9",
+                cwd = "/work",
+                title = "Ship the bridge",
+                updatedAt = "2026-11-05T00:00:00Z",
+            )
+        val pending =
+            HostUhpState(
+                acp =
+                    AcpState(
+                        open = true,
+                        viewing = true,
+                        run = AcpRunState.Starting,
+                        info = null,
+                        history = listOf(history),
+                    ),
+            )
+        assertEquals("acp", pending.threads("phone").first { it.kind == AgentKind.Acp && !it.acpHistory }.id)
+        assertNull(awaitingAcpThread(pending, "phone"))
+        val acked =
+            pending.copy(
+                acp =
+                    pending.acp.copy(
+                        info = AcpSessionInfo("sess_9", "pi", "Pi", 1, "/work"),
+                        run = AcpRunState.Ready,
+                    ),
+            )
+        val bound = awaitingAcpThread(acked, "phone")
+        assertEquals("acp:sess_9", bound?.id)
+        assertEquals("sess_9", bound?.acpSessionId)
+        assertEquals(false, bound?.acpHistory)
+        assertEquals("Ship the bridge", bound?.title)
+        assertEquals(AgentStatus.Idle, bound?.status)
+        val blankTitle =
+            acked.copy(
+                acp = acked.acp.copy(history = listOf(history.copy(title = " "))),
+            )
+        assertEquals("Pi", awaitingAcpThread(blankTitle, "phone")?.title)
+        val launched =
+            HostUhpState(
+                acp =
+                    AcpState(
+                        open = true,
+                        run = AcpRunState.Ready,
+                        info = AcpSessionInfo("sess_new", "pi", "Pi", 1, "/work"),
+                    ),
+            )
+        assertEquals("acp:sess_new", awaitingAcpThread(launched, "phone")?.id)
+        assertEquals("Pi", awaitingAcpThread(launched, "phone")?.title)
     }
 
     @Test
@@ -361,6 +450,65 @@ class SessionListTest {
         )
         assertTrue(threadTrails(state, threads).isEmpty())
     }
+
+    @Test
+    fun mergeDropsAcpHistoryWhenPaneHasSameAgentAndCwd() {
+        val pane =
+            thread("pane", AgentStatus.Working).copy(
+                agentType = "claude-code",
+                cwd = "/repo/",
+            )
+        val same =
+            history("sess_same", "claude", "/repo")
+        val otherDir =
+            history("sess_other", "claude", "/else")
+        val otherAgent =
+            history("sess_pi", "pi", "/repo")
+        val merged = mergeAcpHistory(listOf(pane), listOf(same, otherDir, otherAgent))
+        assertEquals(listOf("pane", "acp:sess_other", "acp:sess_pi"), merged.map { it.id })
+        assertEquals(true, merged.first { it.id == "acp:sess_other" }.acpHistory)
+    }
+
+    @Test
+    fun mergeKeepsDistinctAcpSessionsAndSkipsTheOpenOne() {
+        val live =
+            thread("acp:sess_live", AgentStatus.Working).copy(
+                kind = AgentKind.Acp,
+                acpSessionId = "sess_live",
+                agentType = "codex",
+                cwd = "/repo",
+            )
+        val duplicate = history("sess_live", "codex", "/repo")
+        val sibling = history("sess_next", "codex", "/repo")
+        val merged = mergeAcpHistory(listOf(live), listOf(duplicate, sibling))
+        assertEquals(listOf("acp:sess_live", "acp:sess_next"), merged.map { it.id })
+    }
+
+    @Test
+    fun rfc3339SortKeyParsesZuluAndOffset() {
+        assertEquals(1_762_300_800_000L, rfc3339EpochMs("2025-11-05T00:00:00Z"))
+        assertEquals(1_762_300_800_000L, rfc3339EpochMs("2025-11-05T08:00:00+08:00"))
+        assertEquals(null, rfc3339EpochMs("yesterday"))
+    }
+
+    private fun history(sessionId: String, agent: String, cwd: String) =
+        AgentThread(
+            id = "acp:$sessionId",
+            kind = AgentKind.Acp,
+            hostId = "h",
+            projectKey = cwd,
+            projectLabel = null,
+            title = sessionId,
+            agentType = agent,
+            status = AgentStatus.Idle,
+            ask = null,
+            summary = null,
+            updatedEpochMs = null,
+            acpSessionId = sessionId,
+            cwd = cwd,
+            acpHistory = true,
+            acpAgentId = agent,
+        )
 
     private val reservedPalettes = setOf(
         AgentAvatarPalette.Blue,

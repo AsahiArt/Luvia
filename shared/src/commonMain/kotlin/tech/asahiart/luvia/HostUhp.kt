@@ -297,6 +297,8 @@ public class HostUhp(
 
     public fun loadAcpAgents() = acp.loadAgents()
 
+    public fun loadAcpHistory() = acp.loadHistory()
+
     public fun setShowLaunchAcp(show: Boolean) = acp.setShowLaunch(show)
 
     public fun setLaunchAcpAgent(id: String?) = acp.setLaunchAgent(id)
@@ -304,6 +306,9 @@ public class HostUhp(
     public fun setLaunchAcpCwd(cwd: String) = acp.setLaunchCwd(cwd)
 
     public fun launchAcp() = acp.launch()
+
+    public fun resumeAcp(agentId: String, cwd: String, sessionId: String) =
+        acp.resume(agentId, cwd, sessionId)
 
     public fun setAcpDraft(text: String) = acp.setDraft(text)
 

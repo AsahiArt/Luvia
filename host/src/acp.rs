@@ -18,6 +18,9 @@ use crate::unique_json::parse_unique_value;
 
 const AGENTS_METHOD: &str = "luvia.acp.agents";
 const SESSION_OPEN_METHOD: &str = "luvia.acp.session.open";
+const SESSION_LIST_METHOD: &str = "luvia.acp.session.list";
+/// Highest ACP protocol version this bridge can map. The agent answers with 1 or 2.
+const OFFERED_PROTOCOL_VERSION: u64 = 2;
 const MAX_PROMPT_BYTES: usize = 262144;
 const PERMISSION_WAIT: Duration = Duration::from_secs(5);
 const AGENT_EXIT_GRACE: Duration = Duration::from_secs(5);
@@ -66,18 +69,20 @@ pub fn augment_capabilities(result_frame: &[u8], paths: &Paths) -> Result<Vec<u8
     match result.get_mut("methods") {
         Some(Value::Array(methods)) => {
             append_method_name(methods, AGENTS_METHOD);
+            append_method_name(methods, SESSION_LIST_METHOD);
             append_method_name(methods, SESSION_OPEN_METHOD);
         }
         Some(_) => {}
         None => {
             result.insert(
                 "methods".into(),
-                json!([AGENTS_METHOD, SESSION_OPEN_METHOD]),
+                json!([AGENTS_METHOD, SESSION_LIST_METHOD, SESSION_OPEN_METHOD]),
             );
         }
     }
     if let Some(Value::Array(contracts)) = result.get_mut("method_contracts") {
         append_contract(contracts, AGENTS_METHOD, "read", "read", true);
+        append_contract(contracts, SESSION_LIST_METHOD, "read", "read", true);
         append_contract(contracts, SESSION_OPEN_METHOD, "write", "agent", false);
     }
     let mut out = serde_json::to_vec(&value)?;
@@ -109,6 +114,84 @@ pub fn handle_agents(id: &str, paths: &Paths, output: &mut impl Write) -> Result
     )
 }
 
+/// Short-lived: spawn → initialize → `session/list` → kill. No phone stream.
+pub fn handle_session_list(
+    paths: &Paths,
+    id: &str,
+    params: &Value,
+    output: &mut impl Write,
+) -> Result<()> {
+    let listed = match parse_list_params(params) {
+        Ok(parsed) => parsed,
+        Err(error) => return write_error(output, id, &error),
+    };
+    let (spec, available) = match catalog(paths)
+        .into_iter()
+        .find(|(spec, _)| spec.id == listed.agent)
+    {
+        Some(found) => found,
+        None => {
+            return write_error(
+                output,
+                id,
+                &Error::new(
+                    "unknown_agent",
+                    format!("unknown ACP agent {}", listed.agent),
+                ),
+            );
+        }
+    };
+    if !available {
+        return write_error(
+            output,
+            id,
+            &Error::new(
+                "agent_unavailable",
+                format!("ACP agent {} is not available", spec.id),
+            ),
+        );
+    }
+    let cwd = listed.cwd.as_deref().map(Path::new);
+    let spawned = match spawn_agent(&spec, cwd) {
+        Ok(spawned) => spawned,
+        Err(error) => return write_error(output, id, &error),
+    };
+    let mut spawned = spawned;
+    let init = initialize(&mut spawned.agent_in, &mut spawned.agent_out);
+    let (initialize, protocol_version) = match init {
+        Ok(ready) => ready,
+        Err(error) => return finish_agent_error(output, id, &mut spawned, error),
+    };
+    if !supports_list(&initialize, protocol_version) {
+        spawned.child.kill_wait();
+        return write_error(
+            output,
+            id,
+            &Error::new(
+                "acp_unsupported",
+                format!("ACP agent {} does not support session/list", spec.id),
+            ),
+        );
+    }
+    let listed_result = session_list(&mut spawned.agent_in, &mut spawned.agent_out, &listed);
+    let result = match listed_result {
+        Ok(result) => result,
+        Err(error) => return finish_agent_error(output, id, &mut spawned, error),
+    };
+    let payload = match map_session_list(&spec.id, protocol_version, &result) {
+        Ok(payload) => payload,
+        Err(error) => return finish_agent_error(output, id, &mut spawned, error),
+    };
+    spawned.child.kill_wait();
+    write_json_frame(
+        output,
+        &json!({
+            "id": id,
+            "result": payload,
+        }),
+    )
+}
+
 pub fn serve_session(
     grant: &Grant,
     paths: &Paths,
@@ -128,7 +211,7 @@ pub fn serve_session(
         )?;
         return Ok(());
     }
-    let OpenParams { agent, cwd } = match parse_open_params(params) {
+    let open = match parse_open_params(params) {
         Ok(parsed) => parsed,
         Err(error) => {
             write_error(output, id, &error)?;
@@ -137,14 +220,14 @@ pub fn serve_session(
     };
     let (spec, available) = match catalog(paths)
         .into_iter()
-        .find(|(spec, _)| spec.id == agent)
+        .find(|(spec, _)| spec.id == open.agent)
     {
         Some(found) => found,
         None => {
             write_error(
                 output,
                 id,
-                &Error::new("unknown_agent", format!("unknown ACP agent {agent}")),
+                &Error::new("unknown_agent", format!("unknown ACP agent {}", open.agent)),
             )?;
             return Ok(());
         }
@@ -160,60 +243,25 @@ pub fn serve_session(
         )?;
         return Ok(());
     }
-    let mut child = match Command::new(&spec.command)
-        .args(&spec.args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .current_dir(&cwd)
-        .spawn()
-    {
-        Ok(child) => child,
+    let spawned = match spawn_agent(&spec, Some(Path::new(&open.cwd))) {
+        Ok(spawned) => spawned,
         Err(error) => {
-            write_error(
-                output,
-                id,
-                &Error::new(
-                    "spawn_failed",
-                    format!("failed to spawn ACP agent {}: {error}", spec.id),
-                ),
-            )?;
+            write_error(output, id, &error)?;
             return Ok(());
         }
     };
-    let mut agent_in = match child.stdin.take() {
-        Some(stdin) => stdin,
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
-            write_error(
-                output,
-                id,
-                &Error::new("spawn_failed", "ACP agent stdin was not piped"),
-            )?;
-            return Ok(());
-        }
-    };
-    let mut agent_out = match child.stdout.take() {
-        Some(stdout) => BufReader::new(stdout),
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
-            write_error(
-                output,
-                id,
-                &Error::new("spawn_failed", "ACP agent stdout was not piped"),
-            )?;
-            return Ok(());
-        }
-    };
-    let stderr_tail = child.stderr.take().map(spawn_stderr_tail);
-    let mut child = ChildGuard { child: Some(child) };
-    let handshake = handshake(&mut agent_in, &mut agent_out, &cwd);
+    let SpawnedAgent {
+        mut child,
+        mut agent_in,
+        mut agent_out,
+        stderr_tail,
+    } = spawned;
+    let handshake = handshake(&mut agent_in, &mut agent_out, &open);
     let Handshake {
         session_id,
         protocol_version,
         next_rpc_id,
+        replay_updates,
     } = match handshake {
         Ok(ready) => ready,
         Err(error) => {
@@ -229,7 +277,12 @@ pub fn serve_session(
                     message = format!("{message}: {}", tail.trim());
                 }
             }
-            let error = Error::new("acp_error", message);
+            let code = if error.code == "acp_unsupported" {
+                "acp_unsupported"
+            } else {
+                "acp_error"
+            };
+            let error = Error::new(code, message);
             write_error(output, id, &error)?;
             return Ok(());
         }
@@ -244,10 +297,28 @@ pub fn serve_session(
                 "agent": spec.id,
                 "agent_name": spec.name,
                 "protocol_version": protocol_version,
-                "cwd": cwd,
+                "cwd": open.cwd,
             }
         }),
     )?;
+    // Replay `session/update`s arrived before the load/resume result. The phone
+    // starts reading only after this ack, so flush them now. Resume+replay
+    // clears the phone transcript before these events are applied.
+    let mut sequence = 0u64;
+    for update in &replay_updates {
+        sequence += 1;
+        write_json_frame(
+            output,
+            &json!({
+                "event": "acp.update",
+                "sequence": sequence,
+                "data": {
+                    "session_id": session_id,
+                    "update": update,
+                }
+            }),
+        )?;
+    }
     run_session(
         &session_id,
         next_rpc_id,
@@ -257,6 +328,7 @@ pub fn serve_session(
         agent_out,
         &mut child,
         paths,
+        sequence,
     )
 }
 
@@ -279,6 +351,18 @@ fn builtins() -> Vec<AgentSpec> {
             name: "Gemini CLI".into(),
             command: "gemini".into(),
             args: vec!["--experimental-acp".into()],
+        },
+        AgentSpec {
+            id: "agy".into(),
+            name: "Antigravity".into(),
+            command: "agy".into(),
+            args: vec!["acp".into()],
+        },
+        AgentSpec {
+            id: "pi".into(),
+            name: "Pi".into(),
+            command: "pi-acp".into(),
+            args: Vec::new(),
         },
     ]
 }
@@ -386,9 +470,23 @@ fn strip_lf(frame: &[u8]) -> &[u8] {
     frame.strip_suffix(b"\n").unwrap_or(frame)
 }
 
+enum OpenMode {
+    New,
+    Resume,
+}
+
 struct OpenParams {
     agent: String,
     cwd: String,
+    mode: OpenMode,
+    session_id: Option<String>,
+    replay: bool,
+}
+
+struct ListParams {
+    agent: String,
+    cwd: Option<String>,
+    cursor: Option<String>,
 }
 
 fn parse_open_params(params: &Value) -> Result<OpenParams> {
@@ -399,19 +497,103 @@ fn parse_open_params(params: &Value) -> Result<OpenParams> {
         )
     })?;
     for key in object.keys() {
-        if !matches!(key.as_str(), "agent" | "cwd") {
+        if !matches!(
+            key.as_str(),
+            "agent" | "cwd" | "mode" | "session_id" | "replay"
+        ) {
             return Err(Error::new(
                 "invalid_params",
                 format!("luvia.acp.session.open contains unknown field {key}"),
             ));
         }
     }
-    let agent = object
+    let agent = required_agent(object)?;
+    let cwd = required_cwd(object)?;
+    let mode = match object.get("mode") {
+        None => OpenMode::New,
+        Some(Value::String(mode)) if mode == "new" => OpenMode::New,
+        Some(Value::String(mode)) if mode == "resume" => OpenMode::Resume,
+        _ => {
+            return Err(Error::new("invalid_params", "mode must be new or resume"));
+        }
+    };
+    let session_id = match object.get("session_id") {
+        None => None,
+        Some(Value::String(id)) if !id.is_empty() => Some(id.clone()),
+        _ => {
+            return Err(Error::new(
+                "invalid_params",
+                "session_id must be a non-empty string",
+            ));
+        }
+    };
+    let replay = match object.get("replay") {
+        None => false,
+        Some(Value::Bool(replay)) => *replay,
+        _ => return Err(Error::new("invalid_params", "replay must be a boolean")),
+    };
+    if matches!(mode, OpenMode::Resume) && session_id.is_none() {
+        return Err(Error::new("invalid_params", "resume requires session_id"));
+    }
+    Ok(OpenParams {
+        agent,
+        cwd,
+        mode,
+        session_id,
+        replay,
+    })
+}
+
+fn parse_list_params(params: &Value) -> Result<ListParams> {
+    let object = params.as_object().ok_or_else(|| {
+        Error::new(
+            "invalid_params",
+            "luvia.acp.session.list params must be an object",
+        )
+    })?;
+    for key in object.keys() {
+        if !matches!(key.as_str(), "agent" | "cwd" | "cursor") {
+            return Err(Error::new(
+                "invalid_params",
+                format!("luvia.acp.session.list contains unknown field {key}"),
+            ));
+        }
+    }
+    let agent = required_agent(object)?;
+    let cwd = match object.get("cwd") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(cwd)) if cwd.is_empty() => None,
+        Some(Value::String(cwd)) => {
+            let path = Path::new(cwd);
+            if !path.is_absolute() || !path.is_dir() {
+                return Err(Error::new(
+                    "invalid_params",
+                    "cwd must be an absolute existing directory",
+                ));
+            }
+            Some(cwd.clone())
+        }
+        _ => return Err(Error::new("invalid_params", "cwd must be a string")),
+    };
+    let cursor = match object.get("cursor") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(cursor)) if cursor.is_empty() => None,
+        Some(Value::String(cursor)) => Some(cursor.clone()),
+        _ => return Err(Error::new("invalid_params", "cursor must be a string")),
+    };
+    Ok(ListParams { agent, cwd, cursor })
+}
+
+fn required_agent(object: &Map<String, Value>) -> Result<String> {
+    object
         .get("agent")
         .and_then(Value::as_str)
         .filter(|agent| !agent.is_empty())
-        .ok_or_else(|| Error::new("invalid_params", "agent must be a non-empty string"))?
-        .to_string();
+        .map(str::to_string)
+        .ok_or_else(|| Error::new("invalid_params", "agent must be a non-empty string"))
+}
+
+fn required_cwd(object: &Map<String, Value>) -> Result<String> {
     let cwd = object
         .get("cwd")
         .and_then(Value::as_str)
@@ -423,23 +605,82 @@ fn parse_open_params(params: &Value) -> Result<OpenParams> {
             "cwd must be an absolute existing directory",
         ));
     }
-    Ok(OpenParams {
-        agent,
-        cwd: cwd.to_string(),
-    })
+    Ok(cwd.to_string())
 }
 
 struct Handshake {
     session_id: String,
     protocol_version: u64,
     next_rpc_id: u64,
+    replay_updates: Vec<Value>,
 }
 
 fn handshake(
     agent_in: &mut ChildStdin,
     agent_out: &mut impl BufRead,
-    cwd: &str,
+    open: &OpenParams,
 ) -> Result<Handshake> {
+    let (initialize, protocol_version) = initialize(agent_in, agent_out)?;
+    let (method, replay_from_start, collect_updates) = match open.mode {
+        OpenMode::New => ("session/new", false, false),
+        OpenMode::Resume if protocol_version >= 2 => {
+            if !supports_session_v2(&initialize) {
+                return Err(Error::new(
+                    "acp_unsupported",
+                    "ACP agent does not support session resume",
+                ));
+            }
+            ("session/resume", open.replay, open.replay)
+        }
+        OpenMode::Resume if open.replay => {
+            if !supports_load_v1(&initialize) {
+                return Err(Error::new(
+                    "acp_unsupported",
+                    "ACP agent does not support session load",
+                ));
+            }
+            ("session/load", false, true)
+        }
+        OpenMode::Resume => {
+            if !supports_resume_v1(&initialize) {
+                return Err(Error::new(
+                    "acp_unsupported",
+                    "ACP agent does not support session resume",
+                ));
+            }
+            ("session/resume", false, false)
+        }
+    };
+    let session_for_rpc = match open.mode {
+        OpenMode::New => None,
+        OpenMode::Resume => open.session_id.as_deref(),
+    };
+    write_json_frame(
+        agent_in,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": method,
+            "params": session_rpc_params(session_for_rpc, &open.cwd, replay_from_start),
+        }),
+    )?;
+    let (created, replay_updates) = rpc_wait(agent_in, agent_out, &json!(2), collect_updates)?;
+    let session_id = created
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .or_else(|| open.session_id.clone())
+        .ok_or_else(|| Error::new("acp_error", format!("{method} did not return sessionId")))?;
+    Ok(Handshake {
+        session_id,
+        protocol_version,
+        next_rpc_id: 3,
+        replay_updates,
+    })
+}
+
+fn initialize(agent_in: &mut ChildStdin, agent_out: &mut impl BufRead) -> Result<(Value, u64)> {
     write_json_frame(
         agent_in,
         &json!({
@@ -447,7 +688,7 @@ fn handshake(
             "id": 1,
             "method": "initialize",
             "params": {
-                "protocolVersion": 1,
+                "protocolVersion": OFFERED_PROTOCOL_VERSION,
                 "clientCapabilities": {
                     "fs": {
                         "readTextFile": false,
@@ -458,42 +699,195 @@ fn handshake(
             }
         }),
     )?;
-    let initialize = rpc_wait(agent_in, agent_out, &json!(1))?;
+    let (initialize, _) = rpc_wait(agent_in, agent_out, &json!(1), false)?;
     let protocol_version = initialize
         .get("protocolVersion")
         .and_then(Value::as_u64)
         .unwrap_or(1);
+    Ok((initialize, protocol_version))
+}
+
+fn session_list(
+    agent_in: &mut ChildStdin,
+    agent_out: &mut impl BufRead,
+    listed: &ListParams,
+) -> Result<Value> {
+    let mut params = Map::new();
+    if let Some(cwd) = &listed.cwd {
+        params.insert("cwd".into(), json!(cwd));
+    }
+    if let Some(cursor) = &listed.cursor {
+        params.insert("cursor".into(), json!(cursor));
+    }
     write_json_frame(
         agent_in,
         &json!({
             "jsonrpc": "2.0",
             "id": 2,
-            "method": "session/new",
-            "params": {
-                "cwd": cwd,
-                "mcpServers": []
-            }
+            "method": "session/list",
+            "params": Value::Object(params),
         }),
     )?;
-    let created = rpc_wait(agent_in, agent_out, &json!(2))?;
-    let session_id = created
-        .get("sessionId")
+    let (result, _) = rpc_wait(agent_in, agent_out, &json!(2), false)?;
+    Ok(result)
+}
+
+fn session_rpc_params(session_id: Option<&str>, cwd: &str, replay_from_start: bool) -> Value {
+    let mut params = Map::new();
+    if let Some(session_id) = session_id {
+        params.insert("sessionId".into(), json!(session_id));
+    }
+    params.insert("cwd".into(), json!(cwd));
+    params.insert("mcpServers".into(), json!([]));
+    if replay_from_start {
+        params.insert("replayFrom".into(), json!({"type": "start"}));
+    }
+    Value::Object(params)
+}
+
+fn supports_list(initialize: &Value, protocol_version: u64) -> bool {
+    if protocol_version >= 2 {
+        supports_session_v2(initialize)
+    } else {
+        capability_present(initialize.pointer("/agentCapabilities/sessionCapabilities/list"))
+    }
+}
+
+fn supports_session_v2(initialize: &Value) -> bool {
+    capability_present(initialize.pointer("/capabilities/session"))
+        || capability_present(initialize.pointer("/agentCapabilities/session"))
+}
+
+fn supports_load_v1(initialize: &Value) -> bool {
+    initialize
+        .pointer("/agentCapabilities/loadSession")
+        .and_then(Value::as_bool)
+        == Some(true)
+}
+
+fn supports_resume_v1(initialize: &Value) -> bool {
+    capability_present(initialize.pointer("/agentCapabilities/sessionCapabilities/resume"))
+}
+
+fn capability_present(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => false,
+        Some(_) => true,
+    }
+}
+
+fn map_session_list(agent: &str, protocol_version: u64, result: &Value) -> Result<Value> {
+    let sessions = result
+        .get("sessions")
+        .and_then(Value::as_array)
+        .ok_or_else(|| Error::new("acp_error", "session/list did not return sessions"))?;
+    let mut mapped = Vec::new();
+    for item in sessions {
+        let Some(object) = item.as_object() else {
+            continue;
+        };
+        let Some(session_id) = object
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        else {
+            continue;
+        };
+        mapped.push(json!({
+            "session_id": session_id,
+            "cwd": object.get("cwd").and_then(Value::as_str),
+            "title": object.get("title").and_then(Value::as_str),
+            "updated_at": object.get("updatedAt").and_then(Value::as_str),
+        }));
+    }
+    let next_cursor = result
+        .get("nextCursor")
         .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-        .ok_or_else(|| Error::new("acp_error", "session/new did not return sessionId"))?
-        .to_string();
-    Ok(Handshake {
-        session_id,
-        protocol_version,
-        next_rpc_id: 3,
+        .filter(|cursor| !cursor.is_empty());
+    Ok(json!({
+        "type": "acp_session_list",
+        "agent": agent,
+        "sessions": mapped,
+        "next_cursor": next_cursor,
+        "protocol_version": protocol_version,
+    }))
+}
+
+struct SpawnedAgent {
+    child: ChildGuard,
+    agent_in: ChildStdin,
+    agent_out: BufReader<std::process::ChildStdout>,
+    stderr_tail: Option<Arc<Mutex<Vec<String>>>>,
+}
+
+fn spawn_agent(spec: &AgentSpec, cwd: Option<&Path>) -> Result<SpawnedAgent> {
+    let mut command = Command::new(&spec.command);
+    command
+        .args(&spec.args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    let mut child = command.spawn().map_err(|error| {
+        Error::new(
+            "spawn_failed",
+            format!("failed to spawn ACP agent {}: {error}", spec.id),
+        )
+    })?;
+    let agent_in = child.stdin.take().ok_or_else(|| {
+        let _ = child.kill();
+        let _ = child.wait();
+        Error::new("spawn_failed", "ACP agent stdin was not piped")
+    })?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        let _ = child.kill();
+        let _ = child.wait();
+        Error::new("spawn_failed", "ACP agent stdout was not piped")
+    })?;
+    let stderr_tail = child.stderr.take().map(spawn_stderr_tail);
+    Ok(SpawnedAgent {
+        child: ChildGuard { child: Some(child) },
+        agent_in,
+        agent_out: BufReader::new(stdout),
+        stderr_tail,
     })
+}
+
+fn finish_agent_error(
+    output: &mut impl Write,
+    id: &str,
+    spawned: &mut SpawnedAgent,
+    error: Error,
+) -> Result<()> {
+    spawned.child.kill_wait();
+    std::thread::sleep(Duration::from_millis(50));
+    let mut message = error.message;
+    if let Some(tail) = spawned
+        .stderr_tail
+        .as_ref()
+        .and_then(|tail| tail.lock().ok().map(|lines| lines.join("\n")))
+    {
+        if !tail.trim().is_empty() {
+            message = format!("{message}: {}", tail.trim());
+        }
+    }
+    let code = if error.code == "acp_unsupported" {
+        "acp_unsupported"
+    } else {
+        "acp_error"
+    };
+    write_error(output, id, &Error::new(code, message))
 }
 
 fn rpc_wait(
     agent_in: &mut ChildStdin,
     agent_out: &mut impl BufRead,
     expected_id: &Value,
-) -> Result<Value> {
+    collect_updates: bool,
+) -> Result<(Value, Vec<Value>)> {
+    let mut updates = Vec::new();
     loop {
         let value = read_agent_value(agent_out)?;
         if value.get("method").is_some() && value.get("id").is_some() {
@@ -501,13 +895,20 @@ fn rpc_wait(
             if method == "session/request_permission" {
                 return Err(Error::new(
                     "acp_error",
-                    "agent requested permission before session/new completed",
+                    "agent requested permission before the session method completed",
                 ));
             }
             reject_rpc_method(agent_in, value.get("id").cloned().unwrap_or(Value::Null))?;
             continue;
         }
         if value.get("method").is_some() {
+            if collect_updates
+                && value.get("method").and_then(Value::as_str) == Some("session/update")
+            {
+                if let Some(update) = value.get("params").and_then(|params| params.get("update")) {
+                    updates.push(update.clone());
+                }
+            }
             continue;
         }
         if value.get("id") != Some(expected_id) {
@@ -516,7 +917,7 @@ fn rpc_wait(
         if let Some(error) = value.get("error") {
             return Err(Error::new("acp_error", rpc_error_message(error)));
         }
-        return Ok(value.get("result").cloned().unwrap_or(Value::Null));
+        return Ok((value.get("result").cloned().unwrap_or(Value::Null), updates));
     }
 }
 
@@ -615,6 +1016,7 @@ fn run_session(
     mut agent_out: impl BufRead + Send,
     child: &mut ChildGuard,
     paths: &Paths,
+    initial_sequence: u64,
 ) -> Result<()> {
     let output = Mutex::new(output);
     let agent_in = Mutex::new(Some(agent_in));
@@ -638,6 +1040,7 @@ fn run_session(
                 &cv,
                 &child,
                 paths,
+                initial_sequence,
             );
             mark_finished(&state, &cv);
             result
@@ -681,8 +1084,9 @@ fn agent_to_phone(
     cv: &Condvar,
     child: &Mutex<&mut ChildGuard>,
     paths: &Paths,
+    initial_sequence: u64,
 ) -> Result<()> {
-    let mut sequence = 0u64;
+    let mut sequence = initial_sequence;
     loop {
         match frames::read_frame(agent_out) {
             Ok(frame) => {
@@ -1380,7 +1784,9 @@ mod tests {
         r#"[
             {"id":"codex","name":"Codex","command":"/nonexistent/luvia-test-codex-acp"},
             {"id":"claude","name":"Claude Code","command":"/nonexistent/luvia-test-claude-code-acp"},
-            {"id":"gemini","name":"Gemini CLI","command":"/nonexistent/luvia-test-gemini"}
+            {"id":"gemini","name":"Gemini CLI","command":"/nonexistent/luvia-test-gemini"},
+            {"id":"agy","name":"Antigravity","command":"/nonexistent/luvia-test-agy"},
+            {"id":"pi","name":"Pi","command":"/nonexistent/luvia-test-pi-acp"}
         ]"#
     }
 
@@ -1418,7 +1824,7 @@ mod tests {
         );
         let catalog = catalog(&paths);
         let ids: Vec<&str> = catalog.iter().map(|(spec, _)| spec.id.as_str()).collect();
-        assert_eq!(ids, ["codex", "claude", "gemini", "goose"]);
+        assert_eq!(ids, ["codex", "claude", "gemini", "agy", "pi", "goose"]);
         let codex = catalog.iter().find(|(spec, _)| spec.id == "codex").unwrap();
         assert_eq!(codex.0.name, "Custom Codex");
         assert_eq!(codex.0.command, "/bin/sh");
@@ -1435,7 +1841,7 @@ mod tests {
         write_agents(&paths, "{not json");
         let catalog = catalog(&paths);
         let ids: Vec<&str> = catalog.iter().map(|(spec, _)| spec.id.as_str()).collect();
-        assert_eq!(ids, ["codex", "claude", "gemini"]);
+        assert_eq!(ids, ["codex", "claude", "gemini", "agy", "pi"]);
     }
 
     #[test]
@@ -1463,6 +1869,7 @@ mod tests {
         let methods = value["result"]["methods"].as_array().unwrap();
         assert_eq!(methods[0], "ping");
         assert!(methods.iter().any(|m| m == AGENTS_METHOD));
+        assert!(methods.iter().any(|m| m == SESSION_LIST_METHOD));
         assert!(methods.iter().any(|m| m == SESSION_OPEN_METHOD));
         let contracts = value["result"]["method_contracts"].as_array().unwrap();
         assert_eq!(contracts[0]["method"], "ping");
@@ -1470,6 +1877,17 @@ mod tests {
             contracts.iter().find(|c| c["method"] == AGENTS_METHOD),
             Some(&json!({
                 "method": AGENTS_METHOD,
+                "access": "read",
+                "scope": "read",
+                "idempotent": true
+            }))
+        );
+        assert_eq!(
+            contracts
+                .iter()
+                .find(|c| c["method"] == SESSION_LIST_METHOD),
+            Some(&json!({
+                "method": SESSION_LIST_METHOD,
                 "access": "read",
                 "scope": "read",
                 "idempotent": true
@@ -1507,7 +1925,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             value["result"]["methods"],
-            json!([AGENTS_METHOD, SESSION_OPEN_METHOD])
+            json!([AGENTS_METHOD, SESSION_LIST_METHOD, SESSION_OPEN_METHOD])
         );
         assert!(value["result"].get("method_contracts").is_none());
         assert_eq!(value["result"]["protocol"], "uhp/1");
@@ -1826,5 +2244,323 @@ printf '%s\n' '{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}'
         assert_eq!(frames[0]["error"]["code"], "acp_error");
         let message = frames[0]["error"]["message"].as_str().unwrap();
         assert!(message.contains("error loading config"), "{message}");
+    }
+
+    fn install_script(dir: &std::path::Path, paths: &Paths, body: &str) -> std::path::PathBuf {
+        let script = dir.join("fake-agent.sh");
+        let log = dir.join("rpc.log");
+        std::fs::write(&script, body).unwrap();
+        write_agents(
+            paths,
+            &serde_json::to_string(&json!([{
+                "id": "fake",
+                "name": "Fake",
+                "command": "/bin/sh",
+                "args": [script.to_string_lossy(), log.to_string_lossy()]
+            }]))
+            .unwrap(),
+        );
+        log
+    }
+
+    fn read_log(path: &std::path::Path) -> String {
+        std::fs::read_to_string(path).unwrap_or_default()
+    }
+
+    #[test]
+    fn session_list_maps_v1_sessions_and_stops_the_agent() {
+        let (dir, paths) = test_paths();
+        let log = install_script(
+            dir.path(),
+            &paths,
+            r#"#!/bin/sh
+log="$1"
+: > "$log"
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> "$log"
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"list":{}}}}}'
+      ;;
+    *'"method":"session/list"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"sess_a","cwd":"/work","title":"Hello","updatedAt":"2026-11-05T00:00:00Z"},{"sessionId":"","cwd":"/skip"},{"nope":true}],"nextCursor":"n1"}}'
+      exit 0
+      ;;
+  esac
+done
+"#,
+        );
+        let cwd = paths.config_dir.to_string_lossy().into_owned();
+        let mut output = Vec::new();
+        handle_session_list(
+            &paths,
+            "list",
+            &json!({"agent":"fake","cwd": cwd, "cursor":"page"}),
+            &mut output,
+        )
+        .unwrap();
+        let value: Value = serde_json::from_slice(strip_lf(&output)).unwrap();
+        assert_eq!(value["id"], "list");
+        assert_eq!(value["result"]["type"], "acp_session_list");
+        assert_eq!(value["result"]["agent"], "fake");
+        assert_eq!(value["result"]["protocol_version"], 1);
+        assert_eq!(value["result"]["next_cursor"], "n1");
+        assert_eq!(value["result"]["sessions"].as_array().unwrap().len(), 1);
+        assert_eq!(value["result"]["sessions"][0]["session_id"], "sess_a");
+        assert_eq!(value["result"]["sessions"][0]["cwd"], "/work");
+        assert_eq!(value["result"]["sessions"][0]["title"], "Hello");
+        assert_eq!(
+            value["result"]["sessions"][0]["updated_at"],
+            "2026-11-05T00:00:00Z"
+        );
+        let rpc = read_log(&log);
+        assert!(rpc.contains("\"protocolVersion\":2"), "{rpc}");
+        assert!(rpc.contains("\"method\":\"session/list\""), "{rpc}");
+        assert!(rpc.contains("\"cursor\":\"page\""), "{rpc}");
+    }
+
+    #[test]
+    fn session_list_v2_uses_session_capability() {
+        let (dir, paths) = test_paths();
+        let log = install_script(
+            dir.path(),
+            &paths,
+            r#"#!/bin/sh
+log="$1"
+: > "$log"
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> "$log"
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":2,"capabilities":{"session":{}}}}'
+      ;;
+    *'"method":"session/list"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"sessions":[{"sessionId":"sess_v2","cwd":"/work"}]}}'
+      exit 0
+      ;;
+  esac
+done
+"#,
+        );
+        let mut output = Vec::new();
+        handle_session_list(&paths, "list", &json!({"agent":"fake"}), &mut output).unwrap();
+        let value: Value = serde_json::from_slice(strip_lf(&output)).unwrap();
+        assert_eq!(value["result"]["protocol_version"], 2);
+        assert_eq!(value["result"]["sessions"][0]["session_id"], "sess_v2");
+        assert_eq!(value["result"]["sessions"][0]["title"], Value::Null);
+        assert_eq!(value["result"]["next_cursor"], Value::Null);
+        let rpc = read_log(&log);
+        assert!(rpc.contains("\"method\":\"session/list\""), "{rpc}");
+    }
+
+    #[test]
+    fn session_list_without_capability_is_unsupported() {
+        let (dir, paths) = test_paths();
+        let log = install_script(
+            dir.path(),
+            &paths,
+            r#"#!/bin/sh
+log="$1"
+: > "$log"
+IFS= read -r line || exit 1
+printf '%s\n' "$line" >> "$log"
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{}}}'
+IFS= read -r line || exit 0
+printf '%s\n' "$line" >> "$log"
+"#,
+        );
+        let mut output = Vec::new();
+        handle_session_list(&paths, "list", &json!({"agent":"fake"}), &mut output).unwrap();
+        let value: Value = serde_json::from_slice(strip_lf(&output)).unwrap();
+        assert_eq!(value["error"]["code"], "acp_unsupported");
+        let rpc = read_log(&log);
+        assert!(!rpc.contains("session/list"), "{rpc}");
+    }
+
+    #[test]
+    fn session_list_unknown_and_unavailable_agents() {
+        let (_dir, paths) = test_paths();
+        write_agents(&paths, unavailable_overrides());
+        let mut output = Vec::new();
+        handle_session_list(&paths, "1", &json!({"agent":"nope"}), &mut output).unwrap();
+        let value: Value = serde_json::from_slice(strip_lf(&output)).unwrap();
+        assert_eq!(value["error"]["code"], "unknown_agent");
+        output.clear();
+        handle_session_list(&paths, "2", &json!({"agent":"codex"}), &mut output).unwrap();
+        let value: Value = serde_json::from_slice(strip_lf(&output)).unwrap();
+        assert_eq!(value["error"]["code"], "agent_unavailable");
+    }
+
+    #[test]
+    fn resume_replay_v1_loads_and_forwards_updates_after_ack() {
+        let (dir, paths) = test_paths();
+        let log = install_script(
+            dir.path(),
+            &paths,
+            r#"#!/bin/sh
+log="$1"
+: > "$log"
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> "$log"
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}}'
+      ;;
+    *'"method":"session/load"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"replayed"}}}}'
+      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"sess_old"}}'
+      exit 0
+      ;;
+  esac
+done
+"#,
+        );
+        let cwd = paths.config_dir.to_string_lossy().into_owned();
+        let mut input = Cursor::new(Vec::new());
+        let mut output = Vec::new();
+        serve_session(
+            &grant(Role::Controller),
+            &paths,
+            "open",
+            &json!({"agent":"fake","cwd": cwd, "mode":"resume","session_id":"sess_old","replay":true}),
+            &mut input,
+            &mut output,
+        )
+        .unwrap();
+        let frames = frames_from(&output);
+        assert_eq!(frames[0]["result"]["type"], "acp_session");
+        assert_eq!(frames[0]["result"]["session_id"], "sess_old");
+        assert_eq!(frames[0]["result"]["protocol_version"], 1);
+        assert_eq!(frames[1]["event"], "acp.update");
+        assert_eq!(frames[1]["sequence"], 1);
+        assert_eq!(frames[1]["data"]["update"]["content"]["text"], "replayed");
+        assert_eq!(frames.last().unwrap()["event"], "acp.exit");
+        let rpc = read_log(&log);
+        assert!(rpc.contains("\"method\":\"session/load\""), "{rpc}");
+        assert!(!rpc.contains("session/new"), "{rpc}");
+        assert!(!rpc.contains("replayFrom"), "{rpc}");
+    }
+
+    #[test]
+    fn resume_replay_v2_sends_replay_from_start() {
+        let (dir, paths) = test_paths();
+        let log = install_script(
+            dir.path(),
+            &paths,
+            r#"#!/bin/sh
+log="$1"
+: > "$log"
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> "$log"
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":2,"capabilities":{"session":{}}}}'
+      ;;
+    *'"method":"session/resume"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"from-start"}}}}'
+      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"sess_v2"}}'
+      exit 0
+      ;;
+  esac
+done
+"#,
+        );
+        let cwd = paths.config_dir.to_string_lossy().into_owned();
+        let mut input = Cursor::new(Vec::new());
+        let mut output = Vec::new();
+        serve_session(
+            &grant(Role::Controller),
+            &paths,
+            "open",
+            &json!({"agent":"fake","cwd": cwd, "mode":"resume","session_id":"sess_v2","replay":true}),
+            &mut input,
+            &mut output,
+        )
+        .unwrap();
+        let frames = frames_from(&output);
+        assert_eq!(frames[0]["result"]["protocol_version"], 2);
+        assert_eq!(frames[1]["event"], "acp.update");
+        assert_eq!(frames[1]["data"]["update"]["content"]["text"], "from-start");
+        let rpc = read_log(&log);
+        assert!(rpc.contains("\"method\":\"session/resume\""), "{rpc}");
+        assert!(rpc.contains("\"replayFrom\":{\"type\":\"start\"}"), "{rpc}");
+        assert!(!rpc.contains("session/load"), "{rpc}");
+        assert!(!rpc.contains("session/new"), "{rpc}");
+    }
+
+    #[test]
+    fn resume_without_replay_does_not_send_replay_from() {
+        let (dir, paths) = test_paths();
+        let log = install_script(
+            dir.path(),
+            &paths,
+            r#"#!/bin/sh
+log="$1"
+: > "$log"
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> "$log"
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"sessionCapabilities":{"resume":{}}}}}'
+      ;;
+    *'"method":"session/resume"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"sessionId":"sess_quiet"}}'
+      exit 0
+      ;;
+  esac
+done
+"#,
+        );
+        let cwd = paths.config_dir.to_string_lossy().into_owned();
+        let mut input = Cursor::new(Vec::new());
+        let mut output = Vec::new();
+        serve_session(
+            &grant(Role::Controller),
+            &paths,
+            "open",
+            &json!({"agent":"fake","cwd": cwd, "mode":"resume","session_id":"sess_quiet","replay":false}),
+            &mut input,
+            &mut output,
+        )
+        .unwrap();
+        let frames = frames_from(&output);
+        assert_eq!(frames[0]["result"]["session_id"], "sess_quiet");
+        assert!(frames.iter().all(|frame| frame["event"] != "acp.update"));
+        let rpc = read_log(&log);
+        assert!(rpc.contains("\"method\":\"session/resume\""), "{rpc}");
+        assert!(!rpc.contains("replayFrom"), "{rpc}");
+        assert!(!rpc.contains("session/load"), "{rpc}");
+    }
+
+    #[test]
+    fn resume_without_load_capability_is_unsupported() {
+        let (dir, paths) = test_paths();
+        let _log = install_script(
+            dir.path(),
+            &paths,
+            r#"#!/bin/sh
+log="$1"
+: > "$log"
+IFS= read -r line || exit 1
+printf '%s\n' "$line" >> "$log"
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}'
+IFS= read -r line || exit 0
+printf '%s\n' "$line" >> "$log"
+"#,
+        );
+        let cwd = paths.config_dir.to_string_lossy().into_owned();
+        let mut input = Cursor::new(Vec::new());
+        let mut output = Vec::new();
+        serve_session(
+            &grant(Role::Controller),
+            &paths,
+            "open",
+            &json!({"agent":"fake","cwd": cwd, "mode":"resume","session_id":"sess_x","replay":true}),
+            &mut input,
+            &mut output,
+        )
+        .unwrap();
+        let frames = frames_from(&output);
+        assert_eq!(frames[0]["error"]["code"], "acp_unsupported");
     }
 }

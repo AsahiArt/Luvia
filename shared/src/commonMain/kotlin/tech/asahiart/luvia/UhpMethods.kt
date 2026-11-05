@@ -70,6 +70,7 @@ public object UhpMethods {
     public const val PANE_CLOSE: String = "pane.close"
     public const val PANE_RENAME: String = "pane.rename"
     public const val ACP_AGENTS: String = Methods.ACP_AGENTS
+    public const val ACP_SESSION_LIST: String = Methods.ACP_SESSION_LIST
     public const val ACP_SESSION_OPEN: String = Methods.ACP_SESSION_OPEN
     public const val PUSH_REGISTER: String = "luvia.push.register"
     public const val PUSH_UNREGISTER: String = "luvia.push.unregister"

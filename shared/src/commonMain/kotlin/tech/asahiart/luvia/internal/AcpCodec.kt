@@ -8,6 +8,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import tech.asahiart.luvia.AcpAgentKind
+import tech.asahiart.luvia.AcpListedSession
+import tech.asahiart.luvia.AcpSessionList
 import tech.asahiart.luvia.AcpEvent
 import tech.asahiart.luvia.AcpPermissionKind
 import tech.asahiart.luvia.AcpPermissionOption
@@ -34,6 +36,25 @@ internal fun mapAcpAgents(result: JsonElement): List<AcpAgentKind> =
             available = row.booleanOrFalse("available"),
         )
     }
+
+internal fun mapAcpSessionList(result: JsonElement): AcpSessionList {
+    val obj = result.asObject()
+    return AcpSessionList(
+        agent = obj.optionalString("agent") ?: "",
+        sessions =
+            obj.optionalObjectList("sessions").mapNotNull { row ->
+                val sessionId = row.optionalString("session_id") ?: return@mapNotNull null
+                AcpListedSession(
+                    sessionId = sessionId,
+                    cwd = row.optionalString("cwd"),
+                    title = row.optionalString("title"),
+                    updatedAt = row.optionalString("updated_at"),
+                )
+            },
+        nextCursor = obj.optionalString("next_cursor"),
+        protocolVersion = obj.optionalStrictLong("protocol_version")?.toInt() ?: 1,
+    )
+}
 
 internal fun mapAcpSessionAck(result: JsonElement, agentId: String): AcpSessionInfo {
     val obj = result.asObject()

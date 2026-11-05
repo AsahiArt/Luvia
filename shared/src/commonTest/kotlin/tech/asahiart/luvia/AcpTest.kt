@@ -22,6 +22,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import tech.asahiart.luvia.internal.Methods
 import tech.asahiart.luvia.internal.NdjsonFramer
+import tech.asahiart.luvia.internal.uhp.startingReplay
+import tech.asahiart.luvia.thread.threads
 import tech.asahiart.luvia.internal.UhpRequest
 import tech.asahiart.luvia.internal.decodeAcpEvent
 import tech.asahiart.luvia.internal.decodeUhpEvent
@@ -183,17 +185,102 @@ class AcpTest {
         assertTrue(editCall.summary!!.contains("+fun reconnect()"))
     }
 
+    @Test
+    fun acpSessionListMapsRows() = runTest {
+        val session = openAcpClient(backgroundScope)
+        val listed = (session.acpSessionList("codex", cwd = "/work", cursor = "p1") as Outcome.Ok).value
+        assertEquals("codex", listed.agent)
+        assertEquals(1, listed.protocolVersion)
+        assertEquals("n1", listed.nextCursor)
+        val row = listed.sessions.single()
+        assertEquals("sess_a", row.sessionId)
+        assertEquals("/work", row.cwd)
+        assertEquals("Hello", row.title)
+        assertEquals("2026-11-05T00:00:00Z", row.updatedAt)
+        session.close()
+    }
+
+    @Test
+    fun resumeAcpRequestsReplayAndReplacesTranscript() = runTest {
+        val opens = mutableListOf<JsonObject>()
+        val session =
+            openAcpClient(
+                backgroundScope,
+                opens = opens,
+                streamEvents = listOf(AGENT_HELLO, TURN_ENDED),
+            )
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        val dirty =
+            AcpState(
+                transcript =
+                    listOf(
+                        AcpTranscriptItem.Message("old", AcpTranscriptRole.Agent, "stale", streaming = false),
+                    ),
+                open = true,
+            )
+        assertEquals(emptyList(), dirty.startingReplay().transcript)
+        uhp.resumeAcp("codex", "/tmp/work", "sess_old")
+        val acp =
+            withTimeout(2.seconds) {
+                uhp.state.first { state ->
+                    state.acp.transcript.any { it is AcpTranscriptItem.Turn }
+                }.acp
+            }
+        val messages = acp.transcript.filterIsInstance<AcpTranscriptItem.Message>()
+        assertEquals(listOf("Hello"), messages.map { it.text })
+        assertTrue(messages.none { it.text == "stale" })
+        val params = opens.single()
+        assertEquals("resume", params.getValue("mode").jsonPrimitive.content)
+        assertEquals("sess_old", params.getValue("session_id").jsonPrimitive.content)
+        assertEquals("true", params.getValue("replay").jsonPrimitive.content)
+        assertEquals("codex", params.getValue("agent").jsonPrimitive.content)
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun resumeReplayStaysIdleAfterAck() = runTest {
+        val session =
+            openAcpClient(
+                backgroundScope,
+                streamEvents = listOf(AGENT_HELLO),
+            )
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        uhp.resumeAcp("codex", "/tmp/work", "sess_1")
+        val state =
+            withTimeout(2.seconds) {
+                uhp.state.first { current ->
+                    current.acp.info?.sessionId == "sess_1" &&
+                        current.acp.transcript.any { item ->
+                            item is AcpTranscriptItem.Message && item.text == "Hello"
+                        }
+                }
+            }
+        assertEquals(AcpRunState.Ready, state.acp.run)
+        val live = state.threads(runtime.profile.id).first { it.kind == AgentKind.Acp && !it.acpHistory }
+        assertEquals("acp:sess_1", live.id)
+        assertEquals(AgentStatus.Idle, live.status)
+        uhp.close()
+        session.close()
+    }
+
 }
 
 private suspend fun openAcpClient(
     scope: kotlinx.coroutines.CoroutineScope,
     actions: MutableList<JsonObject>? = null,
+    opens: MutableList<JsonObject>? = null,
     streamEvents: List<String> = emptyList(),
 ): LuviaSession {
     val methods =
         listOf(
             Methods.CAPABILITIES,
             Methods.ACP_AGENTS,
+            Methods.ACP_SESSION_LIST,
             Methods.ACP_SESSION_OPEN,
         )
     val factory =
@@ -209,6 +296,12 @@ private suspend fun openAcpClient(
                     try {
                         while (true) {
                             val request = decodeUhpRequest(framer.readFrame())
+                            if (opens != null &&
+                                (request.method == Methods.ACP_SESSION_OPEN ||
+                                    request.method == Methods.ACP_SESSION_LIST)
+                            ) {
+                                opens += request.params
+                            }
                             respondAcp(framer, request, methods)
                             if (request.method == Methods.ACP_SESSION_OPEN) {
                                 streamEvents.forEach { framer.writeFrame(it) }
@@ -253,6 +346,7 @@ private suspend fun respondAcp(framer: NdjsonFramer, request: UhpRequest, method
                     put("event_sequence", 10)
                 }
             Methods.ACP_AGENTS -> parseObject(ACP_AGENTS_RESULT)
+            Methods.ACP_SESSION_LIST -> parseObject(ACP_SESSION_LIST_RESULT)
             Methods.ACP_SESSION_OPEN -> parseObject(ACP_SESSION_ACK)
             else -> buildJsonObject { put("type", "ok") }
         }
@@ -311,6 +405,9 @@ private fun sampleRuntime(): HostRuntime {
 
 private const val ACP_AGENTS_RESULT: String =
     """{"type":"acp_agents","agents":[{"id":"codex","name":"Codex","command":"codex-acp","available":true}]}"""
+
+private const val ACP_SESSION_LIST_RESULT: String =
+    """{"type":"acp_session_list","agent":"codex","sessions":[{"session_id":"sess_a","cwd":"/work","title":"Hello","updated_at":"2026-11-05T00:00:00Z"}],"next_cursor":"n1","protocol_version":1}"""
 
 private const val ACP_SESSION_ACK: String =
     """{"type":"acp_session","session_id":"sess_1","agent":"codex","agent_name":"Codex","protocol_version":1,"cwd":"/tmp/work"}"""

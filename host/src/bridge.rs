@@ -301,6 +301,14 @@ fn intercept_luvia_method(
             crate::acp::handle_agents(&id, paths, output)?;
             Ok(LuviaIntercept::Handled)
         }
+        "luvia.acp.session.list" => {
+            let params = crate::unique_json::parse_unique_value(request)
+                .ok()
+                .and_then(|value| value.get("params").cloned())
+                .unwrap_or(Value::Null);
+            crate::acp::handle_session_list(paths, &id, &params, output)?;
+            Ok(LuviaIntercept::Handled)
+        }
         "luvia.acp.session.open" => {
             let params = crate::unique_json::parse_unique_value(request)
                 .ok()
