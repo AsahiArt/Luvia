@@ -188,13 +188,17 @@ struct ContentView: View {
             raw = KotlinLists.array(state.threads(hostId: id) as Any)
         }
         #if DEBUG
-        let samples: [AgentThread] = KotlinLists.array(PlaytestChatKt.playtestThreads() as Any)
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-        let listSamples: [AgentThread] = KotlinLists.array(
-            PlaytestListKt.playtestListThreads(nowEpochMs: now) as Any
-        )
-        raw.append(contentsOf: samples)
-        raw.append(contentsOf: listSamples)
+        // Live host: real sessions only. Fixtures only when the selected host is not live
+        // (same gate as terminal fixtures), so DEBUG cannot masquerade as a real session.
+        if !hostIsLive {
+            let samples: [AgentThread] = KotlinLists.array(PlaytestChatKt.playtestThreads() as Any)
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            let listSamples: [AgentThread] = KotlinLists.array(
+                PlaytestListKt.playtestListThreads(nowEpochMs: now) as Any
+            )
+            raw.append(contentsOf: samples)
+            raw.append(contentsOf: listSamples)
+        }
         #endif
         if raw.isEmpty { return [] }
         return KotlinLists.array(SessionListKt.sortSessions(threads: raw) as Any)
@@ -217,9 +221,11 @@ struct ContentView: View {
             }
         }
         #if DEBUG
-        let samples: [ThreadTrail] = KotlinLists.array(PlaytestListKt.playtestListTrails() as Any)
-        for row in samples where map[row.threadId] == nil {
-            map[row.threadId] = row.thumb
+        if !hostIsLive {
+            let samples: [ThreadTrail] = KotlinLists.array(PlaytestListKt.playtestListTrails() as Any)
+            for row in samples where map[row.threadId] == nil {
+                map[row.threadId] = row.thumb
+            }
         }
         #endif
         return map
