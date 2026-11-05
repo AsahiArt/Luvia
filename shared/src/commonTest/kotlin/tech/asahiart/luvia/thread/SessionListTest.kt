@@ -193,6 +193,31 @@ class SessionListTest {
     }
 
     @Test
+    fun agentBrandLogoMapsKnownAgentsAndLeavesPiAsLetter() {
+        val claude = AgentBrandLogo(AGENT_BRAND_ASSET_CLAUDE, "#D97757", "#FFFFFF")
+        val codex = AgentBrandLogo(AGENT_BRAND_ASSET_OPENAI, "#000000", "#FFFFFF")
+        val grok = AgentBrandLogo(AGENT_BRAND_ASSET_GROK, "#000000", "#FFFFFF")
+        assertEquals(0.58, AGENT_BRAND_LOGO_INSET, 0.0)
+        assertEquals(0.58, claude.inset, 0.0)
+        assertEquals(claude, agentBrandLogo("claude-code", "重构"))
+        assertEquals(claude, agentBrandLogo("claude", "x"))
+        assertEquals(claude, agentBrandLogo("Claude Code", "x"))
+        assertEquals(claude, agentBrandLogo("CLAUDE_CODE", "codex review"))
+        assertEquals(codex, agentBrandLogo("codex", "修复"))
+        assertEquals(codex, agentBrandLogo("Codex", "other title"))
+        assertEquals(grok, agentBrandLogo("grok", "Compose"))
+        assertEquals(grok, agentBrandLogo("Grok", "other title"))
+        assertNull(agentBrandLogo("pi", "skills"))
+        assertNull(agentBrandLogo("pi", "proxy"))
+        assertNull(agentBrandLogo("opencode", "终端"))
+        assertNull(agentBrandLogo("gemini", "迁移"))
+        assertNull(agentBrandLogo("  ", " "))
+        assertEquals(grok, agentBrandLogo("pi", "清理 grok token"))
+        assertEquals(codex, agentBrandLogo(null, "codex"))
+        assertEquals(claude, agentBrandLogo("claude-code", "compare with grok"))
+    }
+
+    @Test
     fun listTrailShowsQuestionMeterOrSummary() {
         val thumb = trailThumb(
             listOf(

@@ -181,6 +181,43 @@ public fun sessionAvatar(agentType: String?, name: String): AgentAvatar {
 }
 
 /**
+ * Official brand mark for a session-list avatar.
+ *
+ * [assetId] is [AGENT_BRAND_ASSET_CLAUDE], [AGENT_BRAND_ASSET_OPENAI], or
+ * [AGENT_BRAND_ASSET_GROK]. Platforms map that id onto a vector asset.
+ * [backgroundHex] and [foregroundHex] are `#RRGGBB`. [inset] is the glyph
+ * size as a fraction of the avatar diameter.
+ */
+public data class AgentBrandLogo(
+    public val assetId: String,
+    public val backgroundHex: String,
+    public val foregroundHex: String,
+    public val inset: Double = AGENT_BRAND_LOGO_INSET,
+)
+
+public const val AGENT_BRAND_ASSET_CLAUDE: String = "claude"
+public const val AGENT_BRAND_ASSET_OPENAI: String = "openai"
+public const val AGENT_BRAND_ASSET_GROK: String = "lobe-grok"
+
+/** Glyph size as a fraction of the avatar diameter. Matches wow-d `logos.py`. */
+public const val AGENT_BRAND_LOGO_INSET: Double = 0.58
+
+private val claudeBrand = AgentBrandLogo(AGENT_BRAND_ASSET_CLAUDE, "#D97757", "#FFFFFF")
+private val openAiBrand = AgentBrandLogo(AGENT_BRAND_ASSET_OPENAI, "#000000", "#FFFFFF")
+private val grokBrand = AgentBrandLogo(AGENT_BRAND_ASSET_GROK, "#000000", "#FFFFFF")
+
+/**
+ * Brand logo for one session row, or null when the row keeps [sessionAvatar].
+ *
+ * [agentType] wins over [title]. Both are trimmed and lowercased; spaces, dots,
+ * and underscores are hyphens. A hit is a substring: `claude` (including
+ * `claude-code`), `codex`, or `grok`. Unknown agents such as `pi` return null
+ * unless the other field names a brand.
+ */
+public fun agentBrandLogo(agentType: String?, title: String): AgentBrandLogo? =
+    brandLogoIn(agentType) ?: brandLogoIn(title)
+
+/**
  * Relative age for a session row. Null when the host never reported a time,
  * or when the stamp is in the future.
  */
@@ -367,6 +404,18 @@ private fun shortInitials(source: String): String {
 private fun agentKey(raw: String?): String {
     if (raw.isNullOrBlank()) return ""
     return raw.trim().lowercase().replace(Regex("[\\s._]+"), "-")
+}
+
+private fun brandLogoIn(raw: String?): AgentBrandLogo? {
+    if (raw.isNullOrBlank()) return null
+    val flat = raw.trim().lowercase()
+    val haystack = "${agentKey(raw)} $flat"
+    return when {
+        "claude" in haystack -> claudeBrand
+        "codex" in haystack -> openAiBrand
+        "grok" in haystack -> grokBrand
+        else -> null
+    }
 }
 
 /** Stable across platforms. Reserved product colors are not in [hashedPalettes]. */

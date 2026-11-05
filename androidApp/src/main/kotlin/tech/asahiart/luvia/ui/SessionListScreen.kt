@@ -62,6 +62,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -77,6 +78,10 @@ import tech.asahiart.luvia.thread.SessionFilter
 import tech.asahiart.luvia.thread.SessionRoster
 import tech.asahiart.luvia.thread.ToolTrailKind
 import tech.asahiart.luvia.thread.TrailThumb
+import tech.asahiart.luvia.thread.AGENT_BRAND_ASSET_CLAUDE
+import tech.asahiart.luvia.thread.AGENT_BRAND_ASSET_GROK
+import tech.asahiart.luvia.thread.AGENT_BRAND_ASSET_OPENAI
+import tech.asahiart.luvia.thread.agentBrandLogo
 import tech.asahiart.luvia.thread.agentColorSlot
 import tech.asahiart.luvia.thread.agentMark
 import tech.asahiart.luvia.thread.recommendedOption
@@ -626,7 +631,23 @@ private fun statusColor(status: AgentStatus, cached: Boolean): androidx.compose.
 }
 
 @Composable
-private fun AgentAvatar(agentType: String?, title: String) {
+private fun AgentAvatar(agentType: String?, title: String, brand: Boolean = true) {
+    val logo = if (brand) agentBrandLogo(agentType, title) else null
+    val drawable = logo?.let { brandDrawable(it.assetId) }
+    if (logo != null && drawable != null) {
+        Box(
+            Modifier.size(40.dp).background(brandColor(logo.backgroundHex), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painterResource(drawable),
+                contentDescription = brandContentDescription(logo.assetId),
+                tint = brandColor(logo.foregroundHex),
+                modifier = Modifier.size(40.dp * logo.inset.toFloat()),
+            )
+        }
+        return
+    }
     val mark = agentMark(agentType, title)
     val (bg, fg) = when (agentColorSlot(agentType, title)) {
         0 -> MaterialTheme.colorScheme.tertiaryContainer to MaterialTheme.colorScheme.onTertiaryContainer
@@ -637,6 +658,30 @@ private fun AgentAvatar(agentType: String?, title: String) {
     Box(Modifier.size(40.dp).background(bg, CircleShape), contentAlignment = Alignment.Center) {
         Text(mark, color = fg, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
     }
+}
+
+private fun brandDrawable(assetId: String): Int? = when (assetId) {
+    AGENT_BRAND_ASSET_CLAUDE -> R.drawable.ic_agent_claude
+    AGENT_BRAND_ASSET_OPENAI -> R.drawable.ic_agent_openai
+    AGENT_BRAND_ASSET_GROK -> R.drawable.ic_agent_grok
+    else -> null
+}
+
+private fun brandContentDescription(assetId: String): String = when (assetId) {
+    AGENT_BRAND_ASSET_CLAUDE -> "Claude"
+    AGENT_BRAND_ASSET_OPENAI -> "OpenAI"
+    AGENT_BRAND_ASSET_GROK -> "Grok"
+    else -> assetId
+}
+
+private fun brandColor(hex: String): Color {
+    val raw = hex.removePrefix("#")
+    val rgb = raw.toLong(16).toInt()
+    return Color(
+        red = ((rgb shr 16) and 0xFF) / 255f,
+        green = ((rgb shr 8) and 0xFF) / 255f,
+        blue = (rgb and 0xFF) / 255f,
+    )
 }
 
 @Composable
@@ -673,7 +718,7 @@ private fun DecisionPreview(
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                AgentAvatar(thread.agentType, thread.title)
+                AgentAvatar(thread.agentType, thread.title, brand = false)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
