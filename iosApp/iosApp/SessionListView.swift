@@ -552,7 +552,7 @@ struct SessionListView: View {
         let secondary = options.first { $0.label != primary?.label }
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 8) {
-                agentAvatar(thread, diameter: 26)
+                agentAvatar(thread, diameter: 26, brand: false)
                 HStack(spacing: 0) {
                     if let agent = agentName(thread) {
                         Text(agent)
@@ -654,7 +654,32 @@ struct SessionListView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func agentAvatar(_ thread: AgentThread, diameter: CGFloat = 40) -> some View {
+    /// List rows use a brand mark when [agentBrandLogo] knows the agent.
+    /// Decision cards pass `brand: false` and keep the letter circle.
+    @ViewBuilder
+    private func agentAvatar(_ thread: AgentThread, diameter: CGFloat = 40, brand: Bool = true) -> some View {
+        let logo = brand ? SessionListKt.agentBrandLogo(agentType: thread.agentType, title: thread.title) : nil
+        if let logo, let name = brandAssetName(logo.assetId) {
+            let glyph = diameter * CGFloat(logo.inset)
+            ZStack {
+                Circle().fill(Color(hex: logo.backgroundHex))
+                Image(name)
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .foregroundStyle(Color(hex: logo.foregroundHex))
+                    .frame(width: glyph, height: glyph)
+                    .accessibilityHidden(true)
+            }
+            .frame(width: diameter, height: diameter)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(brandAccessibilityName(logo.assetId))
+        } else {
+            letterAvatar(thread, diameter: diameter)
+        }
+    }
+
+    private func letterAvatar(_ thread: AgentThread, diameter: CGFloat) -> some View {
         let avatar = SessionListKt.sessionAvatar(agentType: thread.agentType, name: thread.title)
         let mark = avatar.mark
         let fontSize = diameter <= 28 ? 10.0 : (mark.count > 1 ? 13.0 : 16.0)
@@ -666,6 +691,24 @@ struct SessionListView: View {
             .frame(width: diameter, height: diameter)
             .background(avatarGradient(avatar.palette), in: Circle())
             .accessibilityLabel(mark)
+    }
+
+    private func brandAssetName(_ assetId: String) -> String? {
+        switch assetId {
+        case "claude": "agent-logo-claude"
+        case "openai": "agent-logo-openai"
+        case "lobe-grok": "agent-logo-lobe-grok"
+        default: nil
+        }
+    }
+
+    private func brandAccessibilityName(_ assetId: String) -> String {
+        switch assetId {
+        case "claude": "Claude"
+        case "openai": "OpenAI"
+        case "lobe-grok": "Grok"
+        default: assetId
+        }
     }
 
     private func avatarGradient(_ palette: AgentAvatarPalette) -> LinearGradient {
