@@ -364,10 +364,13 @@ fun ChatFirstApp(
             val workspace = id?.let { viewModel.workspace(it) }
             val fixPane = id?.let { terminals[it]?.paneId }
             val fixSession = terminalOwningSession(allThreads, fixPane)
+            // Owning chat session wins; pane title is never the session agent.
+            val sessionAgentType = openThread?.agentType ?: fixSession?.agentType
+            val sessionDisplayName = openThread?.title ?: fixSession?.title
             TerminalScreen(
                 model = id?.let { terminals[it] },
-                sessionAgentType = fixSession?.agentType,
-                sessionDisplayName = fixSession?.title,
+                sessionAgentType = sessionAgentType,
+                sessionDisplayName = sessionDisplayName,
                 fixCandidates = terminalFixCandidates(
                     state?.acp?.agents?.map { agent -> agent.id.ifBlank { agent.name } }.orEmpty(),
                     allThreads.mapNotNull { it.agentType },

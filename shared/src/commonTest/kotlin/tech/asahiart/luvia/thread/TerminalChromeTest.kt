@@ -178,6 +178,21 @@ class TerminalChromeTest {
     }
 
     @Test
+    fun fixCandidatesPreferHostAgentsThenRecognizedThreads() {
+        val fromHost = terminalFixCandidates(
+            hostAgentIds = listOf("pi", "claude-code", "zsh"),
+            threadAgentTypes = listOf("codex"),
+        )
+        assertEquals(listOf("pi", "claude", "zsh"), fromHost.map { it.name })
+        val fromThreads = terminalFixCandidates(
+            hostAgentIds = emptyList(),
+            threadAgentTypes = listOf("codex", "gradle", "pi", "opencode"),
+        )
+        assertEquals(listOf("codex", "pi"), fromThreads.map { it.name })
+        assertTrue(terminalFixCandidates(emptyList(), emptyList()).isEmpty())
+    }
+
+    @Test
     fun missingSessionAgentUsesTheGenericHandoff() {
         val offer = terminalFailureOffer(paneForeground = "gradle", sessionAgentType = null, sessionDisplayName = "gradle")
         assertEquals(TerminalFailureMode.Handoff, offer.mode)
