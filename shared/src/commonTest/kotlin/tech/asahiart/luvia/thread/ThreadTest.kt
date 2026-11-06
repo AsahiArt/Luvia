@@ -16,6 +16,7 @@ import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.AgentSummary
 import tech.asahiart.luvia.ConnectionFreshness
 import tech.asahiart.luvia.HostUhpState
+import tech.asahiart.luvia.StoredPanePreview
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -23,6 +24,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ThreadTest {
+    private val piStatusBar =
+        "↑248k ↓59k R11M CH99.6% " + "$" + "12.824 … grok-4.7-build-fast * high"
+
     private fun pane(id: String, status: AgentStatus, agent: String = "claude") =
         AgentSummary(paneId = id, name = null, status = status, agent = agent, workspaceId = "w1", workspaceName = "luvus")
 
@@ -55,10 +59,54 @@ class ThreadTest {
     }
 
     @Test
-    fun blockedPaneWithoutTranscriptHasNoQuestion() {
+    fun blockedPaneWithoutTranscriptAsksToConfirm() {
         val thread = HostUhpState(agents = listOf(pane("p1", AgentStatus.Blocked))).threads("h").single()
-        assertNull(thread.ask?.question)
+        assertEquals(DECISION_QUESTION_FALLBACK, thread.ask?.question)
+        assertEquals(DECISION_QUESTION_FALLBACK, listTrail(thread, null).label)
         assertNull(HostUhpState(agents = listOf(pane("p2", AgentStatus.Working))).threads("h").single().ask)
+    }
+
+    @Test
+    fun decisionTextUsesPermissionTitle() {
+        val request = AcpPermissionRequest(
+            "r1", "Run command", null, null, null,
+            listOf(AcpPermissionOption("a", "Allow once", AcpPermissionKind.AllowOnce)),
+        )
+        val state = acp(AcpRunState.AwaitingPermission, request).copy(
+            transcript = listOf(
+                AcpTranscriptItem.Message("m", AcpTranscriptRole.Agent, piStatusBar, false),
+            ),
+        )
+        val thread = HostUhpState(acp = state).threads("h").single()
+        assertEquals("Run command", thread.ask?.question)
+        assertEquals("Run command", listTrail(thread, null).label)
+        assertEquals(piStatusBar, thread.summary)
+    }
+
+    @Test
+    fun decisionTextUsesAgentQuestionNotStatusBar() {
+        val question = "要把 TokenStore 拆成两个 actual 吗？"
+        val transcript = "先看代码。\n$question\n~/src/luvia (main)\n$piStatusBar\n"
+        val state = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        )
+        val thread = state.threads("h").single()
+        assertEquals(question, thread.ask?.question)
+        assertEquals(question, listTrail(thread, null).label)
+        assertEquals(piStatusBar, thread.summary)
+    }
+
+    @Test
+    fun decisionTextFallsBackWhenOnlyStatusBar() {
+        val state = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(piStatusBar, AgentStatus.Blocked)),
+        )
+        val thread = state.threads("h").single()
+        assertEquals(DECISION_QUESTION_FALLBACK, thread.ask?.question)
+        assertEquals(DECISION_QUESTION_FALLBACK, listTrail(thread, null).label)
+        assertEquals(piStatusBar, thread.summary)
     }
 
     @Test
