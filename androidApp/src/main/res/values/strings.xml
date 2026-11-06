@@ -112,7 +112,7 @@
     <string name="tool_run">运行</string>
     <string name="tool_other">工具</string>
     <string name="more_cells">还有 %1$d 格</string>
-    <string name="ask_agent_fix">交给 claude 修</string>
+    <string name="ask_agent_fix">交给 %1$s 修</string>
     <string name="fix_not_sent">没发出去</string>
     <string name="terminal_synced">已同步</string>
     <string name="terminal_pane_title">pane %1$d</string>

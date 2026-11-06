@@ -290,9 +290,10 @@ internal fun mapSnapshot(result: JsonObject): SessionSnapshot {
                 cwd = ws.optionalString("cwd"),
                 workspaceId = ws.optionalString("workspace_id") ?: ws.optionalString("id"),
             )
-        tabs?.forEach { tabEl ->
-            val tab = tabEl as? JsonObject ?: return@forEach
-            val paneArray = tab["panes"] as? JsonArray ?: return@forEach
+        tabs?.forEachIndexed { tabFallback, tabEl ->
+            val tab = tabEl as? JsonObject ?: return@forEachIndexed
+            val tabIndex = tab.optionalStrictLong("index")?.toInt() ?: (tabFallback + 1)
+            val paneArray = tab["panes"] as? JsonArray ?: return@forEachIndexed
             paneArray.forEach { paneEl ->
                 val pane = paneEl as? JsonObject ?: return@forEach
                 val paneId = pane.optionalString("pane_id") ?: return@forEach
@@ -310,6 +311,8 @@ internal fun mapSnapshot(result: JsonObject): SessionSnapshot {
                         rootProcessPid = root?.optionalStrictLong("pid"),
                         rootProcessStartMarker = root?.optionalString("start_marker"),
                         agentName = pane.optionalString("agent_name"),
+                        workspaceIndex = index,
+                        tabIndex = tabIndex,
                     )
                 val agentKind = pane.optionalString("agent")
                 val agentStatus = pane.optionalString("agent_status")

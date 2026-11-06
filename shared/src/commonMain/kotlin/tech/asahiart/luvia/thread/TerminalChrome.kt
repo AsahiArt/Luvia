@@ -88,6 +88,23 @@ public fun terminalFailureBanner(text: String?): TerminalFailureBanner? {
     )
 }
 
+/**
+ * Equal-width pane chips. Two through five share the row. More than five scroll
+ * so a chip keeps a readable width instead of being crushed.
+ */
+public const val EQUAL_PANE_SEGMENT_MAX: Int = 5
+
+public fun paneSegmentsShareWidth(count: Int): Boolean = count in 1..EQUAL_PANE_SEGMENT_MAX
+
+/** 1-based index shared by the `pane N` header and [terminalSegmentLabel]. */
+public fun terminalPaneNumber(index: Int): Int = index + 1
+
+/** Word in 「交给 codex 修」. Blank input stays a generic agent, never a product name. */
+public fun terminalFixAgentName(agent: String): String = agent.trim().ifEmpty { "agent" }
+
+/** Failure-card button. The name is the live session agent. */
+public fun terminalFixLabel(agent: String): String = "交给 ${terminalFixAgentName(agent)} 修"
+
 /** `1 zsh` style. A numeric title becomes the word pane so the chip is never only a number. */
 public fun terminalSegmentLabel(index: Int, title: String): String {
     val leaf = title.trim().substringAfterLast('/').trim()

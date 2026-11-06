@@ -2,6 +2,7 @@ package tech.asahiart.luvia.thread
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -147,6 +148,33 @@ class TerminalChromeTest {
             "claude-code · 已同步",
             terminalStatusLine("claude-code", 0, 0, synced = true, syncedWord = "已同步"),
         )
+    }
+
+    @Test
+    fun fixButtonNamesTheSessionAgent() {
+        assertEquals("codex", terminalFixAgentName("codex"))
+        assertEquals("claude-code", terminalFixAgentName("  claude-code  "))
+        assertEquals("pi", terminalFixAgentName("pi"))
+        assertEquals("grok", terminalFixAgentName("grok"))
+        assertEquals("agent", terminalFixAgentName("   "))
+        assertEquals("交给 codex 修", terminalFixLabel("codex"))
+        assertEquals("交给 pi 修", terminalFixLabel("pi"))
+        assertEquals("交给 claude-code 修", terminalFixLabel("claude-code"))
+        assertEquals("交给 claude 修", terminalFixLabel("claude"))
+        assertFalse(terminalFixLabel("codex").contains("claude"))
+        assertFalse(terminalFixLabel("grok").contains("claude"))
+    }
+
+    @Test
+    fun paneNumbersMatchTheSegmentAndFiveShareTheRow() {
+        assertEquals(1, terminalPaneNumber(0))
+        assertEquals(3, terminalPaneNumber(2))
+        assertEquals("3 claude", terminalSegmentLabel(2, "claude"))
+        assertEquals(terminalPaneNumber(2).toString(), terminalSegmentLabel(2, "claude").substringBefore(' '))
+        assertTrue(paneSegmentsShareWidth(2))
+        assertTrue(paneSegmentsShareWidth(5))
+        assertFalse(paneSegmentsShareWidth(6))
+        assertFalse(paneSegmentsShareWidth(0))
     }
 
     @Test

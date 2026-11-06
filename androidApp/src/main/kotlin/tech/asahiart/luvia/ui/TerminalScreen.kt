@@ -23,6 +23,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,7 +34,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -40,11 +43,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,13 +70,17 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.flow.first
 import tech.asahiart.luvia.R
 import tech.asahiart.luvia.TerminalKey
 import tech.asahiart.luvia.prefersDarkInk
 import tech.asahiart.luvia.thread.TerminalFailureBanner
+import tech.asahiart.luvia.thread.paneSegmentsShareWidth
 import tech.asahiart.luvia.thread.terminalFailureBanner
 import tech.asahiart.luvia.thread.terminalFailureSummary
+import tech.asahiart.luvia.thread.terminalFixAgentName
 import tech.asahiart.luvia.thread.terminalGrid
+import tech.asahiart.luvia.thread.terminalPaneNumber
 import tech.asahiart.luvia.thread.terminalSegmentLabel
 import tech.asahiart.luvia.thread.terminalStatusLine
 import tech.asahiart.luvia.thread.testBarCells
@@ -135,7 +144,7 @@ fun TerminalScreen(
             Column(Modifier.weight(1f)) {
                 Text(
                     if (paneIndex >= 0) {
-                        stringResource(R.string.terminal_pane_title, paneIndex + 1)
+                        stringResource(R.string.terminal_pane_title, terminalPaneNumber(paneIndex))
                     } else {
                         model?.title ?: stringResource(R.string.terminal)
                     },
@@ -180,6 +189,7 @@ fun TerminalScreen(
         if (banner != null) {
             FailureBar(
                 banner = banner,
+                agent = model?.title.orEmpty(),
                 refused = fixRefused,
                 onFix = { fixRefused = !onAskFix(banner.excerpt) },
             )
@@ -381,53 +391,98 @@ private fun TerminalControlChrome(
     }
 }
 
+private val PaneSegmentMinWidth = 96.dp
+
 @Composable
 private fun PaneSegments(
     panes: List<TerminalPaneChoice>,
     selectedId: String?,
     onSelect: (String) -> Unit,
 ) {
-    val scheme = MaterialTheme.colorScheme
-    val idleInk = LuviaTheme.extended.inactivePaneInk()
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        panes.forEachIndexed { index, pane ->
-            val selected = pane.paneId == selectedId
-            val fill = if (selected) scheme.primary else scheme.surfaceContainer
-            val ink = if (selected) contrastInk(fill) else idleInk
-            Box(
-                Modifier
-                    .weight(1f)
-                    .heightIn(min = 40.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(fill)
-                    .clickable { onSelect(pane.paneId) }
-                    .semantics { this.selected = selected }
-                    .padding(horizontal = 8.dp, vertical = 10.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    terminalSegmentLabel(index, pane.title),
-                    color = ink,
-                    fontWeight = FontWeight.SemiBold,
-                    style = MaterialTheme.typography.labelLarge,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Ellipsis,
+    if (paneSegmentsShareWidth(panes.size)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            panes.forEachIndexed { index, pane ->
+                PaneSegment(
+                    index = index,
+                    pane = pane,
+                    selected = pane.paneId == selectedId,
+                    onSelect = onSelect,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
+        return
+    }
+    val listState = rememberLazyListState()
+    val selectedIndex = panes.indexOfFirst { it.paneId == selectedId }
+    LaunchedEffect(selectedId, panes.size) {
+        if (selectedIndex < 0) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.map { it.index } }
+            .first { it.isNotEmpty() }
+        val visible = listState.layoutInfo.visibleItemsInfo.any { it.index == selectedIndex }
+        if (!visible) listState.animateScrollToItem(selectedIndex)
+    }
+    LazyRow(
+        state = listState,
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        itemsIndexed(panes, key = { _, pane -> pane.paneId }) { index, pane ->
+            PaneSegment(
+                index = index,
+                pane = pane,
+                selected = pane.paneId == selectedId,
+                onSelect = onSelect,
+                modifier = Modifier.widthIn(min = PaneSegmentMinWidth),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PaneSegment(
+    index: Int,
+    pane: TerminalPaneChoice,
+    selected: Boolean,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val fill = if (selected) scheme.primary else scheme.surfaceContainer
+    val ink = if (selected) contrastInk(fill) else LuviaTheme.extended.inactivePaneInk()
+    Box(
+        modifier
+            .heightIn(min = 40.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(fill)
+            .clickable { onSelect(pane.paneId) }
+            .semantics { this.selected = selected }
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            terminalSegmentLabel(index, pane.title),
+            color = ink,
+            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.labelLarge,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
 @Composable
 private fun FailureBar(
     banner: TerminalFailureBanner,
+    agent: String,
     refused: Boolean,
     onFix: () -> Unit,
 ) {
@@ -474,9 +529,13 @@ private fun FailureBar(
             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FixInk),
         ) {
-            Icon(Icons.Filled.Build, contentDescription = null, modifier = Modifier.size(16.dp))
+            AgentAvatar(agentType = agent, title = agent, size = 20.dp)
             Spacer(Modifier.width(4.dp))
-            Text(stringResource(R.string.ask_agent_fix), maxLines = 1, softWrap = false)
+            Text(
+                stringResource(R.string.ask_agent_fix, terminalFixAgentName(agent)),
+                maxLines = 1,
+                softWrap = false,
+            )
         }
     }
     if (refused) {
