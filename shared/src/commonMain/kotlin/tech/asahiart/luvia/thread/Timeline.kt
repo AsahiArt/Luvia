@@ -121,6 +121,12 @@ internal fun overlap(old: List<String>, new: List<String>): Int {
     return 0
 }
 
+/**
+ * Chat rows that were not on screen when the terminal opened.
+ * [seen] is that snapshot. Later ids are the unread count on 「回到对话」.
+ */
+public fun unreadChatCount(seen: Set<String>, ids: Collection<String>): Int = ids.count { it !in seen }
+
 public fun AcpState.timeline(ask: Ask?): List<TimelineItem> =
     buildList {
         if (plan.isNotEmpty()) add(TimelineItem.Plan("plan", plan))

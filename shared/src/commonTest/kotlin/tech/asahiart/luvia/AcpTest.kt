@@ -268,6 +268,70 @@ class AcpTest {
         session.close()
     }
 
+    @Test
+    fun choosingAnotherAgentDraftsIntoTheNewAcpSession() = runTest {
+        val opens = mutableListOf<JsonObject>()
+        val session = openAcpClient(backgroundScope, opens = opens)
+        val runtime = sampleRuntime(agent = "pi", cwd = "/tmp/pane", workspaceCwd = "/tmp/work")
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        assertEquals(FailureHandoff.Refused, uhp.handoffFailure("   ", "7", "codex"))
+        uhp.setAcpDraft("keep")
+        assertEquals(FailureHandoff.Refused, uhp.handoffFailure("AnsiParserTest FAILED", "7", "codex"))
+        assertEquals("keep", uhp.state.value.acp.draft)
+        assertEquals(false, uhp.state.value.acp.open)
+        uhp.setAcpDraft("")
+        assertEquals(FailureHandoff.Drafted, uhp.handoffFailure("AnsiParserTest FAILED", "7", "codex"))
+        assertEquals("codex", uhp.state.value.acp.launchAgentId)
+        assertEquals("/tmp/work", uhp.state.value.acp.launchCwd)
+        assertEquals(true, uhp.state.value.acp.open)
+        assertEquals(true, uhp.state.value.acp.viewing)
+        assertEquals("请修这个失败：\nAnsiParserTest FAILED", uhp.state.value.acp.draft)
+        assertEquals(false, uhp.state.value.agentDetail.sending)
+        assertEquals("", uhp.state.value.agentDetail.draft)
+        val opened =
+            withTimeout(2.seconds) {
+                uhp.state.first { it.acp.info?.sessionId == "sess_1" }.acp
+            }
+        assertEquals("sess_1", opened.info?.sessionId)
+        assertEquals("codex", opened.info?.agentId)
+        assertEquals("请修这个失败：\nAnsiParserTest FAILED", opened.draft)
+        val params = opens.single()
+        assertEquals("codex", params.getValue("agent").jsonPrimitive.content)
+        assertEquals("/tmp/work", params.getValue("cwd").jsonPrimitive.content)
+        assertTrue("mode" !in params || params.getValue("mode").jsonPrimitive.content == "new")
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun choosingTheSessionAgentStillUsesThePanePath() = runTest {
+        val session = openAcpClient(backgroundScope, extraMethods = listOf(Methods.AGENT_PROMPT))
+        val runtime = sampleRuntime(agent = "pi", cwd = "/tmp/work")
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        assertEquals(FailureHandoff.Sent, uhp.handoffFailure("AnsiParserTest FAILED", "7", "pi"))
+        assertEquals(true, uhp.state.value.agentDetail.sending)
+        assertEquals(false, uhp.state.value.acp.open)
+        assertEquals("", uhp.state.value.acp.draft)
+        assertEquals(null, uhp.state.value.acp.launchAgentId)
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun choosingTheSameRecognizedAgentKeepsTheSessionPath() = runTest {
+        val session = openAcpClient(backgroundScope, extraMethods = listOf(Methods.AGENT_PROMPT))
+        val runtime = sampleRuntime(agent = "claude-code", cwd = "/tmp/work")
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        assertEquals(FailureHandoff.Sent, uhp.handoffFailure("AnsiParserTest FAILED", "7", "claude"))
+        assertEquals(true, uhp.state.value.agentDetail.sending)
+        assertEquals(false, uhp.state.value.acp.open)
+        uhp.close()
+        session.close()
+    }
+
 }
 
 private suspend fun openAcpClient(
@@ -275,6 +339,7 @@ private suspend fun openAcpClient(
     actions: MutableList<JsonObject>? = null,
     opens: MutableList<JsonObject>? = null,
     streamEvents: List<String> = emptyList(),
+    extraMethods: List<String> = emptyList(),
 ): LuviaSession {
     val methods =
         listOf(
@@ -282,7 +347,7 @@ private suspend fun openAcpClient(
             Methods.ACP_AGENTS,
             Methods.ACP_SESSION_LIST,
             Methods.ACP_SESSION_OPEN,
-        )
+        ) + extraMethods
     val factory =
         ScriptedFactory(scope) { framer ->
             val prelude = parseObject(framer.readFrame())
@@ -366,13 +431,23 @@ private fun stringArray(values: List<String>): JsonArray =
         values.forEach { add(JsonPrimitive(it)) }
     }
 
-private fun sampleRuntime(): HostRuntime {
-    val agent =
+private fun sampleRuntime(
+    agent: String? = null,
+    cwd: String? = null,
+    workspaceCwd: String? = null,
+): HostRuntime {
+    val summary =
         AgentSummary(
             paneId = "7",
             name = "opus",
             status = AgentStatus.Blocked,
+            agent = agent,
+            cwd = cwd,
         )
+    val workspaces =
+        workspaceCwd?.let { dir ->
+            listOf(WorkspaceSummary(index = 0, name = "work", pinned = false, active = true, tabCount = 1, cwd = dir))
+        }.orEmpty()
     return HostRuntime(
         profile =
             HostProfile(
@@ -394,9 +469,9 @@ private fun sampleRuntime(): HostRuntime {
                 sessionName = "default",
                 serverGeneration = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 eventSequence = 1,
-                workspaces = emptyList(),
+                workspaces = workspaces,
                 panes = emptyList(),
-                agents = listOf(agent),
+                agents = listOf(summary),
             ),
         tasks = emptyList(),
         freshness = ConnectionFreshness.Offline,
