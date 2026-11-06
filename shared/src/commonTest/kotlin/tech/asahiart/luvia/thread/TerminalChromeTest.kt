@@ -151,34 +151,40 @@ class TerminalChromeTest {
     }
 
     @Test
-    fun fixButtonNamesTheSessionAgent() {
-        assertEquals("codex", terminalFixAgentName("codex"))
-        assertEquals("claude-code", terminalFixAgentName("  claude-code  "))
-        assertEquals("pi", terminalFixAgentName("pi"))
-        assertEquals("grok", terminalFixAgentName("grok"))
-        assertEquals("agent", terminalFixAgentName("   "))
-        assertEquals("交给 codex 修", terminalFixLabel("codex"))
-        assertEquals("交给 pi 修", terminalFixLabel("pi"))
-        assertEquals("交给 claude-code 修", terminalFixLabel("claude-code"))
-        assertEquals("交给 claude 修", terminalFixLabel("claude"))
-        assertFalse(terminalFixLabel("codex").contains("claude"))
-        assertFalse(terminalFixLabel("grok").contains("claude"))
+    fun paneRunningPiShowsTheFixingChip() {
+        val offer = terminalFailureOffer(paneForeground = "pi", sessionAgentType = "claude")
+        assertEquals(TerminalFailureMode.Fixing, offer.mode)
+        assertEquals("pi", offer.agentName)
+        assertEquals("pi", offer.avatarAgent)
+        assertEquals("pi 在修…", offer.fixingLabel)
+        assertTrue(offer.choices.isEmpty())
+        val claude = terminalFailureOffer("claude-code", null)
+        assertEquals(TerminalFailureMode.Fixing, claude.mode)
+        assertEquals("claude 在修…", claude.fixingLabel)
     }
 
     @Test
-    fun gradlePaneUsesSessionAgentNotPaneTitle() {
-        val paneTitle = "gradle"
-        val sessionName = terminalSessionAgentName("pi")
-        assertEquals("pi", sessionName)
-        assertEquals("交给 pi 修", terminalFixLabel(sessionName))
-        assertFalse(terminalFixLabel(sessionName).contains(paneTitle))
-        assertEquals("agent", terminalSessionAgentName(null))
-        assertEquals("agent", terminalSessionAgentName("   "))
-        assertEquals("交给 agent 修", terminalFixLabel(terminalSessionAgentName(null)))
-        assertEquals("claude-code", terminalSessionAgentName("claude-code"))
-        assertEquals("codex", terminalSessionAgentName(" codex "))
-        assertEquals("grok", terminalSessionAgentName("grok"))
-        assertNull(terminalOwningSession(emptyList(), "7"))
+    fun gradlePaneHandsOffToTheSessionAgent() {
+        val offer = terminalFailureOffer(
+            paneForeground = "gradle",
+            sessionAgentType = "pi",
+            sessionDisplayName = "gradle",
+        )
+        assertEquals(TerminalFailureMode.Handoff, offer.mode)
+        assertEquals("pi", offer.agentName)
+        assertEquals("交给 pi 修", offer.handoffLabel)
+        assertEquals(listOf("pi"), offer.choices.map { it.name })
+        assertEquals("交给 claude 修", terminalFailureOffer("zsh", "claude-code").handoffLabel)
+    }
+
+    @Test
+    fun missingSessionAgentUsesTheGenericHandoff() {
+        val offer = terminalFailureOffer(paneForeground = "gradle", sessionAgentType = null, sessionDisplayName = "gradle")
+        assertEquals(TerminalFailureMode.Handoff, offer.mode)
+        assertEquals("agent", offer.agentName)
+        assertNull(offer.avatarAgent)
+        assertEquals("交给 agent 修", offer.handoffLabel)
+        assertTrue(offer.choices.isEmpty())
     }
 
     @Test
