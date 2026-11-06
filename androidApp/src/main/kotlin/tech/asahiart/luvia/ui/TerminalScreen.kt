@@ -34,13 +34,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -79,13 +75,11 @@ import tech.asahiart.luvia.R
 import tech.asahiart.luvia.TerminalKey
 import tech.asahiart.luvia.prefersDarkInk
 import tech.asahiart.luvia.thread.TerminalFailureBanner
-import tech.asahiart.luvia.thread.TerminalFailureMode
-import tech.asahiart.luvia.thread.TerminalFailureOffer
-import tech.asahiart.luvia.thread.TerminalFixChoice
 import tech.asahiart.luvia.thread.paneSegmentsShareWidth
 import tech.asahiart.luvia.thread.terminalFailureBanner
-import tech.asahiart.luvia.thread.terminalFailureOffer
 import tech.asahiart.luvia.thread.terminalFailureSummary
+import tech.asahiart.luvia.thread.terminalFixAgentName
+import tech.asahiart.luvia.thread.terminalSessionAgentName
 import tech.asahiart.luvia.thread.terminalGrid
 import tech.asahiart.luvia.thread.terminalPaneNumber
 import tech.asahiart.luvia.thread.terminalSegmentLabel
@@ -112,9 +106,8 @@ fun TerminalScreen(
     statusOverride: String? = null,
     connection: ConnectionBadge? = null,
     onAskFix: (String) -> Boolean = { false },
+    /** Chat-session agent id (`pi`, `claude-code`, …). Not the pane title. */
     sessionAgentType: String? = null,
-    sessionDisplayName: String? = null,
-    fixCandidates: List<TerminalFixChoice> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val extended = LuviaTheme.extended
@@ -197,10 +190,9 @@ fun TerminalScreen(
             )
         }
         if (banner != null) {
-            val foreground = panes.firstOrNull { it.paneId == model?.paneId }?.title
             FailureBar(
                 banner = banner,
-                offer = terminalFailureOffer(foreground, sessionAgentType, sessionDisplayName, fixCandidates),
+                agent = terminalSessionAgentName(sessionAgentType),
                 refused = fixRefused,
                 onFix = { fixRefused = !onAskFix(banner.excerpt) },
             )
@@ -493,7 +485,7 @@ private fun PaneSegment(
 @Composable
 private fun FailureBar(
     banner: TerminalFailureBanner,
-    offer: TerminalFailureOffer,
+    agent: String,
     refused: Boolean,
     onFix: () -> Unit,
 ) {
@@ -532,7 +524,22 @@ private fun FailureBar(
                 }
             }
         }
-        FailureOffer(offer, onFix)
+        Button(
+            onClick = onFix,
+            modifier = Modifier.padding(start = 10.dp),
+            shape = RoundedCornerShape(50),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = FixInk),
+        ) {
+            AgentAvatar(agentType = agent, title = agent, size = 20.dp)
+            Spacer(Modifier.width(4.dp))
+            Text(
+                stringResource(R.string.ask_agent_fix, terminalFixAgentName(agent)),
+                maxLines = 1,
+                softWrap = false,
+            )
+        }
     }
     if (refused) {
         Text(
@@ -541,91 +548,6 @@ private fun FailureBar(
             color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.labelMedium,
         )
-    }
-}
-
-@Composable
-private fun FailureOffer(offer: TerminalFailureOffer, onFix: () -> Unit) {
-    var picked by remember(offer.agentName, offer.mode) { mutableStateOf<TerminalFixChoice?>(null) }
-    val handed = offer.mode == TerminalFailureMode.Handoff
-    val choice = picked?.takeIf { handed }
-    val name = choice?.name ?: offer.agentName
-    val avatar = choice?.agentType ?: offer.avatarAgent
-    if (!handed) {
-        Row(
-            Modifier
-                .padding(start = 10.dp)
-                .clip(RoundedCornerShape(50))
-                .background(Color.White)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AgentAvatar(agentType = avatar, title = name, size = 20.dp)
-            Spacer(Modifier.width(4.dp))
-            Text(
-                stringResource(R.string.agent_fixing, name),
-                color = FixInk,
-                maxLines = 1,
-                softWrap = false,
-            )
-            CircularProgressIndicator(
-                modifier = Modifier.padding(start = 6.dp).size(12.dp),
-                strokeWidth = 2.dp,
-                color = FixInk,
-            )
-        }
-        return
-    }
-    var menu by remember(offer.agentName) { mutableStateOf(false) }
-    Row(
-        Modifier
-            .padding(start = 10.dp)
-            .clip(RoundedCornerShape(50))
-            .background(Color.White)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Row(
-            Modifier.clickable(onClick = onFix),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AgentAvatar(agentType = avatar, title = name, size = 20.dp)
-            Spacer(Modifier.width(4.dp))
-            Text(
-                stringResource(R.string.ask_agent_fix, name),
-                color = FixInk,
-                maxLines = 1,
-                softWrap = false,
-            )
-        }
-        if (offer.choices.isNotEmpty()) {
-            Icon(
-                Icons.Filled.KeyboardArrowDown,
-                contentDescription = stringResource(R.string.switch_fix_agent),
-                tint = FixInk,
-                modifier = Modifier
-                    .padding(start = 2.dp)
-                    .size(18.dp)
-                    .clickable { menu = true },
-            )
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                offer.choices.forEach { item ->
-                    DropdownMenuItem(
-                        text = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                AgentAvatar(item.agentType, item.name, size = 20.dp)
-                                Spacer(Modifier.width(8.dp))
-                                Text(item.name)
-                            }
-                        },
-                        onClick = {
-                            picked = item
-                            menu = false
-                        },
-                    )
-                }
-            }
-        }
     }
 }
 

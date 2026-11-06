@@ -111,90 +111,19 @@ public fun terminalOwningSession(threads: List<AgentThread>, paneId: String?): A
     }
 }
 
-/** Official agent behind a pane foreground or a session id. Null for shells and commands. */
-public fun recognizedTerminalAgent(raw: String?): String? {
-    val logo = agentBrandLogo(raw, "") ?: return null
-    return when (logo.assetId) {
-        AGENT_BRAND_ASSET_CLAUDE -> "claude"
-        AGENT_BRAND_ASSET_OPENAI -> "codex"
-        AGENT_BRAND_ASSET_GROK -> "grok"
-        AGENT_BRAND_ASSET_PI -> "pi"
-        else -> null
-    }
-}
-
-public enum class TerminalFailureMode { Fixing, Handoff }
-
-public data class TerminalFixChoice(
-    public val agentType: String,
-    public val name: String,
-)
-
-public data class TerminalFailureOffer(
-    public val mode: TerminalFailureMode,
-    public val agentName: String,
-    /** Passed to [agentBrandLogo]. Null means the letter circle. */
-    public val avatarAgent: String?,
-    public val choices: List<TerminalFixChoice>,
-) {
-    public val fixingLabel: String get() = "$agentName 在修…"
-
-    public val handoffLabel: String get() = "交给 $agentName 修"
-}
-
 /**
- * Host agent ids win. Otherwise the session list's recognized agents.
- * Neither list is invented here.
+ * Name on 「交给 pi 修」.
+ * Prefer the chat session's [agentType] (`pi`, `claude-code`, `codex`, `grok`).
+ * A pane title or foreground command is never a candidate. Missing → `agent`.
  */
-public fun terminalFixCandidates(hostAgentIds: List<String>, threadAgentTypes: List<String>): List<TerminalFixChoice> {
-    val fromHost = hostAgentIds.mapNotNull { raw ->
-        val type = raw.trim().ifEmpty { return@mapNotNull null }
-        TerminalFixChoice(type, recognizedTerminalAgent(type) ?: type)
-    }.distinctBy { it.name.lowercase() }
-    if (fromHost.isNotEmpty()) return fromHost
-    return threadAgentTypes.mapNotNull { raw ->
-        val type = raw.trim().ifEmpty { return@mapNotNull null }
-        val known = recognizedTerminalAgent(type) ?: return@mapNotNull null
-        TerminalFixChoice(type, known)
-    }.distinctBy { it.name.lowercase() }
-}
+public fun terminalSessionAgentName(agentType: String?): String =
+    agentType?.trim()?.takeIf { it.isNotEmpty() } ?: "agent"
 
-/**
- * Foreground agent → 「pi 在修…」. Shell or command → 「交给 pi 修」.
- * [paneForeground] is never used as the session agent. No session agent → 「交给 agent 修」.
- */
-public fun terminalFailureOffer(
-    paneForeground: String?,
-    sessionAgentType: String?,
-    sessionDisplayName: String? = null,
-    candidates: List<TerminalFixChoice> = emptyList(),
-): TerminalFailureOffer {
-    val running = recognizedTerminalAgent(paneForeground)
-    if (running != null) {
-        return TerminalFailureOffer(
-            mode = TerminalFailureMode.Fixing,
-            agentName = running,
-            avatarAgent = running,
-            choices = emptyList(),
-        )
-    }
-    val session = recognizedTerminalAgent(sessionAgentType) ?: recognizedTerminalAgent(sessionDisplayName)
-    val rawType = sessionAgentType?.trim()?.takeIf { it.isNotEmpty() }
-    val name = session ?: rawType ?: "agent"
-    val choices = candidates.ifEmpty {
-        when {
-            session != null -> listOf(TerminalFixChoice(session, session))
-            rawType != null -> listOf(TerminalFixChoice(rawType, rawType))
-            else -> emptyList()
-        }
-    }
-    return TerminalFailureOffer(
-        mode = TerminalFailureMode.Handoff,
-        agentName = name,
-        avatarAgent = session ?: rawType,
-        choices = choices,
-    )
-}
+/** Word in 「交给 codex 修」. Blank input stays a generic agent, never a product name. */
+public fun terminalFixAgentName(agent: String): String = terminalSessionAgentName(agent)
+
+/** Failure-card button. [agent] is [terminalSessionAgentName], not the pane title. */
+public fun terminalFixLabel(agent: String): String = "交给 ${terminalFixAgentName(agent)} 修"
 
 /** `1 zsh` style. A numeric title becomes the word pane so the chip is never only a number. */
 public fun terminalSegmentLabel(index: Int, title: String): String {
