@@ -61,7 +61,15 @@ public data class AskOption(
 )
 
 /**
- * A decision an Agent is waiting on. [question] is null when nothing cached explains it.
+ * Shown when a waiting agent has neither a permission title nor a question.
+ * Decision cards and list rows share this string.
+ */
+public const val DECISION_QUESTION_FALLBACK: String = "等你确认"
+
+/**
+ * A decision an Agent is waiting on. [question] is the permission title or the
+ * agent's last question, never the pane status bar. It is
+ * [DECISION_QUESTION_FALLBACK] when neither is available.
  * [index] and [total] describe a queue of decisions. They default to a single card.
  */
 public data class Ask(
@@ -104,7 +112,9 @@ private fun HostUhpState.cachedTranscriptFor(paneId: String, status: AgentStatus
 }
 
 internal fun AgentSummary.toThread(hostId: String, transcript: String?): AgentThread {
-    val last = lastNonEmptyLine(transcript?.let(::stripAnsi))
+    val plain = transcript?.let(::stripAnsi)
+    val last = lastNonEmptyLine(plain)
+    val waiting = status == AgentStatus.Blocked
     return AgentThread(
         id = paneId,
         kind = AgentKind.Pane,
@@ -114,13 +124,39 @@ internal fun AgentSummary.toThread(hostId: String, transcript: String?): AgentTh
         title = name?.takeIf { it.isNotBlank() } ?: agent?.takeIf { it.isNotBlank() } ?: "Agent",
         agentType = agent,
         status = status,
-        ask = if (status == AgentStatus.Blocked) paneAsk(last) else null,
+        ask = if (waiting) paneAsk(decisionQuestionText(null, plain)) else null,
         summary = last,
         updatedEpochMs = null,
         paneId = paneId,
         cwd = cwd,
     )
 }
+
+/**
+ * Text for a decision card and a waiting list row.
+ * [permissionTitle] wins. Otherwise the last agent question in [transcript].
+ * A status bar alone is not a question.
+ */
+public fun decisionQuestionText(permissionTitle: String?, transcript: String?): String {
+    val title = permissionTitle?.trim()?.takeIf { it.isNotEmpty() }
+    if (title != null) return title
+    return lastAgentQuestion(transcript) ?: DECISION_QUESTION_FALLBACK
+}
+
+internal fun lastAgentQuestion(transcript: String?): String? {
+    val clean = transcript?.let(::stripAnsi) ?: return null
+    val lines = clean.lines().filter { it.isNotBlank() }
+    for (raw in lines.asReversed()) {
+        val line = raw.trim()
+        if (isPaneFooterLine(line)) continue
+        if (isAgentQuestion(line)) return line
+        if (isToolCallLine(line) || isToolContinuation(raw) || isDiffStart(raw) || isDiffBody(raw)) continue
+        return null
+    }
+    return null
+}
+
+private fun isAgentQuestion(line: String): Boolean = line.contains('?') || line.contains('？')
 
 internal fun paneAsk(question: String?): Ask =
     Ask(
@@ -148,7 +184,7 @@ public fun AcpState.toThread(hostId: String): AgentThread {
         status = run.toAgentStatus(),
         ask = request?.let { req ->
             Ask(
-                question = req.title,
+                question = decisionQuestionText(req.title, lastMessage?.text),
                 options = req.options.map { option ->
                     AskOption(option.name, option.kind.tone(), AskAction.AcpOption(req.requestId, option.optionId))
                 },
