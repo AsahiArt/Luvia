@@ -1,5 +1,6 @@
 package tech.asahiart.luvia.thread
 
+import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.stripAnsi
 
 /**
@@ -99,11 +100,101 @@ public fun paneSegmentsShareWidth(count: Int): Boolean = count in 1..EQUAL_PANE_
 /** 1-based index shared by the `pane N` header and [terminalSegmentLabel]. */
 public fun terminalPaneNumber(index: Int): Int = index + 1
 
-/** Word in 「交给 codex 修」. Blank input stays a generic agent, never a product name. */
-public fun terminalFixAgentName(agent: String): String = agent.trim().ifEmpty { "agent" }
+/**
+ * Conversation session that owns [paneId], if one is open on that pane.
+ * A pane title or foreground command is not a session.
+ */
+public fun terminalOwningSession(threads: List<AgentThread>, paneId: String?): AgentThread? {
+    if (paneId.isNullOrBlank()) return null
+    return threads.firstOrNull { thread ->
+        thread.kind == AgentKind.Pane && thread.paneId == paneId && !thread.acpHistory
+    }
+}
 
-/** Failure-card button. The name is the live session agent. */
-public fun terminalFixLabel(agent: String): String = "交给 ${terminalFixAgentName(agent)} 修"
+/** Official agent behind a pane foreground or a session id. Null for shells and commands. */
+public fun recognizedTerminalAgent(raw: String?): String? {
+    val logo = agentBrandLogo(raw, "") ?: return null
+    return when (logo.assetId) {
+        AGENT_BRAND_ASSET_CLAUDE -> "claude"
+        AGENT_BRAND_ASSET_OPENAI -> "codex"
+        AGENT_BRAND_ASSET_GROK -> "grok"
+        AGENT_BRAND_ASSET_PI -> "pi"
+        else -> null
+    }
+}
+
+public enum class TerminalFailureMode { Fixing, Handoff }
+
+public data class TerminalFixChoice(
+    public val agentType: String,
+    public val name: String,
+)
+
+public data class TerminalFailureOffer(
+    public val mode: TerminalFailureMode,
+    public val agentName: String,
+    /** Passed to [agentBrandLogo]. Null means the letter circle. */
+    public val avatarAgent: String?,
+    public val choices: List<TerminalFixChoice>,
+) {
+    public val fixingLabel: String get() = "$agentName 在修…"
+
+    public val handoffLabel: String get() = "交给 $agentName 修"
+}
+
+/**
+ * Host agent ids win. Otherwise the session list's recognized agents.
+ * Neither list is invented here.
+ */
+public fun terminalFixCandidates(hostAgentIds: List<String>, threadAgentTypes: List<String>): List<TerminalFixChoice> {
+    val fromHost = hostAgentIds.mapNotNull { raw ->
+        val type = raw.trim().ifEmpty { return@mapNotNull null }
+        TerminalFixChoice(type, recognizedTerminalAgent(type) ?: type)
+    }.distinctBy { it.name.lowercase() }
+    if (fromHost.isNotEmpty()) return fromHost
+    return threadAgentTypes.mapNotNull { raw ->
+        val type = raw.trim().ifEmpty { return@mapNotNull null }
+        val known = recognizedTerminalAgent(type) ?: return@mapNotNull null
+        TerminalFixChoice(type, known)
+    }.distinctBy { it.name.lowercase() }
+}
+
+/**
+ * Foreground agent → 「pi 在修…」. Shell or command → 「交给 pi 修」.
+ * [paneForeground] is never used as the session agent. No session agent → 「交给 agent 修」.
+ */
+public fun terminalFailureOffer(
+    paneForeground: String?,
+    sessionAgentType: String?,
+    sessionDisplayName: String? = null,
+    candidates: List<TerminalFixChoice> = emptyList(),
+): TerminalFailureOffer {
+    val running = recognizedTerminalAgent(paneForeground)
+    if (running != null) {
+        return TerminalFailureOffer(
+            mode = TerminalFailureMode.Fixing,
+            agentName = running,
+            avatarAgent = running,
+            choices = emptyList(),
+        )
+    }
+    val session = recognizedTerminalAgent(sessionAgentType) ?: recognizedTerminalAgent(sessionDisplayName)
+    val rawType = sessionAgentType?.trim()?.takeIf { it.isNotEmpty() }
+    val name = session ?: rawType ?: "agent"
+    val choices = candidates.ifEmpty {
+        when {
+            session != null -> listOf(TerminalFixChoice(session, session))
+            rawType != null -> listOf(TerminalFixChoice(rawType, rawType))
+            else -> emptyList()
+        }
+    }
+    return TerminalFailureOffer(
+        mode = TerminalFailureMode.Handoff,
+        agentName = name,
+        avatarAgent = session ?: rawType,
+        choices = choices,
+    )
+}
 
 /** `1 zsh` style. A numeric title becomes the word pane so the chip is never only a number. */
 public fun terminalSegmentLabel(index: Int, title: String): String {

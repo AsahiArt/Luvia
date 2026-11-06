@@ -60,6 +60,8 @@ import tech.asahiart.luvia.FailureHandoff
 import tech.asahiart.luvia.thread.sessionRoster
 import tech.asahiart.luvia.thread.unreadChatCount
 import tech.asahiart.luvia.thread.sortSessions
+import tech.asahiart.luvia.thread.terminalFixCandidates
+import tech.asahiart.luvia.thread.terminalOwningSession
 import tech.asahiart.luvia.thread.threadTrails
 import tech.asahiart.luvia.thread.threads
 
@@ -361,8 +363,15 @@ fun ChatFirstApp(
             val id = selected?.id
             val workspace = id?.let { viewModel.workspace(it) }
             val fixPane = id?.let { terminals[it]?.paneId }
+            val fixSession = terminalOwningSession(allThreads, fixPane)
             TerminalScreen(
                 model = id?.let { terminals[it] },
+                sessionAgentType = fixSession?.agentType,
+                sessionDisplayName = fixSession?.title,
+                fixCandidates = terminalFixCandidates(
+                    state?.acp?.agents?.map { agent -> agent.id.ifBlank { agent.name } }.orEmpty(),
+                    allThreads.mapNotNull { it.agentType },
+                ),
                 unreadCount = unreadChatCount(seenChatIds, conversationIds(openThread)),
                 onBack = {
                     id?.let { viewModel.stopTerminal(it) }
