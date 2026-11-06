@@ -39,6 +39,24 @@ internal fun isCostStatusLine(line: String): Boolean {
     return money.containsMatchIn(trimmed) && tokens.containsMatchIn(trimmed)
 }
 
+private val footerPwd =
+    Regex("""^(?:~|/|[.][.]?/)[^ ?？]+(?: +[(][^)]+[)])?(?: +[•·] +[^ ]+.*)?$""")
+private val footerStats = Regex("""(?:↑|↓) *[0-9]""")
+private val footerCache = Regex("""(?:^|[^A-Za-z0-9_])(?:CH|R|W)[0-9]""")
+private val footerContext = Regex("""[0-9]+(?:[.][0-9]+)?%""")
+
+/** Pi's cwd row and token/cost bar. Not an agent question. */
+internal fun isPaneFooterLine(line: String): Boolean {
+    val trimmed = line.trim()
+    if (trimmed.isEmpty() || trimmed.length > 200) return false
+    if (isCostStatusLine(trimmed) || clock.matches(trimmed)) return true
+    if (footerPwd.matches(trimmed)) return true
+    return footerStats.containsMatchIn(trimmed) &&
+        (footerCache.containsMatchIn(trimmed) ||
+            footerContext.containsMatchIn(trimmed) ||
+            money.containsMatchIn(trimmed))
+}
+
 internal fun isToolCallLine(line: String): Boolean {
     val trimmed = line.trim()
     if (percentShell.containsMatchIn(trimmed)) return true
