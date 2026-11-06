@@ -33,6 +33,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
@@ -55,8 +56,9 @@ import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.SessionFilter
 import tech.asahiart.luvia.thread.awaitingAcpThread
 import tech.asahiart.luvia.thread.filterSessions
-import tech.asahiart.luvia.thread.pendingReplyCount
+import tech.asahiart.luvia.FailureHandoff
 import tech.asahiart.luvia.thread.sessionRoster
+import tech.asahiart.luvia.thread.unreadChatCount
 import tech.asahiart.luvia.thread.sortSessions
 import tech.asahiart.luvia.thread.threadTrails
 import tech.asahiart.luvia.thread.threads
@@ -92,6 +94,7 @@ fun ChatFirstApp(
     var showNewSession by rememberSaveable { mutableStateOf(false) }
     var confirmUnpair by rememberSaveable { mutableStateOf(false) }
     var awaitingAcp by rememberSaveable { mutableStateOf(false) }
+    var seenChatIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val filter = runCatching { SessionFilter.valueOf(filterName) }.getOrDefault(SessionFilter.All)
     val profiles = runtimes.map { it.profile }
     val resolvedId = if (startupApplied) hostId else resolveStartupHost(profiles, hostId)?.id ?: hostId
@@ -211,9 +214,17 @@ fun ChatFirstApp(
         stage = "chat"
     }
 
+    fun conversationIds(thread: AgentThread?): Set<String> {
+        if (thread == null) return emptySet()
+        return viewModel.workspace(thread.hostId).timeline(thread).map { it.id }.toSet()
+    }
+
     fun openTerminal(paneId: String?) {
         val id = selected?.id ?: return
-        if (stage != "terminal") terminalReturn = stage
+        if (stage != "terminal") {
+            terminalReturn = stage
+            seenChatIds = conversationIds(openThread)
+        }
         viewModel.ensureTerminal(id, paneId)
         stage = "terminal"
     }
@@ -352,7 +363,7 @@ fun ChatFirstApp(
             val fixPane = id?.let { terminals[it]?.paneId }
             TerminalScreen(
                 model = id?.let { terminals[it] },
-                pendingDecisions = pendingReplyCount(allThreads),
+                unreadCount = unreadChatCount(seenChatIds, conversationIds(openThread)),
                 onBack = {
                     id?.let { viewModel.stopTerminal(it) }
                     stage = terminalReturn
@@ -363,8 +374,22 @@ fun ChatFirstApp(
                 onSendText = { text -> id?.let { viewModel.sendTerminalText(it, text) } },
                 onSendKey = { key -> id?.let { viewModel.sendTerminalKey(it, key) } },
                 connection = selected?.connection,
-                canAskFix = workspace?.canAskFix(fixPane) == true,
-                onAskFix = { excerpt -> workspace?.askFix(excerpt, fixPane) == true },
+                onAskFix = { excerpt ->
+                    val ws = workspace ?: return@TerminalScreen false
+                    when (ws.handoffFailure(excerpt, fixPane)) {
+                        FailureHandoff.Sent -> true
+                        FailureHandoff.Drafted -> {
+                            ws.openThread()?.let { threadId = it.id }
+                                ?: fixPane?.let { pane ->
+                                    threadId = allThreads.firstOrNull { it.paneId == pane }?.id ?: pane
+                                }
+                            viewModel.stopTerminal(id)
+                            stage = "chat"
+                            true
+                        }
+                        FailureHandoff.Refused -> false
+                    }
+                },
             )
         }
     }

@@ -25,6 +25,42 @@ public data class TerminalFailureBanner(
     public val excerpt: String,
 )
 
+/** `126/127 · 1 failed · 41s` from the parsed banner. Duration is omitted when the build did not report one. */
+public fun terminalFailureSummary(banner: TerminalFailureBanner): String {
+    val head = "${banner.passed}/${banner.total} · ${banner.failed} failed"
+    val duration = banner.duration?.takeIf { it.isNotBlank() } ?: return head
+    return "$head · $duration"
+}
+
+/**
+ * Columns and rows that fit the measured terminal viewport.
+ * Null until both axes and the cell size are positive, so the subtitle never invents `80×32`.
+ */
+public fun terminalGrid(widthPx: Int, heightPx: Int, cellWidthPx: Int, cellHeightPx: Int): Pair<Int, Int>? {
+    if (widthPx <= 0 || heightPx <= 0 || cellWidthPx <= 0 || cellHeightPx <= 0) return null
+    val columns = widthPx / cellWidthPx
+    val rows = heightPx / cellHeightPx
+    if (columns <= 0 || rows <= 0) return null
+    return columns to rows
+}
+
+/** `agent · 80×32 · 已同步`. Size and the synced word are dropped when they are not known yet. */
+public fun terminalStatusLine(
+    agent: String,
+    columns: Int,
+    rows: Int,
+    synced: Boolean,
+    syncedWord: String,
+): String {
+    val name = agent.trim()
+    val size = if (columns > 0 && rows > 0) "$columns×$rows" else null
+    return listOfNotNull(
+        name.takeIf { it.isNotEmpty() },
+        size,
+        syncedWord.takeIf { synced && it.isNotBlank() },
+    ).joinToString(" · ")
+}
+
 public fun terminalFailureBanner(text: String?): TerminalFailureBanner? {
     val lines = terminalLines(text)
     if (lines.isEmpty() || lines.all { it.isBlank() }) return null
@@ -156,6 +192,7 @@ private fun isContinuation(line: String): Boolean {
     if (line.first().isWhitespace()) return true
     val trimmed = line.trim()
     return trimmed.startsWith("expected", ignoreCase = true) ||
+        trimmed.startsWith("actual", ignoreCase = true) ||
         trimmed.contains("but was", ignoreCase = true) ||
         trimmed.startsWith("Assertion", ignoreCase = true) ||
         trimmed.startsWith("java.") ||

@@ -101,6 +101,55 @@ class TerminalChromeTest {
     }
 
     @Test
+    fun summaryUsesParsedCountsAndDuration() {
+        val banner = terminalFailureBanner(WOW_LOG)
+        checkNotNull(banner)
+        assertEquals("126/127 · 1 failed · 41s", terminalFailureSummary(banner))
+    }
+
+    @Test
+    fun summaryOmitsDurationWhenTheBuildDidNotReportOne() {
+        val banner = terminalFailureBanner("Tests run: 128, Failures: 1, Skipped: 0")
+        checkNotNull(banner)
+        assertEquals("127/128 · 1 failed", terminalFailureSummary(banner))
+    }
+
+    @Test
+    fun actualAndExpectedLinesStayWithTheFailure() {
+        val banner = terminalFailureBanner(
+            """
+            Case > mismatch FAILED
+            actual:<2>
+            expected:<1>
+            ${'$'} next
+            """.trimIndent(),
+        )
+        checkNotNull(banner)
+        assertEquals(listOf(0, 1, 2), banner.outlinedLines)
+        assertEquals("0/1 · 1 failed", terminalFailureSummary(banner))
+    }
+
+    @Test
+    fun gridAndStatusLineUseTheMeasuredViewport() {
+        assertEquals(80 to 32, terminalGrid(800, 512, 10, 16))
+        assertNull(terminalGrid(0, 512, 10, 16))
+        assertNull(terminalGrid(800, 512, 0, 16))
+        assertNull(terminalGrid(8, 10, 10, 16))
+        assertEquals(
+            "claude-code · 80×32 · 已同步",
+            terminalStatusLine("claude-code", 80, 32, synced = true, syncedWord = "已同步"),
+        )
+        assertEquals(
+            "claude-code · 80×32",
+            terminalStatusLine(" claude-code ", 80, 32, synced = false, syncedWord = "已同步"),
+        )
+        assertEquals(
+            "claude-code · 已同步",
+            terminalStatusLine("claude-code", 0, 0, synced = true, syncedWord = "已同步"),
+        )
+    }
+
+    @Test
     fun segmentLabelKeepsIndexAndName() {
         assertEquals("1 zsh", terminalSegmentLabel(0, "zsh"))
         assertEquals("2 gradle", terminalSegmentLabel(1, "gradle"))

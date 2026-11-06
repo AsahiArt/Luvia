@@ -35,6 +35,13 @@ import tech.asahiart.luvia.thread.threads
 import tech.asahiart.luvia.thread.timeline
 import tech.asahiart.luvia.thread.toThread
 
+/** Where 「交给 claude 修」 went. [Drafted] is parked in the conversation composer. */
+public enum class FailureHandoff {
+    Sent,
+    Drafted,
+    Refused,
+}
+
 public class HostUhp(
     session: () -> LuviaSession?,
     private val runtime: () -> HostRuntime?,
@@ -139,6 +146,34 @@ public class HostUhp(
             is FixTarget.Pane -> promptPane(target.paneId, FIX_LEAD + body)
             FixTarget.Acp -> acp.promptIfBlank(FIX_LEAD + body)
         }
+    }
+
+    /**
+     * Sends [excerpt] through [askFix]. When that path cannot take it, parks the
+     * same text in the open conversation draft so the chat can send it.
+     * A draft that already has text is left alone.
+     */
+    public fun handoffFailure(excerpt: String, paneId: String?): FailureHandoff {
+        if (askFix(excerpt, paneId)) return FailureHandoff.Sent
+        val body = excerpt.trim()
+        if (body.isEmpty()) return FailureHandoff.Refused
+        val text = FIX_LEAD + body
+        val open = openThread()
+        if (open?.kind == AgentKind.Acp) {
+            if (state.value.acp.draft.isNotBlank()) return FailureHandoff.Refused
+            setAcpDraft(text)
+            return FailureHandoff.Drafted
+        }
+        val pane = open?.paneId ?: paneId?.takeIf { id -> state.value.agents.any { it.paneId == id } }
+        if (pane == null) return FailureHandoff.Refused
+        val detail = state.value.agentDetail
+        if ((detail.sending || detail.unconfirmed != null) && detail.paneId != pane) return FailureHandoff.Refused
+        if (detail.paneId == pane && detail.draft.isNotBlank()) return FailureHandoff.Refused
+        openAgent(pane)
+        val parked = state.value.agentDetail
+        if (parked.paneId != pane || parked.draft.isNotBlank()) return FailureHandoff.Refused
+        setAgentDraft(text)
+        return FailureHandoff.Drafted
     }
 
     private fun askFixTarget(paneId: String?): FixTarget? {

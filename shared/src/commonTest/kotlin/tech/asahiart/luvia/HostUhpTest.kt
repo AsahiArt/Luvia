@@ -85,6 +85,38 @@ class HostUhpTest {
     }
 
     @Test
+    fun handoffFailureParksTheExcerptWhenTheAgentPathIsClosed() = runTest {
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { null }, runtime = { runtime }, scope = this)
+        uhp.applyRuntime(runtime)
+        assertEquals(FailureHandoff.Refused, uhp.handoffFailure("   ", "7"))
+        assertEquals(FailureHandoff.Refused, uhp.handoffFailure("boom", "999"))
+        assertEquals(FailureHandoff.Drafted, uhp.handoffFailure("AnsiParserTest FAILED", "7"))
+        advanceUntilIdle()
+        assertEquals("7", uhp.state.value.agentDetail.paneId)
+        assertEquals(true, uhp.state.value.agentDetail.open)
+        assertEquals("请修这个失败：\nAnsiParserTest FAILED", uhp.state.value.agentDetail.draft)
+        assertEquals(FailureHandoff.Refused, uhp.handoffFailure("other", "7"))
+        assertEquals("请修这个失败：\nAnsiParserTest FAILED", uhp.state.value.agentDetail.draft)
+        uhp.close()
+    }
+
+    @Test
+    fun handoffFailureUsesTheAgentPathWhenItCanSend() = runTest {
+        val session = openSession(backgroundScope)
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        uhp.setAgentDraft("unsent note")
+        advanceUntilIdle()
+        assertEquals(FailureHandoff.Sent, uhp.handoffFailure("AnsiParserTest FAILED", "7"))
+        assertEquals("unsent note", uhp.state.value.agentDetail.draft)
+        assertEquals(true, uhp.state.value.agentDetail.sending)
+        uhp.close()
+        session.close()
+    }
+
+    @Test
     fun askFixReachesThePaneAgentWithoutReplacingTheDraft() = runTest {
         val session = openSession(backgroundScope)
         val runtime = sampleRuntime()
