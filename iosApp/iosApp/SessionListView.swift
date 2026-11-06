@@ -552,7 +552,7 @@ struct SessionListView: View {
         let secondary = options.first { $0.label != primary?.label }
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 8) {
-                agentAvatar(thread, diameter: 26, brand: false)
+                agentAvatar(thread, diameter: 26)
                 HStack(spacing: 0) {
                     if let agent = agentName(thread) {
                         Text(agent)
@@ -655,10 +655,9 @@ struct SessionListView: View {
     }
 
     /// List rows use a brand mark when [agentBrandLogo] knows the agent.
-    /// Decision cards pass `brand: false` and keep the letter circle.
     @ViewBuilder
-    private func agentAvatar(_ thread: AgentThread, diameter: CGFloat = 40, brand: Bool = true) -> some View {
-        let logo = brand ? SessionListKt.agentBrandLogo(agentType: thread.agentType, title: thread.title) : nil
+    private func agentAvatar(_ thread: AgentThread, diameter: CGFloat = 40) -> some View {
+        let logo = SessionListKt.agentBrandLogo(agentType: thread.agentType, title: thread.title)
         if let logo, let name = brandAssetName(logo.assetId) {
             let glyph = diameter * CGFloat(logo.inset)
             Group {
