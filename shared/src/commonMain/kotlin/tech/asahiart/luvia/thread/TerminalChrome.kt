@@ -28,9 +28,37 @@ public data class TerminalFailureBanner(
 
 /** `126/127 · 1 failed · 41s` from the parsed banner. Duration is omitted when the build did not report one. */
 public fun terminalFailureSummary(banner: TerminalFailureBanner): String {
-    val head = "${banner.passed}/${banner.total} · ${banner.failed} failed"
+    val head = terminalFailureSummaryHead(banner)
     val duration = banner.duration?.takeIf { it.isNotBlank() } ?: return head
     return "$head · $duration"
+}
+
+/** Summary without the build duration: `126/127 · 1 failed`. */
+public fun terminalFailureSummaryHead(banner: TerminalFailureBanner): String =
+    "${banner.passed}/${banner.total} · ${banner.failed} failed"
+
+/** Where a reported duration is drawn. It stays on the summary until that line cannot hold it. */
+public enum class TerminalFailureDurationPlace {
+    Summary,
+    Bar,
+}
+
+/**
+ * Duration stays on the summary line while [summaryFitsWithDuration] is true.
+ * A missing duration never moves. When the summary cannot hold it, it goes on the bar row.
+ */
+public fun terminalFailureDurationPlace(
+    duration: String?,
+    summaryFitsWithDuration: Boolean,
+): TerminalFailureDurationPlace {
+    if (duration.isNullOrBlank() || summaryFitsWithDuration) return TerminalFailureDurationPlace.Summary
+    return TerminalFailureDurationPlace.Bar
+}
+
+/** Solid failure-bar fill. `passed / total`, clamped to 0..1. Zero when [total] is not positive. */
+public fun terminalFailureProgress(passed: Int, total: Int): Float {
+    if (total <= 0) return 0f
+    return (passed.toFloat() / total.toFloat()).coerceIn(0f, 1f)
 }
 
 /**
@@ -144,19 +172,34 @@ public data class TerminalFailureOffer(
 
 /**
  * Host agent ids win. Otherwise the session list's recognized agents.
- * Neither list is invented here.
+ * Shells and other unrecognized ids are dropped from both lists.
  */
 public fun terminalFixCandidates(hostAgentIds: List<String>, threadAgentTypes: List<String>): List<TerminalFixChoice> {
-    val fromHost = hostAgentIds.mapNotNull { raw ->
-        val type = raw.trim().ifEmpty { return@mapNotNull null }
-        TerminalFixChoice(type, recognizedTerminalAgent(type) ?: type)
-    }.distinctBy { it.name.lowercase() }
+    fun recognized(raw: String): TerminalFixChoice? {
+        val type = raw.trim().ifEmpty { return null }
+        val known = recognizedTerminalAgent(type) ?: return null
+        return TerminalFixChoice(type, known)
+    }
+    val fromHost = hostAgentIds.mapNotNull(::recognized).distinctBy { it.name.lowercase() }
     if (fromHost.isNotEmpty()) return fromHost
-    return threadAgentTypes.mapNotNull { raw ->
-        val type = raw.trim().ifEmpty { return@mapNotNull null }
-        val known = recognizedTerminalAgent(type) ?: return@mapNotNull null
-        TerminalFixChoice(type, known)
-    }.distinctBy { it.name.lowercase() }
+    return threadAgentTypes.mapNotNull(::recognized).distinctBy { it.name.lowercase() }
+}
+
+/** True when both names are the same recognized agent. `claude` and `claude-code` match. */
+public fun sameTerminalAgent(left: String?, right: String?): Boolean {
+    val a = left?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+    val b = right?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+    if (a.equals(b, ignoreCase = true)) return true
+    val knownA = recognizedTerminalAgent(a) ?: return false
+    val knownB = recognizedTerminalAgent(b) ?: return false
+    return knownA == knownB
+}
+
+/** True when [agentType] is a recognized agent other than the open session. Blank stays on the session path. */
+public fun terminalFixOpensNewAgent(agentType: String?, sessionAgentType: String?): Boolean {
+    val requested = agentType?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+    if (recognizedTerminalAgent(requested) == null) return false
+    return !sameTerminalAgent(requested, sessionAgentType)
 }
 
 /**

@@ -31,6 +31,8 @@ import tech.asahiart.luvia.thread.AskAction
 import tech.asahiart.luvia.thread.AskOption
 import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.TimelineItem
+import tech.asahiart.luvia.thread.terminalFixOpensNewAgent
+import tech.asahiart.luvia.thread.terminalOwningSession
 import tech.asahiart.luvia.thread.threads
 import tech.asahiart.luvia.thread.timeline
 import tech.asahiart.luvia.thread.toThread
@@ -152,8 +154,61 @@ public class HostUhp(
      * Sends [excerpt] through [askFix]. When that path cannot take it, parks the
      * same text in the open conversation draft so the chat can send it.
      * A draft that already has text is left alone.
+     *
+     * [agentType] null, blank, unrecognized, or the current session agent keeps that path.
+     * Another recognized agent opens a new ACP session and parks the text in its composer.
      */
-    public fun handoffFailure(excerpt: String, paneId: String?): FailureHandoff {
+    public fun handoffFailure(
+        excerpt: String,
+        paneId: String?,
+        agentType: String? = null,
+    ): FailureHandoff {
+        val requested = agentType?.trim()?.takeIf { it.isNotEmpty() }
+        if (terminalFixOpensNewAgent(requested, sessionAgentType(paneId))) {
+            return draftFixOnNewAcp(excerpt, requested!!, paneId)
+        }
+        return handoffFailureOnSession(excerpt, paneId)
+    }
+
+    private fun sessionAgentType(paneId: String?): String? {
+        openThread()?.agentType?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        return terminalOwningSession(state.value.threads(hostId), paneId)
+            ?.agentType
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * #47 new ACP session for a different agent, then the fix text in that composer.
+     * An ACP draft that already has text is left alone.
+     */
+    private fun draftFixOnNewAcp(excerpt: String, agentType: String, paneId: String?): FailureHandoff {
+        val body = excerpt.trim()
+        if (body.isEmpty()) return FailureHandoff.Refused
+        if (state.value.acp.draft.isNotBlank()) return FailureHandoff.Refused
+        setLaunchAcpAgent(agentType)
+        setLaunchAcpCwd(failureHandoffCwd(paneId))
+        launchAcp()
+        setAcpDraft(FIX_LEAD + body)
+        return FailureHandoff.Drafted
+    }
+
+    private fun failureHandoffCwd(paneId: String?): String {
+        val state = state.value
+        val workspaces = state.layout.workspaces.ifEmpty { runtime()?.snapshot?.workspaces.orEmpty() }
+        fun String?.clean(): String? = this?.trim()?.takeIf { it.isNotEmpty() }
+        workspaces.firstOrNull { it.active }?.cwd.clean()?.let { return it }
+        val selected = state.projectWorkspaceId()
+        workspaces.firstOrNull { selected != null && it.workspaceId == selected }?.cwd.clean()?.let { return it }
+        state.projectWorkspaceIndex()?.let { index ->
+            workspaces.firstOrNull { it.index == index }?.cwd.clean()?.let { return it }
+        }
+        openThread()?.cwd.clean()?.let { return it }
+        paneId?.let { id -> state.agents.firstOrNull { it.paneId == id }?.cwd }.clean()?.let { return it }
+        return workspaces.firstNotNullOfOrNull { it.cwd.clean() }.orEmpty()
+    }
+
+    private fun handoffFailureOnSession(excerpt: String, paneId: String?): FailureHandoff {
         if (askFix(excerpt, paneId)) return FailureHandoff.Sent
         val body = excerpt.trim()
         if (body.isEmpty()) return FailureHandoff.Refused

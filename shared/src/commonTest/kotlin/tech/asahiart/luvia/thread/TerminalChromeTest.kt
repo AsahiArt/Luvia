@@ -106,6 +106,38 @@ class TerminalChromeTest {
         val banner = terminalFailureBanner(WOW_LOG)
         checkNotNull(banner)
         assertEquals("126/127 · 1 failed · 41s", terminalFailureSummary(banner))
+        assertEquals("126/127 · 1 failed", terminalFailureSummaryHead(banner))
+    }
+
+    @Test
+    fun failureProgressIsPassedOverTotal() {
+        assertEquals(126f / 127f, terminalFailureProgress(126, 127))
+        assertEquals(0f, terminalFailureProgress(0, 4))
+        assertEquals(1f, terminalFailureProgress(4, 4))
+        assertEquals(1f, terminalFailureProgress(8, 4))
+        assertEquals(0f, terminalFailureProgress(-1, 4))
+        assertEquals(0f, terminalFailureProgress(3, 0))
+        assertEquals(0f, terminalFailureProgress(1, -2))
+    }
+
+    @Test
+    fun durationStaysOnTheSummaryUntilThatLineCannotHoldIt() {
+        assertEquals(
+            TerminalFailureDurationPlace.Summary,
+            terminalFailureDurationPlace("41s", summaryFitsWithDuration = true),
+        )
+        assertEquals(
+            TerminalFailureDurationPlace.Bar,
+            terminalFailureDurationPlace("41s", summaryFitsWithDuration = false),
+        )
+        assertEquals(
+            TerminalFailureDurationPlace.Summary,
+            terminalFailureDurationPlace(null, summaryFitsWithDuration = false),
+        )
+        assertEquals(
+            TerminalFailureDurationPlace.Summary,
+            terminalFailureDurationPlace("  ", summaryFitsWithDuration = false),
+        )
     }
 
     @Test
@@ -183,13 +215,36 @@ class TerminalChromeTest {
             hostAgentIds = listOf("pi", "claude-code", "zsh"),
             threadAgentTypes = listOf("codex"),
         )
-        assertEquals(listOf("pi", "claude", "zsh"), fromHost.map { it.name })
+        assertEquals(listOf("pi", "claude"), fromHost.map { it.name })
+        assertEquals(listOf("pi", "claude-code"), fromHost.map { it.agentType })
+        assertTrue(fromHost.none { it.agentType == "zsh" || it.name == "zsh" })
         val fromThreads = terminalFixCandidates(
             hostAgentIds = emptyList(),
             threadAgentTypes = listOf("codex", "gradle", "pi", "opencode"),
         )
         assertEquals(listOf("codex", "pi"), fromThreads.map { it.name })
+        val shellsFallThrough = terminalFixCandidates(
+            hostAgentIds = listOf("zsh", "gradle"),
+            threadAgentTypes = listOf("pi", "zsh"),
+        )
+        assertEquals(listOf("pi"), shellsFallThrough.map { it.agentType })
         assertTrue(terminalFixCandidates(emptyList(), emptyList()).isEmpty())
+        assertTrue(terminalFixCandidates(listOf("zsh"), listOf("gradle")).isEmpty())
+    }
+
+    @Test
+    fun newAgentChoiceIsOnlyADifferentRecognizedAgent() {
+        assertFalse(terminalFixOpensNewAgent(null, "pi"))
+        assertFalse(terminalFixOpensNewAgent("  ", "pi"))
+        assertFalse(terminalFixOpensNewAgent("zsh", "pi"))
+        assertFalse(terminalFixOpensNewAgent("pi", "pi"))
+        assertFalse(terminalFixOpensNewAgent("claude", "claude-code"))
+        assertTrue(terminalFixOpensNewAgent("codex", "pi"))
+        assertTrue(terminalFixOpensNewAgent("pi", null))
+        assertTrue(sameTerminalAgent("claude-code", "Claude"))
+        assertFalse(sameTerminalAgent("pi", "codex"))
+        assertTrue(sameTerminalAgent("zsh", "ZSH"))
+        assertFalse(terminalFixOpensNewAgent("zsh", null))
     }
 
     @Test

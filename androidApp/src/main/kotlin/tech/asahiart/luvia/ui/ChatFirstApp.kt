@@ -61,6 +61,7 @@ import tech.asahiart.luvia.thread.sessionRoster
 import tech.asahiart.luvia.thread.unreadChatCount
 import tech.asahiart.luvia.thread.sortSessions
 import tech.asahiart.luvia.thread.terminalFixCandidates
+import tech.asahiart.luvia.thread.terminalFixOpensNewAgent
 import tech.asahiart.luvia.thread.terminalOwningSession
 import tech.asahiart.luvia.thread.threadTrails
 import tech.asahiart.luvia.thread.threads
@@ -376,6 +377,7 @@ fun ChatFirstApp(
                     allThreads.mapNotNull { it.agentType },
                 ),
                 unreadCount = unreadChatCount(seenChatIds, conversationIds(openThread)),
+                hasPendingDecision = openThread?.needsYou == true,
                 onBack = {
                     id?.let { viewModel.stopTerminal(it) }
                     stage = terminalReturn
@@ -386,11 +388,13 @@ fun ChatFirstApp(
                 onSendText = { text -> id?.let { viewModel.sendTerminalText(it, text) } },
                 onSendKey = { key -> id?.let { viewModel.sendTerminalKey(it, key) } },
                 connection = selected?.connection,
-                onAskFix = { excerpt ->
+                onAskFix = { excerpt, choice ->
                     val ws = workspace ?: return@TerminalScreen false
-                    when (ws.handoffFailure(excerpt, fixPane)) {
+                    val requested = choice?.agentType
+                    when (ws.handoffFailure(excerpt, fixPane, requested)) {
                         FailureHandoff.Sent -> true
                         FailureHandoff.Drafted -> {
+                            if (terminalFixOpensNewAgent(requested, sessionAgentType)) awaitingAcp = true
                             ws.openThread()?.let { threadId = it.id }
                                 ?: fixPane?.let { pane ->
                                     threadId = allThreads.firstOrNull { it.paneId == pane }?.id ?: pane

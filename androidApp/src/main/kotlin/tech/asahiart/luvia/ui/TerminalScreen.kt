@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -66,10 +67,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
@@ -84,19 +87,23 @@ import tech.asahiart.luvia.thread.TerminalFailureOffer
 import tech.asahiart.luvia.thread.TerminalFixChoice
 import tech.asahiart.luvia.thread.paneSegmentsShareWidth
 import tech.asahiart.luvia.thread.terminalFailureBanner
+import tech.asahiart.luvia.thread.terminalFailureDurationPlace
 import tech.asahiart.luvia.thread.terminalFailureOffer
+import tech.asahiart.luvia.thread.terminalFailureProgress
 import tech.asahiart.luvia.thread.terminalFailureSummary
+import tech.asahiart.luvia.thread.terminalFailureSummaryHead
+import tech.asahiart.luvia.thread.TerminalFailureDurationPlace
 import tech.asahiart.luvia.thread.terminalGrid
 import tech.asahiart.luvia.thread.terminalPaneNumber
 import tech.asahiart.luvia.thread.terminalSegmentLabel
 import tech.asahiart.luvia.thread.terminalStatusLine
-import tech.asahiart.luvia.thread.testBarCells
 import tech.asahiart.luvia.ui.theme.LuviaTheme
 import tech.asahiart.luvia.ui.theme.composerInk
 import tech.asahiart.luvia.ui.theme.inactivePaneInk
 import tech.asahiart.luvia.ui.theme.lightTerminalBoard
 
 private val BadgeRed = Color(0xFFE23D3D)
+private val DecisionOrange = Color(0xFFFF7A00)
 private val FixInk = Color(0xFF3B1210)
 
 @Composable
@@ -111,7 +118,8 @@ fun TerminalScreen(
     onSendKey: (TerminalKey) -> Unit,
     statusOverride: String? = null,
     connection: ConnectionBadge? = null,
-    onAskFix: (String) -> Boolean = { false },
+    hasPendingDecision: Boolean = false,
+    onAskFix: (String, TerminalFixChoice?) -> Boolean = { _, _ -> false },
     sessionAgentType: String? = null,
     sessionDisplayName: String? = null,
     fixCandidates: List<TerminalFixChoice> = emptyList(),
@@ -202,7 +210,7 @@ fun TerminalScreen(
                 banner = banner,
                 offer = terminalFailureOffer(foreground, sessionAgentType, sessionDisplayName, fixCandidates),
                 refused = fixRefused,
-                onFix = { fixRefused = !onAskFix(banner.excerpt) },
+                onFix = { choice -> fixRefused = !onAskFix(banner.excerpt, choice) },
             )
         }
         val lines = terminalDisplayLines(
@@ -309,7 +317,11 @@ fun TerminalScreen(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ChatReturnCapsule(unreadCount = unreadCount, onClick = onBack)
+            ChatReturnCapsule(
+                unreadCount = unreadCount,
+                hasPendingDecision = hasPendingDecision,
+                onClick = onBack,
+            )
             Spacer(Modifier.weight(1f))
             if (controlling) {
                 OutlinedButton(
@@ -495,57 +507,120 @@ private fun FailureBar(
     banner: TerminalFailureBanner,
     offer: TerminalFailureOffer,
     refused: Boolean,
-    onFix: () -> Unit,
+    onFix: (TerminalFixChoice?) -> Unit,
 ) {
     val extended = LuviaTheme.extended
-    val cells = testBarCells(banner.passed, banner.total, true)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(extended.failureCard)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                terminalFailureSummary(banner),
-                color = extended.failureCardInk,
+    Column(Modifier.fillMaxWidth()) {
+        BoxWithConstraints(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(extended.failureCard),
+        ) {
+            val buttonMax = maxWidth * 0.44f
+            val summaryStyle = TextStyle(
+                color = Color.White,
                 fontFamily = LuviaTheme.mono,
                 fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                fontSize = 13.sp,
             )
+            val measurer = rememberTextMeasurer()
+            val full = terminalFailureSummary(banner)
+            val fullPx = measurer.measure(
+                text = AnnotatedString(full),
+                style = summaryStyle,
+                overflow = TextOverflow.Clip,
+                softWrap = false,
+                maxLines = 1,
+            ).size.width
+            val density = LocalDensity.current
+            val summaryBudget = (maxWidth - 24.dp - 10.dp - buttonMax).coerceAtLeast(0.dp)
+            val fits = fullPx <= with(density) { summaryBudget.roundToPx() }
+            var overflow by remember(full, summaryBudget) { mutableStateOf(false) }
+            val onBar = terminalFailureDurationPlace(
+                banner.duration,
+                summaryFitsWithDuration = fits && !overflow,
+            ) == TerminalFailureDurationPlace.Bar
+            val summary = if (onBar) terminalFailureSummaryHead(banner) else full
             Row(
-                Modifier.fillMaxWidth().padding(top = 6.dp).height(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(1.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                cells.forEach { bad ->
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .background(Color.White.copy(alpha = if (bad) 0.35f else 0.92f)),
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        summary,
+                        color = Color.White,
+                        fontFamily = LuviaTheme.mono,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
+                        onTextLayout = { layout ->
+                            if (!onBar && layout.hasVisualOverflow && !overflow) overflow = true
+                        },
                     )
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val fraction = terminalFailureProgress(banner.passed, banner.total)
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .height(3.dp)
+                                .clip(RoundedCornerShape(1.5.dp))
+                                .background(Color.White.copy(alpha = 0.30f)),
+                        ) {
+                            if (fraction > 0f) {
+                                Box(
+                                    Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(fraction)
+                                        .background(Color.White),
+                                )
+                            }
+                        }
+                        if (onBar) {
+                            val duration = banner.duration?.takeIf { it.isNotBlank() }
+                            if (duration != null) {
+                                Text(
+                                    duration,
+                                    modifier = Modifier.padding(start = 8.dp),
+                                    color = Color.White.copy(alpha = 0.80f),
+                                    fontFamily = LuviaTheme.mono,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Clip,
+                                )
+                            }
+                        }
+                    }
                 }
+                FailureOffer(offer, buttonMax, onFix)
             }
         }
-        FailureOffer(offer, onFix)
-    }
-    if (refused) {
-        Text(
-            stringResource(R.string.fix_not_sent),
-            modifier = Modifier.padding(start = 12.dp, top = 4.dp),
-            color = MaterialTheme.colorScheme.error,
-            style = MaterialTheme.typography.labelMedium,
-        )
+        if (refused) {
+            Text(
+                stringResource(R.string.fix_not_sent),
+                modifier = Modifier.padding(start = 12.dp, top = 4.dp),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
     }
 }
 
 @Composable
-private fun FailureOffer(offer: TerminalFailureOffer, onFix: () -> Unit) {
+private fun FailureOffer(
+    offer: TerminalFailureOffer,
+    maxWidth: Dp,
+    onFix: (TerminalFixChoice?) -> Unit,
+) {
     var picked by remember(offer.agentName, offer.mode) { mutableStateOf<TerminalFixChoice?>(null) }
     val handed = offer.mode == TerminalFailureMode.Handoff
     val choice = picked?.takeIf { handed }
@@ -555,13 +630,14 @@ private fun FailureOffer(offer: TerminalFailureOffer, onFix: () -> Unit) {
         Row(
             Modifier
                 .padding(start = 10.dp)
+                .widthIn(max = maxWidth)
                 .clip(RoundedCornerShape(50))
                 .background(Color.White)
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AgentAvatar(agentType = avatar, title = name, size = 20.dp)
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(6.dp))
             Text(
                 stringResource(R.string.agent_fixing, name),
                 color = FixInk,
@@ -580,22 +656,24 @@ private fun FailureOffer(offer: TerminalFailureOffer, onFix: () -> Unit) {
     Row(
         Modifier
             .padding(start = 10.dp)
+            .widthIn(max = maxWidth)
             .clip(RoundedCornerShape(50))
             .background(Color.White)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
-            Modifier.clickable(onClick = onFix),
+            Modifier.clickable(onClick = { onFix(choice) }),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AgentAvatar(agentType = avatar, title = name, size = 20.dp)
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(6.dp))
             Text(
                 stringResource(R.string.ask_agent_fix, name),
                 color = FixInk,
                 maxLines = 1,
                 softWrap = false,
+                overflow = TextOverflow.Clip,
             )
         }
         if (offer.choices.isNotEmpty()) {
@@ -616,6 +694,10 @@ private fun FailureOffer(offer: TerminalFailureOffer, onFix: () -> Unit) {
                                 AgentAvatar(item.agentType, item.name, size = 20.dp)
                                 Spacer(Modifier.width(8.dp))
                                 Text(item.name)
+                                if (item.name.equals(name, ignoreCase = true)) {
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("✓", color = FixInk, fontWeight = FontWeight.Bold)
+                                }
                             }
                         },
                         onClick = {
@@ -663,7 +745,7 @@ private fun TerminalLine(text: AnnotatedString, color: Color, modifier: Modifier
 }
 
 @Composable
-private fun ChatReturnCapsule(unreadCount: Int, onClick: () -> Unit) {
+private fun ChatReturnCapsule(unreadCount: Int, hasPendingDecision: Boolean, onClick: () -> Unit) {
     val extended = LuviaTheme.extended
     Box {
         Row(
@@ -683,25 +765,39 @@ private fun ChatReturnCapsule(unreadCount: Int, onClick: () -> Unit) {
                 style = MaterialTheme.typography.labelLarge,
             )
         }
-        if (unreadCount > 0) {
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = 4.dp, y = (-6).dp)
-                    .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
-                    .clip(CircleShape)
-                    .background(BadgeRed)
-                    .padding(horizontal = 4.dp),
-                contentAlignment = Alignment.Center,
+        if (unreadCount > 0 || hasPendingDecision) {
+            Row(
+                Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-6).dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    if (unreadCount > 99) "99+" else unreadCount.toString(),
-                    color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    softWrap = false,
-                )
+                if (hasPendingDecision) {
+                    Box(
+                        Modifier
+                            .padding(end = if (unreadCount > 0) 3.dp else 0.dp)
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(DecisionOrange),
+                    )
+                }
+                if (unreadCount > 0) {
+                    Box(
+                        Modifier
+                            .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
+                            .clip(CircleShape)
+                            .background(BadgeRed)
+                            .padding(horizontal = 4.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (unreadCount > 99) "99+" else unreadCount.toString(),
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
+                }
             }
         }
     }
