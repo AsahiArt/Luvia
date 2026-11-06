@@ -1,10 +1,14 @@
 package tech.asahiart.luvia.thread
 
 import tech.asahiart.luvia.AcpToolCall
+import tech.asahiart.luvia.AcpToolStatus
 import tech.asahiart.luvia.AcpTranscriptItem
 import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.AgentStatus
+import tech.asahiart.luvia.AgentSummary
 import tech.asahiart.luvia.HostUhpState
+import tech.asahiart.luvia.StoredPanePreview
+import tech.asahiart.luvia.stripAnsi
 import kotlin.math.roundToInt
 
 /** Session-list chips. Filtering is presentation; it does not change host state. */
@@ -358,6 +362,8 @@ public data class TrailThumb(
     public val label: String,
     public val kinds: List<ToolTrailKind>,
     public val progressPermille: Int? = null,
+    /** Same length as [kinds] when the phone knows how each call ended. */
+    public val tones: List<ListTrailTone> = emptyList(),
 )
 
 public data class ThreadTrail(
@@ -379,7 +385,8 @@ public fun trailThumb(calls: List<AcpToolCall>, limit: Int = 5): TrailThumb? {
         else -> null
     } ?: return null
     val progress = meter?.let { (it.passed.toFloat() / it.total.toFloat() * 1000f).roundToInt().coerceIn(0, 1000) }
-    return TrailThumb(label, recent.map { toolTrailKind(it.kind, it.title) }, progress)
+    val kinds = recent.map { toolTrailKind(it.kind, it.title) }
+    return TrailThumb(label, kinds, progress, recent.map { it.status.asTrailTone() })
 }
 
 /** How many trajectory dots fit on a session row. Newest steps stay. */
@@ -387,6 +394,9 @@ public const val MAX_LIST_DOTS: Int = 6
 
 /** List-density trail mark. Decide is a waiting row, not a tool the host sent. */
 public enum class ListTrailDot { Read, Edit, Run, Decide, Other }
+
+/** Success, failure, or not finished. The row paints these; it does not invent them. */
+public enum class ListTrailTone { Ok, Failed, Pending }
 
 /**
  * What one session row can show under the title: a recent step, its dots,
@@ -398,6 +408,8 @@ public data class ListTrail(
     public val progressPermille: Int?,
     /** True when [label] is a `passed/total` tool line and should be monospaced. */
     public val useMono: Boolean,
+    /** Parallel to [dots]. Empty only when there are no dots. */
+    public val tones: List<ListTrailTone> = emptyList(),
 )
 
 /**
@@ -428,26 +440,103 @@ public fun summaryTrail(summary: String?): TrailThumb? {
 public fun listTrail(thread: AgentThread, thumb: TrailThumb?): ListTrail {
     val derived = thumb ?: summaryTrail(thread.summary)
     val dots = mutableListOf<ListTrailDot>()
-    derived?.kinds?.mapTo(dots) { it.asListDot() }
-    if (thread.needsYou) dots += ListTrailDot.Decide
+    val tones = mutableListOf<ListTrailTone>()
+    val kindTones = derived?.tones.orEmpty()
+    derived?.kinds?.forEachIndexed { index, kind ->
+        dots += kind.asListDot()
+        tones += kindTones.getOrNull(index) ?: ListTrailTone.Pending
+    }
+    if (thread.needsYou) {
+        dots += ListTrailDot.Decide
+        tones += ListTrailTone.Pending
+    }
     val shown = if (dots.size > MAX_LIST_DOTS) dots.takeLast(MAX_LIST_DOTS) else dots
+    val shownTones = if (tones.size > MAX_LIST_DOTS) tones.takeLast(MAX_LIST_DOTS) else tones
     val question = thread.ask?.question?.trim()?.takeIf { it.isNotEmpty() }
     val toolLabel = derived?.label?.trim()?.takeIf { it.isNotEmpty() }
     val prose = thread.summary?.trim()?.takeIf { it.isNotEmpty() }
     val progress = if (thread.status == AgentStatus.Working) derived?.progressPermille else null
     val label = when {
         question != null -> question
+        thread.status == AgentStatus.Working && toolLabel != null -> toolLabel
         progress != null && toolLabel != null -> toolLabel
         prose != null -> prose
         else -> toolLabel
     }
     val useMono = toolLabel != null && label == toolLabel && derived.progressPermille != null
-    return ListTrail(label, shown, progress, useMono)
+    return ListTrail(label, shown, progress, useMono, shownTones)
 }
 
 /**
- * Trail thumbs from transcripts the phone already holds. Does not read a pane
- * or an ACP session that is not the one currently open.
+ * Tool thumb from pane text the phone already has. Prose does not become dots.
+ * A bare `% bash` header uses the command line under it, which is the step
+ * a list row can show.
+ */
+public fun paneListPreview(text: String?): TrailThumb? {
+    val clean = text?.let(::stripAnsi)?.takeIf { it.isNotBlank() } ?: return null
+    val tools = splitPaneTranscript(clean.lines()).filterIsInstance<PanePiece.Tool>()
+    if (tools.isEmpty()) return null
+    val calls = tools.mapIndexed { index, tool ->
+        AcpToolCall(
+            toolCallId = "p$index",
+            title = listToolTitle(tool),
+            kind = tool.kind,
+            status = tool.status,
+            summary = tool.detail,
+        )
+    }
+    return trailThumb(calls, limit = MAX_LIST_DOTS)
+}
+
+private val barePercentHeader = Regex("""^%\s+\S+${'$'}""")
+
+private fun listToolTitle(tool: PanePiece.Tool): String {
+    val header = tool.title.trim()
+    if (!barePercentHeader.matches(header)) return header
+    val detail = tool.detail?.lineSequence()
+        ?.map { line ->
+            line.trim().removePrefix("•").removePrefix("·").removePrefix("●").trim()
+        }
+        ?.firstOrNull { it.isNotEmpty() }
+    return detail?.take(160)?.ifBlank { null } ?: header
+}
+
+/** How many working or blocked panes a list refresh may read. */
+public const val MAX_LIST_PREVIEWS: Int = 6
+
+/** Working rows are re-read at this gap. A status change does not wait. */
+public const val LIST_PREVIEW_GAP_MS: Long = 4_000
+
+/**
+ * Panes whose list row can show a recent step. Blocked wins over working.
+ * Idle and done are left alone. [refreshWorking] re-reads a working pane
+ * that already has a preview for the same status.
+ */
+public fun listPreviewPaneIds(
+    agents: List<AgentSummary>,
+    previews: Map<String, StoredPanePreview>,
+    refreshWorking: Boolean,
+): List<String> {
+    val ranked = agents
+        .filter { it.status == AgentStatus.Blocked || it.status == AgentStatus.Working }
+        .sortedBy { if (it.status == AgentStatus.Blocked) 0 else 1 }
+    val chosen = ArrayList<String>()
+    for (agent in ranked) {
+        if (agent.paneId in chosen) continue
+        val preview = previews[agent.paneId]
+        val stale = preview == null || preview.status != agent.status
+        val workingDue = agent.status == AgentStatus.Working && refreshWorking
+        if (!stale && !workingDue) continue
+        chosen += agent.paneId
+        if (chosen.size == MAX_LIST_PREVIEWS) break
+    }
+    return chosen
+}
+
+/**
+ * Trail thumbs from transcripts the phone already holds: the open pane,
+ * the open ACP session, then list previews stored for other panes.
+ * Does not start a read. A preview whose status no longer matches is ignored.
  */
 public fun threadTrails(state: HostUhpState, threads: List<AgentThread>): List<ThreadTrail> {
     val found = mutableListOf<ThreadTrail>()
@@ -469,6 +558,16 @@ public fun threadTrails(state: HostUhpState, threads: List<AgentThread>): List<T
             }
             if (match != null) found += ThreadTrail(match.id, thumb)
         }
+    }
+    val seen = found.map { it.threadId }.toMutableSet()
+    for (thread in threads) {
+        if (!seen.add(thread.id)) continue
+        if (thread.kind != AgentKind.Pane) continue
+        val id = thread.paneId ?: continue
+        val preview = state.panePreviews[id] ?: continue
+        if (preview.status != thread.status) continue
+        val thumb = paneListPreview(preview.text) ?: continue
+        found += ThreadTrail(thread.id, thumb)
     }
     return found
 }
@@ -558,6 +657,13 @@ private fun ToolTrailKind.asListDot(): ListTrailDot =
         ToolTrailKind.Edit -> ListTrailDot.Edit
         ToolTrailKind.Run -> ListTrailDot.Run
         ToolTrailKind.Other -> ListTrailDot.Other
+    }
+
+private fun AcpToolStatus.asTrailTone(): ListTrailTone =
+    when (this) {
+        AcpToolStatus.Completed -> ListTrailTone.Ok
+        AcpToolStatus.Failed -> ListTrailTone.Failed
+        AcpToolStatus.Pending, AcpToolStatus.InProgress, AcpToolStatus.Unknown -> ListTrailTone.Pending
     }
 
 private fun hasWord(blob: String, word: String): Boolean {

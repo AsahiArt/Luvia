@@ -1,21 +1,32 @@
 package tech.asahiart.luvia.internal.uhp
 
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import tech.asahiart.luvia.AgentDetailState
 import tech.asahiart.luvia.AgentKey
+import tech.asahiart.luvia.AgentReadSource
+import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.Failure
 import tech.asahiart.luvia.HostRole
 import tech.asahiart.luvia.HostRuntime
 import tech.asahiart.luvia.Outcome
+import tech.asahiart.luvia.StoredPanePreview
 import tech.asahiart.luvia.UhpMethods
 import tech.asahiart.luvia.UnconfirmedKind
 import tech.asahiart.luvia.forkAgent
 import tech.asahiart.luvia.isLostMutation
 import tech.asahiart.luvia.nameAgent
 import tech.asahiart.luvia.resumeAgent
+import tech.asahiart.luvia.thread.LIST_PREVIEW_GAP_MS
+import tech.asahiart.luvia.thread.listPreviewPaneIds
 import tech.asahiart.luvia.toCapabilities
 import tech.asahiart.luvia.userMessage
+import kotlin.time.Clock
 
 internal class AgentBoard(private val ctx: UhpContext) {
+    private var previewJob: Job? = null
+    private var lastWorkingPreviewMs: Long = 0L
+
     fun applyRuntime(runtime: HostRuntime) {
         val session = ctx.session()
         val snapshotAgents = runtime.snapshot?.agents.orEmpty()
@@ -44,6 +55,7 @@ internal class AgentBoard(private val ctx: UhpContext) {
         if (wasOpen && openPane != null && newStatus != null && oldStatus != null && newStatus != oldStatus) {
             ctx.launch { loadDetail(openPane) }
         }
+        refreshListPreviews()
     }
 
     fun load() {
@@ -121,6 +133,45 @@ internal class AgentBoard(private val ctx: UhpContext) {
             val openPane = ctx.value().agentDetail.takeIf { it.open }?.paneId
             if (openPane != null) {
                 loadDetail(openPane)
+            }
+            refreshListPreviews()
+        }
+    }
+
+    /**
+     * Reads recent text for working and blocked panes so list rows can show
+     * a step and dots without opening each conversation. Idle panes are not read.
+     */
+    private fun refreshListPreviews() {
+        if (previewJob?.isActive == true) return
+        val session = ctx.session() ?: return
+        if (!session.supports(UhpMethods.AGENT_READ)) return
+        val now = Clock.System.now().toEpochMilliseconds()
+        val refreshWorking = now - lastWorkingPreviewMs >= LIST_PREVIEW_GAP_MS
+        val state = ctx.value()
+        val targets = listPreviewPaneIds(state.agents, state.panePreviews, refreshWorking)
+        if (targets.isEmpty()) return
+        if (refreshWorking && targets.any { id -> state.agents.any { it.paneId == id && it.status == AgentStatus.Working } }) {
+            lastWorkingPreviewMs = now
+        }
+        previewJob = ctx.launch {
+            val live = ctx.session() ?: return@launch
+            if (!live.supports(UhpMethods.AGENT_READ)) return@launch
+            for (paneId in targets) {
+                if (!isActive) return@launch
+                when (val result = live.readAgent(paneId, lines = 400, source = AgentReadSource.RECENT)) {
+                    is Outcome.Ok -> {
+                        val text = result.value.text
+                        ctx.update { current ->
+                            val agent = current.agents.firstOrNull { it.paneId == paneId } ?: return@update current
+                            val liveIds = current.agents.map { it.paneId }.toSet()
+                            val stored = current.panePreviews.filterKeys { it in liveIds } +
+                                (paneId to StoredPanePreview(text, agent.status))
+                            current.copy(panePreviews = stored)
+                        }
+                    }
+                    is Outcome.Err -> Unit
+                }
             }
         }
     }

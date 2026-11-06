@@ -252,11 +252,19 @@ public data class ProjectChoice(
     public val label: String,
 )
 
+/** Recent pane text already read for the session list. Not a second transcript. */
+public data class StoredPanePreview(
+    public val text: String,
+    public val status: AgentStatus,
+)
+
 public data class HostUhpState(
     public val connected: Boolean = false,
     public val isObserver: Boolean = false,
     public val capabilities: HostCapabilities = HostCapabilities(),
     public val agents: List<AgentSummary> = emptyList(),
+    /** Keyed by pane id. Empty until a list preview has been read. */
+    public val panePreviews: Map<String, StoredPanePreview> = emptyMap(),
     public val agentSessions: List<AgentSessionEntry> = emptyList(),
     public val mission: MissionSnapshot? = null,
     public val agentDetail: AgentDetailState = AgentDetailState(),
