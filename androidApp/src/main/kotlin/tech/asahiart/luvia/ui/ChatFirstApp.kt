@@ -133,20 +133,14 @@ fun ChatFirstApp(
         ).size,
         paths = withSelectedPath(openSessionPaths(catalog, selected?.id), filter.scope),
     )
-    val snapshotAgentCount = runtimes.firstOrNull { it.profile.id == selected?.id }?.snapshot?.agents?.size
-    LaunchedEffect(selected?.id, state != null, selected?.connection, selectedThreads.size, snapshotAgentCount) {
+    // Size is a key so each growth cancels the settle timer. Restore runs only
+    // after the host session list has been unchanged for 2s (partial Live lists
+    // like 14→73 must not trigger path→host fallback).
+    LaunchedEffect(selected?.id, state != null, selected?.connection, selectedThreads.size) {
         val host = selected ?: return@LaunchedEffect
-        delay(400)
-        // Wait for a snapshot count so a Live partial list (e.g. 14 of 73) cannot
-        // look "known" when expected is still null and wipe a remembered path.
-        val expected = runtimes.firstOrNull { it.profile.id == host.id }?.snapshot?.agents?.size
-        val caughtUp = expected != null &&
-            selectedThreads.isNotEmpty() &&
-            selectedThreads.size >= expected
-        val emptyLive = host.connection == ConnectionBadge.Live &&
-            expected == 0 &&
-            selectedThreads.isEmpty()
-        val listKnown = hostStates[host.id] != null && (caughtUp || emptyLive)
+        delay(2_000)
+        val listKnown = hostStates[host.id] != null &&
+            (host.connection == ConnectionBadge.Live || selectedThreads.isNotEmpty())
         viewModel.restoreHostFilter(host.id, selectedThreads, listKnown)
     }
     val openThread = allThreads.firstOrNull { it.id == threadId }

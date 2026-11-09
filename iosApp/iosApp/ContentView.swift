@@ -313,17 +313,14 @@ struct ContentView: View {
     private var restoreToken: String {
         let id = model.selectedHostID ?? ""
         let count = realCatalog.filter { $0.hostId == id }.count
-        let expected = model.selectedHost?.snapshotAgentCount
-        let known = sessionListKnown(hostId: id, count: count, expected: expected)
-        return "\(id)#\(known)#\(count)#\(expected.map(String.init) ?? "-")"
+        let known = sessionListKnown(hostId: id, count: count)
+        return "\(id)#\(known)#\(count)"
     }
 
-    private func sessionListKnown(hostId: String, count: Int, expected: Int?) -> Bool {
+    private func sessionListKnown(hostId: String, count: Int) -> Bool {
         guard model.hostStates[hostId] != nil else { return false }
-        // Require a snapshot count so a partial Live list cannot wipe a path.
-        let caughtUp = expected != nil && count > 0 && count >= (expected ?? 0)
-        let emptyLive = model.selectedHost?.connection == .live && expected == 0 && count == 0
-        return caughtUp || emptyLive
+        let live = model.selectedHost?.connection == .live
+        return live || count > 0
     }
 
     private func noteHostSwitch(_ hostId: String) {
@@ -336,7 +333,7 @@ struct ContentView: View {
     private func scheduleRestore() {
         restoreTask?.cancel()
         restoreTask = _Concurrency.Task { @MainActor in
-            try? await _Concurrency.Task.sleep(nanoseconds: 1_000_000_000)
+            try? await _Concurrency.Task.sleep(nanoseconds: 2_000_000_000)
             guard !_Concurrency.Task.isCancelled else { return }
             restoreSelectedFilter()
         }
@@ -345,13 +342,8 @@ struct ContentView: View {
     /// Once per host, after that host's session list is known. Not on every list change.
     private func restoreSelectedFilter() {
         guard let id = model.selectedHostID, !restoredHosts.contains(id) else { return }
-        let host = model.selectedHost
         let threads = realCatalog.filter { $0.hostId == id }
-        let known = sessionListKnown(
-            hostId: id,
-            count: threads.count,
-            expected: host?.snapshotAgentCount
-        )
+        let known = sessionListKnown(hostId: id, count: threads.count)
         guard known else { return }
         restoredHosts.insert(id)
         let stored = HostFilterBridge.stored(for: id)
