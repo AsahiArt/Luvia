@@ -45,6 +45,19 @@ class LuviaThemeTest {
     }
 
     @Test
+    fun failureWashAndCardFollowTheTerminalWow() {
+        assertEquals(Color(0xFFF7E7E2), LuviaLightExtended.failureWash)
+        assertEquals(Color(0xFFBA1A1A), LuviaLightExtended.failureCard)
+        assertEquals(Color(0xFFFFFFFF), LuviaLightExtended.failureCardInk)
+        assertEquals(Color(0xFF5A1A1A).red, LuviaDarkExtended.failureWash.red)
+        assertEquals(Color(0xFF5A1A1A).green, LuviaDarkExtended.failureWash.green)
+        assertEquals(Color(0xFF5A1A1A).blue, LuviaDarkExtended.failureWash.blue)
+        assertTrue(kotlin.math.abs(LuviaDarkExtended.failureWash.alpha - 0.62f) < 0.02f)
+        assertEquals(Color(0xFF8E1A16), LuviaDarkExtended.failureCard)
+        assertEquals(Color(0xFFFFFFFF), LuviaDarkExtended.failureCardInk)
+    }
+
+    @Test
     fun darkFailureChromeFollowsMaterialError() {
         val material = Color(0xFFABCDEF)
         val chrome = LuviaDarkExtended.failureLineChrome(material)

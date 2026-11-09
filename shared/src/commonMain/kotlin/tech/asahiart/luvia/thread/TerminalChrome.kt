@@ -1,5 +1,6 @@
 package tech.asahiart.luvia.thread
 
+import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.stripAnsi
 
 /**
@@ -25,6 +26,70 @@ public data class TerminalFailureBanner(
     public val excerpt: String,
 )
 
+/** `126/127 · 1 failed · 41s` from the parsed banner. Duration is omitted when the build did not report one. */
+public fun terminalFailureSummary(banner: TerminalFailureBanner): String {
+    val head = terminalFailureSummaryHead(banner)
+    val duration = banner.duration?.takeIf { it.isNotBlank() } ?: return head
+    return "$head · $duration"
+}
+
+/** Summary without the build duration: `126/127 · 1 failed`. */
+public fun terminalFailureSummaryHead(banner: TerminalFailureBanner): String =
+    "${banner.passed}/${banner.total} · ${banner.failed} failed"
+
+/** Where a reported duration is drawn. It stays on the summary until that line cannot hold it. */
+public enum class TerminalFailureDurationPlace {
+    Summary,
+    Bar,
+}
+
+/**
+ * Duration stays on the summary line while [summaryFitsWithDuration] is true.
+ * A missing duration never moves. When the summary cannot hold it, it goes on the bar row.
+ */
+public fun terminalFailureDurationPlace(
+    duration: String?,
+    summaryFitsWithDuration: Boolean,
+): TerminalFailureDurationPlace {
+    if (duration.isNullOrBlank() || summaryFitsWithDuration) return TerminalFailureDurationPlace.Summary
+    return TerminalFailureDurationPlace.Bar
+}
+
+/** Solid failure-bar fill. `passed / total`, clamped to 0..1. Zero when [total] is not positive. */
+public fun terminalFailureProgress(passed: Int, total: Int): Float {
+    if (total <= 0) return 0f
+    return (passed.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+}
+
+/**
+ * Columns and rows that fit the measured terminal viewport.
+ * Null until both axes and the cell size are positive, so the subtitle never invents `80×32`.
+ */
+public fun terminalGrid(widthPx: Int, heightPx: Int, cellWidthPx: Int, cellHeightPx: Int): Pair<Int, Int>? {
+    if (widthPx <= 0 || heightPx <= 0 || cellWidthPx <= 0 || cellHeightPx <= 0) return null
+    val columns = widthPx / cellWidthPx
+    val rows = heightPx / cellHeightPx
+    if (columns <= 0 || rows <= 0) return null
+    return columns to rows
+}
+
+/** `agent · 80×32 · 已同步`. Size and the synced word are dropped when they are not known yet. */
+public fun terminalStatusLine(
+    agent: String,
+    columns: Int,
+    rows: Int,
+    synced: Boolean,
+    syncedWord: String,
+): String {
+    val name = agent.trim()
+    val size = if (columns > 0 && rows > 0) "$columns×$rows" else null
+    return listOfNotNull(
+        name.takeIf { it.isNotEmpty() },
+        size,
+        syncedWord.takeIf { synced && it.isNotBlank() },
+    ).joinToString(" · ")
+}
+
 public fun terminalFailureBanner(text: String?): TerminalFailureBanner? {
     val lines = terminalLines(text)
     if (lines.isEmpty() || lines.all { it.isBlank() }) return null
@@ -49,6 +114,128 @@ public fun terminalFailureBanner(text: String?): TerminalFailureBanner? {
         outlinedLines = outlined,
         outlinedMask = mask.concatToString(),
         excerpt = body.take(EXCERPT_LIMIT),
+    )
+}
+
+/**
+ * Equal-width pane chips. Two through five share the row. More than five scroll
+ * so a chip keeps a readable width instead of being crushed.
+ */
+public const val EQUAL_PANE_SEGMENT_MAX: Int = 5
+
+public fun paneSegmentsShareWidth(count: Int): Boolean = count in 1..EQUAL_PANE_SEGMENT_MAX
+
+/** 1-based index shared by the `pane N` header and [terminalSegmentLabel]. */
+public fun terminalPaneNumber(index: Int): Int = index + 1
+
+/**
+ * Conversation session that owns [paneId], if one is open on that pane.
+ * A pane title or foreground command is not a session.
+ */
+public fun terminalOwningSession(threads: List<AgentThread>, paneId: String?): AgentThread? {
+    if (paneId.isNullOrBlank()) return null
+    return threads.firstOrNull { thread ->
+        thread.kind == AgentKind.Pane && thread.paneId == paneId && !thread.acpHistory
+    }
+}
+
+/** Official agent behind a pane foreground or a session id. Null for shells and commands. */
+public fun recognizedTerminalAgent(raw: String?): String? {
+    val logo = agentBrandLogo(raw, "") ?: return null
+    return when (logo.assetId) {
+        AGENT_BRAND_ASSET_CLAUDE -> "claude"
+        AGENT_BRAND_ASSET_OPENAI -> "codex"
+        AGENT_BRAND_ASSET_GROK -> "grok"
+        AGENT_BRAND_ASSET_PI -> "pi"
+        else -> null
+    }
+}
+
+public enum class TerminalFailureMode { Fixing, Handoff }
+
+public data class TerminalFixChoice(
+    public val agentType: String,
+    public val name: String,
+)
+
+public data class TerminalFailureOffer(
+    public val mode: TerminalFailureMode,
+    public val agentName: String,
+    /** Passed to [agentBrandLogo]. Null means the letter circle. */
+    public val avatarAgent: String?,
+    public val choices: List<TerminalFixChoice>,
+) {
+    public val fixingLabel: String get() = "$agentName 在修…"
+
+    public val handoffLabel: String get() = "交给 $agentName 修"
+}
+
+/**
+ * Host agent ids win. Otherwise the session list's recognized agents.
+ * Shells and other unrecognized ids are dropped from both lists.
+ */
+public fun terminalFixCandidates(hostAgentIds: List<String>, threadAgentTypes: List<String>): List<TerminalFixChoice> {
+    fun recognized(raw: String): TerminalFixChoice? {
+        val type = raw.trim().ifEmpty { return null }
+        val known = recognizedTerminalAgent(type) ?: return null
+        return TerminalFixChoice(type, known)
+    }
+    val fromHost = hostAgentIds.mapNotNull(::recognized).distinctBy { it.name.lowercase() }
+    if (fromHost.isNotEmpty()) return fromHost
+    return threadAgentTypes.mapNotNull(::recognized).distinctBy { it.name.lowercase() }
+}
+
+/** True when both names are the same recognized agent. `claude` and `claude-code` match. */
+public fun sameTerminalAgent(left: String?, right: String?): Boolean {
+    val a = left?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+    val b = right?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+    if (a.equals(b, ignoreCase = true)) return true
+    val knownA = recognizedTerminalAgent(a) ?: return false
+    val knownB = recognizedTerminalAgent(b) ?: return false
+    return knownA == knownB
+}
+
+/** True when [agentType] is a recognized agent other than the open session. Blank stays on the session path. */
+public fun terminalFixOpensNewAgent(agentType: String?, sessionAgentType: String?): Boolean {
+    val requested = agentType?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+    if (recognizedTerminalAgent(requested) == null) return false
+    return !sameTerminalAgent(requested, sessionAgentType)
+}
+
+/**
+ * Foreground agent → 「pi 在修…」. Shell or command → 「交给 pi 修」.
+ * [paneForeground] is never used as the session agent. No session agent → 「交给 agent 修」.
+ */
+public fun terminalFailureOffer(
+    paneForeground: String?,
+    sessionAgentType: String?,
+    sessionDisplayName: String? = null,
+    candidates: List<TerminalFixChoice> = emptyList(),
+): TerminalFailureOffer {
+    val running = recognizedTerminalAgent(paneForeground)
+    if (running != null) {
+        return TerminalFailureOffer(
+            mode = TerminalFailureMode.Fixing,
+            agentName = running,
+            avatarAgent = running,
+            choices = emptyList(),
+        )
+    }
+    val session = recognizedTerminalAgent(sessionAgentType) ?: recognizedTerminalAgent(sessionDisplayName)
+    val rawType = sessionAgentType?.trim()?.takeIf { it.isNotEmpty() }
+    val name = session ?: rawType ?: "agent"
+    val choices = candidates.ifEmpty {
+        when {
+            session != null -> listOf(TerminalFixChoice(session, session))
+            rawType != null -> listOf(TerminalFixChoice(rawType, rawType))
+            else -> emptyList()
+        }
+    }
+    return TerminalFailureOffer(
+        mode = TerminalFailureMode.Handoff,
+        agentName = name,
+        avatarAgent = session ?: rawType,
+        choices = choices,
     )
 }
 
@@ -156,6 +343,7 @@ private fun isContinuation(line: String): Boolean {
     if (line.first().isWhitespace()) return true
     val trimmed = line.trim()
     return trimmed.startsWith("expected", ignoreCase = true) ||
+        trimmed.startsWith("actual", ignoreCase = true) ||
         trimmed.contains("but was", ignoreCase = true) ||
         trimmed.startsWith("Assertion", ignoreCase = true) ||
         trimmed.startsWith("java.") ||

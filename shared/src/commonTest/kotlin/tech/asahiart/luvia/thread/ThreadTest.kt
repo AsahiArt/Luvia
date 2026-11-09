@@ -211,6 +211,16 @@ class ThreadTest {
     }
 
     @Test
+    fun unreadChatCountIgnoresRowsAlreadyOnScreen() {
+        val seen = setOf("a", "b")
+        assertEquals(0, unreadChatCount(seen, listOf("a", "b")))
+        assertEquals(1, unreadChatCount(seen, listOf("a", "b", "c")))
+        assertEquals(2, unreadChatCount(seen, listOf("c", "d")))
+        assertEquals(0, unreadChatCount(seen, emptyList()))
+        assertEquals(3, unreadChatCount(emptySet(), listOf("a", "b", "c")))
+    }
+
+    @Test
     fun timelineIsBounded() {
         var t = PaneTimeline()
         repeat(PaneTimeline.MAX_ITEMS + 20) { t = t.recordMine("m$it") }

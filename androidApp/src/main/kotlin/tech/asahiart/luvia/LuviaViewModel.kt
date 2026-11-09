@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import tech.asahiart.luvia.thread.EQUAL_PANE_SEGMENT_MAX
 import tech.asahiart.luvia.ui.ConnectionBadge
 import tech.asahiart.luvia.ui.HostUiModel
 import tech.asahiart.luvia.ui.TerminalPaneChoice
@@ -227,8 +228,8 @@ class LuviaViewModel(
     fun ensureTerminal(hostId: String, paneId: String? = null) {
         val runtime = manager.hosts.value.firstOrNull { it.profile.id == hostId } ?: return
         val observer = runtime.profile.role == HostRole.Observer
-        val panes = terminalPaneChoices(runtime)
         val identity = terminalIdentity(runtime, paneId)
+        val panes = terminalPaneChoices(runtime, identity?.paneId)
         if (identity == null) {
             observeJobs.remove(hostId)?.cancel()
             identities.remove(hostId)
@@ -463,10 +464,12 @@ class LuviaViewModel(
     private fun rebindTerminal(hostId: String, failure: Failure) {
         val runtime = manager.hosts.value.firstOrNull { it.profile.id == hostId }
         val observer = runtime?.profile?.role == HostRole.Observer
-        val panes = runtime?.let { terminalPaneChoices(it) }.orEmpty()
         val tried = triedTerminals.getOrPut(hostId) { mutableSetOf() }
         identities[hostId]?.terminalId?.let { tried += it }
         val next = runtime?.let { terminalIdentities(it).firstOrNull { identity -> identity.terminalId !in tried } }
+        val panes = runtime?.let {
+            terminalPaneChoices(it, next?.paneId ?: identities[hostId]?.paneId)
+        }.orEmpty()
         if (runtime != null && next != null) {
             tried += next.terminalId
             startTerminalObserve(hostId, runtime, next, observer, panes)
@@ -617,10 +620,11 @@ private fun terminalIdentities(runtime: HostRuntime): List<TerminalIdentity> {
     }
 }
 
-private fun terminalPaneChoices(runtime: HostRuntime): List<TerminalPaneChoice> {
+internal fun terminalPaneChoices(runtime: HostRuntime, paneId: String? = null): List<TerminalPaneChoice> {
     val snapshot = runtime.snapshot ?: return emptyList()
     val agents = snapshot.agents.associateBy { it.paneId }
-    return snapshot.panes.filter { !it.terminalId.isNullOrBlank() }.map { pane ->
+    val live = snapshot.panes.filter { !it.terminalId.isNullOrBlank() }
+    return live.panesForTerminal(paneId).map { pane ->
         val agent = agents[pane.paneId]
         TerminalPaneChoice(
             paneId = pane.paneId,
@@ -633,4 +637,24 @@ private fun terminalPaneChoices(runtime: HostRuntime): List<TerminalPaneChoice> 
             cwd = pane.cwd ?: agent?.cwd,
         )
     }
+}
+
+private fun List<PaneSummary>.panesForTerminal(paneId: String?): List<PaneSummary> {
+    if (isEmpty()) return this
+    val anchorId = paneId ?: firstOrNull { it.focused }?.paneId ?: first().paneId
+    val anchor = firstOrNull { it.paneId == anchorId }
+    val workspace = anchor?.workspaceIndex
+    val tab = anchor?.tabIndex
+    if (workspace != null && tab != null) {
+        return filter { it.workspaceIndex == workspace && it.tabIndex == tab }
+    }
+    return windowAround(anchorId, EQUAL_PANE_SEGMENT_MAX)
+}
+
+private fun List<PaneSummary>.windowAround(paneId: String?, limit: Int): List<PaneSummary> {
+    if (size <= limit || limit <= 0) return this
+    val index = indexOfFirst { it.paneId == paneId }
+    if (index < 0) return take(limit)
+    val start = (index - limit / 2).coerceIn(0, size - limit)
+    return subList(start, start + limit)
 }
