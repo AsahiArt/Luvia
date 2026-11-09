@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var filtersHighlighted = false
     @State private var highlightTask: _Concurrency.Task<Void, Never>?
     @State private var restoredHosts: Set<String> = []
+    @State private var restoreTask: _Concurrency.Task<Void, Never>?
     @State private var showSettings = false
     @State private var showNewSession = false
     @State private var cwd = ""
@@ -52,7 +53,7 @@ struct ContentView: View {
         .onAppear {
             model.autoConnectIfNeeded()
             applyPairingGate()
-            restoreSelectedFilter()
+            scheduleRestore()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.autoConnectIfNeeded(force: true) }
@@ -71,7 +72,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: restoreToken) { _, _ in
-            restoreSelectedFilter()
+            scheduleRestore()
         }
         .sheet(isPresented: $showSettings) { settings }
         .sheet(isPresented: $showNewSession) { newSession }
@@ -321,6 +322,16 @@ struct ContentView: View {
         _ = HostFilterBridge.switched(to: hostId)
         restoredHosts.insert(hostId)
         filterRevision += 1
+    }
+
+    /// Wait until the session count stops moving, then restore once.
+    private func scheduleRestore() {
+        restoreTask?.cancel()
+        restoreTask = _Concurrency.Task { @MainActor in
+            try? await _Concurrency.Task.sleep(nanoseconds: 400_000_000)
+            guard !_Concurrency.Task.isCancelled else { return }
+            restoreSelectedFilter()
+        }
     }
 
     /// Once per host, after that host's session list is known. Not on every list change.

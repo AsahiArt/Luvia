@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.LuviaViewModel
 import tech.asahiart.luvia.resolveStartupHost
@@ -134,6 +135,7 @@ fun ChatFirstApp(
     )
     LaunchedEffect(selected?.id, state != null, selected?.connection, selectedThreads.size) {
         val host = selected ?: return@LaunchedEffect
+        delay(400)
         viewModel.restoreHostFilter(
             host.id,
             selectedThreads,
