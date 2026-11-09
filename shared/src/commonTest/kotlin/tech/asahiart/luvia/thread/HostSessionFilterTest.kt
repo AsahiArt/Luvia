@@ -173,6 +173,35 @@ class HostSessionFilterTest {
         )
     }
 
+    @Test
+    fun openPathsAreCurrentHostDirectoriesWithSessions() {
+        val threads = listOf(
+            thread("old", "mbp", cwd = "/work/luvus/", status = AgentStatus.Idle, updated = 10),
+            thread("new", "mbp", cwd = " /work/luvia ", status = AgentStatus.Working, updated = 50),
+            thread(
+                "ask",
+                "mbp",
+                cwd = "/work/luvia/",
+                status = AgentStatus.Blocked,
+                ask = Ask("go?", emptyList()),
+                updated = 40,
+            ),
+            thread("other", "box", cwd = "/work/infra", status = AgentStatus.Idle, updated = 99),
+            thread("blank", "mbp", cwd = "///", status = AgentStatus.Idle, updated = 80),
+            thread("undated", "mbp", cwd = "/work/notes", status = AgentStatus.Done, updated = null),
+        )
+        assertEquals(
+            listOf(
+                SessionPathOption("/work/luvia", 2),
+                SessionPathOption("/work/luvus", 1),
+                SessionPathOption("/work/notes", 1),
+            ),
+            openSessionPaths(threads, "mbp"),
+        )
+        assertEquals(listOf(SessionPathOption("/work/infra", 1)), openSessionPaths(threads, "box"))
+        assertEquals(emptyList(), openSessionPaths(threads, null))
+    }
+
     private fun sample(): List<AgentThread> = listOf(
         thread(
             "mbp-luvia",
@@ -199,6 +228,7 @@ class HostSessionFilterTest {
         cwd: String?,
         status: AgentStatus,
         ask: Ask? = null,
+        updated: Long? = null,
     ) = AgentThread(
         id = id,
         kind = AgentKind.Pane,
@@ -210,7 +240,7 @@ class HostSessionFilterTest {
         status = status,
         ask = ask,
         summary = null,
-        updatedEpochMs = null,
+        updatedEpochMs = updated,
         cwd = cwd,
     )
 }

@@ -52,9 +52,12 @@ import tech.asahiart.luvia.shouldPresentPairing
 import tech.asahiart.luvia.toSortedUi
 import tech.asahiart.luvia.StatusNotificationController
 import tech.asahiart.luvia.thread.AgentThread
+import tech.asahiart.luvia.thread.HostSessionFilter
 import tech.asahiart.luvia.thread.SessionFilter
+import tech.asahiart.luvia.thread.SessionScope
 import tech.asahiart.luvia.thread.awaitingAcpThread
-import tech.asahiart.luvia.thread.filterSessions
+import tech.asahiart.luvia.thread.filterSessionsByHost
+import tech.asahiart.luvia.thread.openSessionPaths
 import tech.asahiart.luvia.thread.pendingReplyCount
 import tech.asahiart.luvia.thread.sessionRoster
 import tech.asahiart.luvia.thread.sortSessions
@@ -86,19 +89,42 @@ fun ChatFirstApp(
     var hostId by rememberSaveable { mutableStateOf<String?>(null) }
     var startupApplied by rememberSaveable { mutableStateOf(false) }
     var threadId by rememberSaveable { mutableStateOf<String?>(null) }
-    var filterName by rememberSaveable { mutableStateOf(SessionFilter.All.name) }
     var terminalReturn by rememberSaveable { mutableStateOf("sessions") }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showNewSession by rememberSaveable { mutableStateOf(false) }
     var confirmUnpair by rememberSaveable { mutableStateOf(false) }
     var awaitingAcp by rememberSaveable { mutableStateOf(false) }
-    val filter = runCatching { SessionFilter.valueOf(filterName) }.getOrDefault(SessionFilter.All)
+    val hostFilters by viewModel.hostSessionFilters.collectAsStateWithLifecycle()
     val profiles = runtimes.map { it.profile }
     val resolvedId = if (startupApplied) hostId else resolveStartupHost(profiles, hostId)?.id ?: hostId
     val selected = hosts.firstOrNull { it.id == resolvedId } ?: hosts.firstOrNull()
     val state = selected?.let { hostStates[it.id] }
     val allThreads = sortSessions(state?.threads(selected.id).orEmpty())
-    val threads = filterSessions(allThreads, filter)
+    val onlineHostIds = hosts.filter { it.connection == ConnectionBadge.Live }.map { it.id }.toSet()
+    val catalog = sortSessions(hosts.flatMap { host -> hostStates[host.id]?.threads(host.id).orEmpty() })
+    val filter = selected?.id?.let { hostFilters[it] } ?: HostSessionFilter()
+    val inScope = filterSessionsByHost(
+        catalog,
+        selected?.id,
+        filter.copy(status = SessionFilter.All),
+        onlineHostIds,
+    )
+    val threads = filterSessionsByHost(catalog, selected?.id, filter, onlineHostIds)
+    val scopeChoices = SessionScopeChoices(
+        allOnline = filterSessionsByHost(
+            catalog,
+            selected?.id,
+            HostSessionFilter(SessionScope.AllOnline, SessionFilter.All),
+            onlineHostIds,
+        ).size,
+        currentHost = filterSessionsByHost(
+            catalog,
+            selected?.id,
+            HostSessionFilter(SessionScope.CurrentHost, SessionFilter.All),
+            onlineHostIds,
+        ).size,
+        paths = openSessionPaths(catalog, selected?.id),
+    )
     val openThread = allThreads.firstOrNull { it.id == threadId }
     val openBlocked = launchIntent?.getBooleanExtra(StatusNotificationController.EXTRA_OPEN_BLOCKED, false) == true
     var consumedLaunch by rememberSaveable { mutableStateOf(false) }
@@ -154,8 +180,15 @@ fun ChatFirstApp(
     LaunchedEffect(launchIntent, allThreads, consumedLaunch) {
         if (consumedLaunch) return@LaunchedEffect
         val id = launchIntent?.getStringExtra(StatusNotificationController.EXTRA_HOST_ID) ?: return@LaunchedEffect
+        val base = if (resolvedId != id) {
+            viewModel.switchHostSessionFilter(id)
+        } else {
+            viewModel.hostSessionFilter(id)
+        }
+        if (openBlocked) {
+            viewModel.rememberHostSessionFilter(id, base.copy(status = SessionFilter.NeedsYou))
+        }
         hostId = id
-        filterName = if (openBlocked) SessionFilter.NeedsYou.name else filterName
         val thread = if (openBlocked) allThreads.firstOrNull { it.hostId == id && it.needsYou } else null
         if (thread != null) {
             threadId = thread.id
@@ -190,6 +223,7 @@ fun ChatFirstApp(
 
     fun openThread(thread: AgentThread) {
         val id = thread.hostId
+        if (id != resolvedId) viewModel.switchHostSessionFilter(id)
         hostId = id
         threadId = thread.id
         viewModel.markViewed(thread)
@@ -304,9 +338,14 @@ fun ChatFirstApp(
                 selected = selected,
                 threads = threads,
                 filter = filter,
-                onFilter = { filterName = it.name },
+                onFilter = { next ->
+                    selected?.id?.let { viewModel.rememberHostSessionFilter(it, next) }
+                },
+                scopeChoices = scopeChoices,
+                onlineHostIds = onlineHostIds,
                 onSelectHost = {
                     startupApplied = true
+                    if (it != resolvedId) viewModel.switchHostSessionFilter(it)
                     hostId = it
                 },
                 onPair = {
@@ -323,10 +362,15 @@ fun ChatFirstApp(
                 },
                 onOpenTerminal = { openTerminal(openThread?.paneId) },
                 onRetry = { selected?.id?.let(viewModel::connect) },
-                roster = sessionRoster(allThreads),
-                trails = state?.let { hostState ->
-                    threadTrails(hostState, allThreads).associate { it.threadId to it.thumb }
-                }.orEmpty(),
+                roster = sessionRoster(inScope),
+                trails = buildMap {
+                    for (host in hosts) {
+                        val hostState = hostStates[host.id] ?: continue
+                        for (trail in threadTrails(hostState, hostState.threads(host.id))) {
+                            put("${host.id}:${trail.threadId}", trail.thumb)
+                        }
+                    }
+                },
             )
         }
         if (stage == "terminal") {
@@ -372,6 +416,7 @@ fun ChatFirstApp(
     LaunchedEffect(pairing.pairedHostId) {
         val id = pairing.pairedHostId ?: return@LaunchedEffect
         startupApplied = true
+        if (id != resolvedId) viewModel.switchHostSessionFilter(id)
         hostId = id
         userOpenedPairing = false
         stage = "sessions"
@@ -388,7 +433,8 @@ fun ChatFirstApp(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 6.dp, bottom = 12.dp),
                 )
-                var cwd by rememberSaveable(selected.id) { mutableStateOf("") }
+                val scopePath = (filter.scope as? SessionScope.Path)?.cwd.orEmpty()
+                var cwd by rememberSaveable(selected.id, scopePath) { mutableStateOf(scopePath) }
                 OutlinedTextField(
                     value = cwd,
                     onValueChange = { cwd = it },

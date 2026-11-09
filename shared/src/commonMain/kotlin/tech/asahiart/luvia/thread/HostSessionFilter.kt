@@ -98,6 +98,34 @@ public fun filterSessionsByHost(
     return filterSessions(inScope, filter.status)
 }
 
+/**
+ * Working directories on [hostId] that have at least one session.
+ * Newest activity first. A missing timestamp sorts as older than any real one.
+ * Count is every session in that directory, not a status slice: pass the
+ * unfiltered catalog. Blank cwds and slash-only cwds are dropped.
+ * Other hosts are not included.
+ */
+public data class SessionPathOption(
+    public val cwd: String,
+    public val count: Int,
+)
+
+public fun openSessionPaths(threads: List<AgentThread>, hostId: String?): List<SessionPathOption> {
+    if (hostId == null) return emptyList()
+    val counts = LinkedHashMap<String, Int>()
+    val latest = HashMap<String, Long>()
+    for (thread in threads) {
+        if (thread.hostId != hostId) continue
+        val cwd = normalizeSessionCwd(thread.cwd) ?: continue
+        counts[cwd] = (counts[cwd] ?: 0) + 1
+        val stamp = thread.updatedEpochMs ?: 0L
+        if (stamp > (latest[cwd] ?: 0L)) latest[cwd] = stamp
+    }
+    return counts.keys
+        .sortedWith(compareByDescending<String> { latest[it] ?: 0L }.thenBy { it })
+        .map { cwd -> SessionPathOption(cwd, counts.getValue(cwd)) }
+}
+
 private fun AgentThread.inScope(
     hostId: String?,
     scope: SessionScope,

@@ -3,7 +3,10 @@ package tech.asahiart.luvia
 import tech.asahiart.luvia.HostUhpState
 import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.AskOption
+import tech.asahiart.luvia.thread.HostSessionFilter
+import tech.asahiart.luvia.thread.InMemoryHostFilterMemory
 import tech.asahiart.luvia.thread.NowState
+import tech.asahiart.luvia.thread.applyHostSwitch
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -46,6 +49,26 @@ class LuviaViewModel(
     val catalogReady: StateFlow<Boolean> = manager.catalogReady
     val now: StateFlow<NowState> = uhpRegistry.now
     val hostStates: StateFlow<Map<String, HostUhpState>> = uhpRegistry.states
+
+    private val hostFilterMemory = InMemoryHostFilterMemory()
+    private val _hostSessionFilters = MutableStateFlow<Map<String, HostSessionFilter>>(emptyMap())
+
+    /** Last filter written for each host. Missing hosts still read as the default. */
+    val hostSessionFilters: StateFlow<Map<String, HostSessionFilter>> = _hostSessionFilters.asStateFlow()
+
+    fun hostSessionFilter(hostId: String): HostSessionFilter = hostFilterMemory.get(hostId)
+
+    fun rememberHostSessionFilter(hostId: String, filter: HostSessionFilter) {
+        hostFilterMemory.put(hostId, filter)
+        _hostSessionFilters.update { current -> current + (hostId to filter) }
+    }
+
+    /** Host change: scope returns to all online hosts, status stays remembered. */
+    fun switchHostSessionFilter(hostId: String): HostSessionFilter {
+        val next = hostFilterMemory.applyHostSwitch(hostId)
+        _hostSessionFilters.update { current -> current + (hostId to next) }
+        return next
+    }
 
     fun answer(thread: AgentThread, option: AskOption) = uhpRegistry.answer(thread, option)
 
