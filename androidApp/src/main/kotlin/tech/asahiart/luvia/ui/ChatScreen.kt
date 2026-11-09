@@ -823,6 +823,8 @@ private fun DecisionCard(
                 modifier = Modifier.padding(top = 10.dp),
                 style = MaterialTheme.typography.headlineSmall,
                 color = onCard,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
             ask.options.forEach { option ->
                 val picked = option == selected

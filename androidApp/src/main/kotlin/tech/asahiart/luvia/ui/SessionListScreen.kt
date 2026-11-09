@@ -792,7 +792,7 @@ private fun DecisionPreview(
                 modifier = Modifier.padding(top = 12.dp),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
-                maxLines = 3,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             if (primary != null || secondary != null) {

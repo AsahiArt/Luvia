@@ -576,7 +576,8 @@ struct SessionListView: View {
             }
             Text(ask?.question ?? thread.title)
                 .font(.system(size: 18, weight: .semibold))
-                .lineLimit(3)
+                .lineLimit(2)
+                .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .onTapGesture { onOpen(thread) }

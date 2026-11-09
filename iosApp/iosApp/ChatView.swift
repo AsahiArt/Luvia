@@ -314,7 +314,8 @@ struct ChatView: View {
                 }
                 Text(ask.question ?? "有一个决定在等你")
                     .font(.title2.weight(.bold))
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
                 ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                     let picked = optionID(option) == (selectedOptionID ?? recommended.map(optionID))
                     let suggested = option.recommended || optionID(option) == recommended.map(optionID)
