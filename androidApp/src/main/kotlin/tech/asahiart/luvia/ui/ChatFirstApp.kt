@@ -60,7 +60,6 @@ import tech.asahiart.luvia.thread.awaitingAcpThread
 import tech.asahiart.luvia.thread.filterSessionsByHost
 import tech.asahiart.luvia.thread.hostHomeDirectory
 import tech.asahiart.luvia.thread.openSessionPaths
-import tech.asahiart.luvia.thread.restoreHostSessionFilter
 import tech.asahiart.luvia.thread.withSelectedPath
 import tech.asahiart.luvia.thread.pendingReplyCount
 import tech.asahiart.luvia.thread.sessionRoster
@@ -138,18 +137,16 @@ fun ChatFirstApp(
     LaunchedEffect(selected?.id, state != null, selected?.connection, selectedThreads.size, snapshotAgentCount) {
         val host = selected ?: return@LaunchedEffect
         delay(400)
+        // Wait for a snapshot count so a Live partial list (e.g. 14 of 73) cannot
+        // look "known" when expected is still null and wipe a remembered path.
         val expected = runtimes.firstOrNull { it.profile.id == host.id }?.snapshot?.agents?.size
-        val caughtUp = selectedThreads.isNotEmpty() &&
-            (expected == null || selectedThreads.size >= expected)
+        val caughtUp = expected != null &&
+            selectedThreads.isNotEmpty() &&
+            selectedThreads.size >= expected
         val emptyLive = host.connection == ConnectionBadge.Live &&
             expected == 0 &&
             selectedThreads.isEmpty()
         val listKnown = hostStates[host.id] != null && (caughtUp || emptyLive)
-        if (listKnown && emptyLive) {
-            val stored = viewModel.hostSessionFilter(host.id)
-            val next = restoreHostSessionFilter(stored, selectedThreads)
-            if (next != stored) viewModel.rememberHostSessionFilter(host.id, next)
-        }
         viewModel.restoreHostFilter(host.id, selectedThreads, listKnown)
     }
     val openThread = allThreads.firstOrNull { it.id == threadId }

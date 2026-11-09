@@ -320,7 +320,8 @@ struct ContentView: View {
 
     private func sessionListKnown(hostId: String, count: Int, expected: Int?) -> Bool {
         guard model.hostStates[hostId] != nil else { return false }
-        let caughtUp = count > 0 && (expected == nil || count >= (expected ?? 0))
+        // Require a snapshot count so a partial Live list cannot wipe a path.
+        let caughtUp = expected != nil && count > 0 && count >= (expected ?? 0)
         let emptyLive = model.selectedHost?.connection == .live && expected == 0 && count == 0
         return caughtUp || emptyLive
     }
