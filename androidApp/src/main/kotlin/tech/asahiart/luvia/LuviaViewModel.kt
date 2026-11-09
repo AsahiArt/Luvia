@@ -9,7 +9,7 @@ import tech.asahiart.luvia.thread.HostSessionFilter
 import tech.asahiart.luvia.thread.NowState
 import tech.asahiart.luvia.thread.SessionScope
 import tech.asahiart.luvia.thread.applyHostSwitch
-import tech.asahiart.luvia.thread.restoreHostSessionFilter
+import tech.asahiart.luvia.thread.shouldPinStoredPath
 import android.content.SharedPreferences
 import android.content.Context
 import androidx.lifecycle.ViewModel
@@ -60,7 +60,7 @@ class LuviaViewModel(
             appContext.getSharedPreferences("host-session-filters", Context.MODE_PRIVATE),
         ),
     )
-    private val restoredHosts = mutableSetOf<String>()
+    private val pinnedHosts = mutableSetOf<String>()
     private val _hostFilterEpoch = MutableStateFlow(0)
 
     /** Bumps when the one filter store changes, so the list rereads it. */
@@ -68,32 +68,26 @@ class LuviaViewModel(
 
     fun hostSessionFilter(hostId: String): HostSessionFilter = hostFilterMemory.get(hostId)
 
+    fun hostSessionPinned(hostId: String): Boolean = hostId in pinnedHosts
+
     fun rememberHostSessionFilter(hostId: String, filter: HostSessionFilter) {
         hostFilterMemory.put(hostId, filter)
+        if (filter.scope is SessionScope.Path) pinnedHosts += hostId
         _hostFilterEpoch.value += 1
     }
 
     /** Host change: scope returns to all online hosts, status stays remembered. */
     fun switchHostSessionFilter(hostId: String): HostSessionFilter {
         val next = hostFilterMemory.applyHostSwitch(hostId)
-        restoredHosts += hostId
         _hostFilterEpoch.value += 1
         return next
     }
 
-    /**
-     * Once per host, after that host's session list is known.
-     * A stale path becomes the current host and is written back. A path the
-     * user is already sitting on is left alone, even at count 0.
-     */
-    fun restoreHostFilter(hostId: String, threads: List<AgentThread>, listKnown: Boolean) {
-        if (!listKnown) return
-        val stored = hostFilterMemory.get(hostId)
-        if (stored.scope is SessionScope.Path && threads.isEmpty()) return
-        if (!restoredHosts.add(hostId)) return
-        val next = restoreHostSessionFilter(stored, threads)
-        if (next == stored) return
-        hostFilterMemory.put(hostId, next)
+    /** In memory only. Does not write the stored filter. */
+    fun noteArrivedSessions(hostId: String, threads: List<AgentThread>) {
+        if (hostId in pinnedHosts) return
+        if (!shouldPinStoredPath(hostFilterMemory.get(hostId), threads)) return
+        pinnedHosts += hostId
         _hostFilterEpoch.value += 1
     }
 

@@ -204,6 +204,47 @@ class HostSessionFilterTest {
     }
 
     @Test
+    fun displayedPathFollowsArrivalsWithoutChangingStored() {
+        val stored = HostSessionFilter(SessionScope.Path("/work/luvia"), SessionFilter.NeedsYou)
+        val missing = thread("other", "mbp", cwd = "/work/other", status = AgentStatus.Idle)
+        assertEquals(
+            HostSessionFilter(SessionScope.CurrentHost, SessionFilter.NeedsYou),
+            displayedHostSessionFilter(stored, listOf(missing), pinned = false),
+        )
+        assertEquals(stored, stored.copy())
+        val found = thread("luvia", "mbp", cwd = "/work/luvia", status = AgentStatus.Idle)
+        assertEquals(stored, displayedHostSessionFilter(stored, listOf(missing, found), pinned = false))
+        assertEquals(false, shouldPinStoredPath(stored, listOf(missing)))
+        assertEquals(true, shouldPinStoredPath(stored, listOf(found)))
+    }
+
+    @Test
+    fun pinnedPathStaysWhenItsSessionsClose() {
+        val stored = HostSessionFilter(SessionScope.Path("/work/luvia"), SessionFilter.Idle)
+        assertEquals(stored, displayedHostSessionFilter(stored, emptyList(), pinned = true))
+    }
+
+    @Test
+    fun unpinnedMissingPathDisplaysCurrentHost() {
+        val stored = HostSessionFilter(SessionScope.Path("/work/luvia"), SessionFilter.Running)
+        val shown = displayedHostSessionFilter(
+            stored,
+            listOf(thread("x", "mbp", cwd = "/tmp/other", status = AgentStatus.Idle)),
+            pinned = false,
+        )
+        assertEquals(HostSessionFilter(SessionScope.CurrentHost, SessionFilter.Running), shown)
+        val other = HostSessionFilter()
+        assertEquals(other, displayedHostSessionFilter(other, emptyList(), pinned = false))
+    }
+
+    @Test
+    fun hostSessionListLoadingIsEmptyAndNotLive() {
+        assertEquals(true, hostSessionListLoading(0, false))
+        assertEquals(false, hostSessionListLoading(0, true))
+        assertEquals(false, hostSessionListLoading(1, false))
+    }
+
+    @Test
     fun encodedFilterRoundTripsAndRejectsGarbage() {
         val samples = listOf(
             HostSessionFilter(),

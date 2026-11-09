@@ -60,6 +60,8 @@
     <string name="empty_pair_first">先配对一台电脑，才能看到会话。</string>
     <string name="empty_filter">这个筛选下没有会话。</string>
     <string name="empty_scope_path">%1$s 下没有会话</string>
+    <string name="empty_path_tail">下没有会话</string>
+    <string name="sessions_loading">正在读取会话</string>
     <string name="empty_scope_host">%1$s 上没有会话</string>
     <string name="empty_scope_online">没有在线的会话</string>
     <string name="empty_status_in_scope">%1$s 没有%2$s的会话</string>

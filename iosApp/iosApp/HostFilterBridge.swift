@@ -1,9 +1,11 @@
+import Foundation
 import LuviaShared
 
 /// Shared per-host filter. The string is stored in UserDefaults, one key per host.
 @MainActor
 enum HostFilterBridge {
     private static let memory = DefaultsHostFilterMemory()
+    private static var pinnedHostIds: Set<String> = []
 
     static func stored(for hostId: String?) -> HostSessionFilter {
         guard let hostId else {
@@ -14,6 +16,34 @@ enum HostFilterBridge {
 
     static func remember(_ filter: HostSessionFilter, hostId: String) {
         memory.put(hostId: hostId, filter: filter)
+        if cwd(of: filter.scope) != nil {
+            pinnedHostIds.insert(hostId)
+        }
+    }
+
+    static func isPinned(_ hostId: String?) -> Bool {
+        guard let hostId else { return false }
+        return pinnedHostIds.contains(hostId)
+    }
+
+    /// In memory only. Does not write the stored filter.
+    static func noteArrived(hostId: String, threads: [AgentThread]) {
+        if pinnedHostIds.contains(hostId) { return }
+        if HostSessionFilterKt.shouldPinStoredPath(stored: stored(for: hostId), arrivedThreads: threads) {
+            pinnedHostIds.insert(hostId)
+        }
+    }
+
+    static func displayed(
+        _ stored: HostSessionFilter,
+        threads: [AgentThread],
+        hostId: String?
+    ) -> HostSessionFilter {
+        HostSessionFilterKt.displayedHostSessionFilter(
+            stored: stored,
+            arrivedThreads: threads,
+            pinned: isPinned(hostId)
+        )
     }
 
     static func switched(to hostId: String) -> HostSessionFilter {

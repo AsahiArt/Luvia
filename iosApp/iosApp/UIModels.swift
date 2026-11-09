@@ -578,7 +578,10 @@ struct HostViewState: Identifiable, Hashable, Sendable {
             paneTerminalIds: terminalIds,
             terminalPanes: terminalPanes,
             workspaces: workspaceItems,
-            snapshotAgentCount: snapshot.map { KotlinLists.array($0.agents as Any).count }
+            snapshotAgentCount: snapshot.map { snap in
+                let agents: [AgentSummary] = KotlinLists.array(snap.agents)
+                return agents.count
+            }
         )
     }
 

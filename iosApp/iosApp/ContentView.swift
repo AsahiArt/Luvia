@@ -10,8 +10,6 @@ struct ContentView: View {
     @State private var filterRevision = 0
     @State private var filtersHighlighted = false
     @State private var highlightTask: _Concurrency.Task<Void, Never>?
-    @State private var restoredHosts: Set<String> = []
-    @State private var restoreTask: _Concurrency.Task<Void, Never>?
     @State private var showSettings = false
     @State private var showNewSession = false
     @State private var cwd = ""
@@ -53,7 +51,6 @@ struct ContentView: View {
         .onAppear {
             model.autoConnectIfNeeded()
             applyPairingGate()
-            scheduleRestore()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.autoConnectIfNeeded(force: true) }
@@ -70,9 +67,6 @@ struct ContentView: View {
                 open(thread)
                 model.pendingOpenAgentID = nil
             }
-        }
-        .onChange(of: restoreToken) { _, _ in
-            scheduleRestore()
         }
         .sheet(isPresented: $showSettings) { settings }
         .sheet(isPresented: $showNewSession) { newSession }
@@ -147,8 +141,9 @@ struct ContentView: View {
                         HostFilterBridge.paths(threads: realCatalog, hostId: model.selectedHostID),
                         scope: currentFilter.scope
                     ),
-                    homeDir: selectedHome,
                     scopeSubtitle: scopeSubtitle,
+                    sessionListLoading: sessionListLoading,
+                    homeDir: selectedHome,
                     filtersHighlighted: filtersHighlighted,
                     catalog: realCatalog,
                     onlineHostIDs: onlineHostIDs,
@@ -238,9 +233,27 @@ struct ContentView: View {
         Set(model.hosts.filter { $0.connection == .live }.map(\.id))
     }
 
+    private var arrivedThreads: [AgentThread] {
+        guard let id = model.selectedHostID else { return [] }
+        return realCatalog.filter { $0.hostId == id }
+    }
+
     private var currentFilter: HostSessionFilter {
         _ = filterRevision
-        return HostFilterBridge.stored(for: model.selectedHostID)
+        let stored = HostFilterBridge.stored(for: model.selectedHostID)
+        let arrived = arrivedThreads
+        if let id = model.selectedHostID {
+            HostFilterBridge.noteArrived(hostId: id, threads: arrived)
+        }
+        return HostFilterBridge.displayed(stored, threads: arrived, hostId: model.selectedHostID)
+    }
+
+    private var sessionListLoading: Bool {
+        guard model.selectedHost != nil else { return false }
+        return HostSessionFilterKt.hostSessionListLoading(
+            sessionCount: Int32(arrivedThreads.count),
+            connectionLive: model.selectedHost?.connection == .live
+        )
     }
 
     private var scopeThreads: [AgentThread] {
@@ -310,48 +323,8 @@ struct ContentView: View {
         return HostFilterBridge.homeDirectory(username: host.username, paths: paths)
     }
 
-    private var restoreToken: String {
-        let id = model.selectedHostID ?? ""
-        let count = realCatalog.filter { $0.hostId == id }.count
-        let known = sessionListKnown(hostId: id, count: count)
-        return "\(id)#\(known)#\(count)"
-    }
-
-    private func sessionListKnown(hostId: String, count: Int) -> Bool {
-        guard model.hostStates[hostId] != nil else { return false }
-        let live = model.selectedHost?.connection == .live
-        return live || count > 0
-    }
-
     private func noteHostSwitch(_ hostId: String) {
         _ = HostFilterBridge.switched(to: hostId)
-        restoredHosts.insert(hostId)
-        filterRevision += 1
-    }
-
-    /// Wait until the session count stops moving, then restore once.
-    private func scheduleRestore() {
-        restoreTask?.cancel()
-        restoreTask = _Concurrency.Task { @MainActor in
-            try? await _Concurrency.Task.sleep(nanoseconds: 2_000_000_000)
-            guard !_Concurrency.Task.isCancelled else { return }
-            restoreSelectedFilter()
-        }
-    }
-
-    /// Once per host, after that host's session list is known. Not on every list change.
-    private func restoreSelectedFilter() {
-        guard let id = model.selectedHostID, !restoredHosts.contains(id) else { return }
-        let threads = realCatalog.filter { $0.hostId == id }
-        let known = sessionListKnown(hostId: id, count: threads.count)
-        guard known else { return }
-        restoredHosts.insert(id)
-        let stored = HostFilterBridge.stored(for: id)
-        let next = HostFilterBridge.restore(stored, threads: threads)
-        let before = HostSessionFilterKt.encodeHostSessionFilter(filter: stored)
-        let after = HostSessionFilterKt.encodeHostSessionFilter(filter: next)
-        guard before != after else { return }
-        HostFilterBridge.remember(next, hostId: id)
         filterRevision += 1
     }
 
@@ -384,7 +357,6 @@ struct ContentView: View {
             model.select(host)
         }
         HostFilterBridge.remember(HostFilterBridge.make(scope: scope, status: status), hostId: host.id)
-        restoredHosts.insert(host.id)
         filterRevision += 1
         flashFilters()
     }

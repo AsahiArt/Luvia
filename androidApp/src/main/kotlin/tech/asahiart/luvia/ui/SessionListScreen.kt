@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -76,9 +77,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.R
 import tech.asahiart.luvia.thread.AgentThread
@@ -138,6 +141,7 @@ fun SessionListScreen(
     roster: SessionRoster = sessionRoster(threads),
     trails: Map<String, TrailThumb> = emptyMap(),
     homeDir: String? = null,
+    sessionsLoading: Boolean = false,
     nowEpochMs: Long = System.currentTimeMillis(),
     terminalModifier: Modifier = Modifier,
 ) {
@@ -239,6 +243,7 @@ fun SessionListScreen(
                 roster = roster,
                 trails = trails,
                 homeDir = homeDir,
+                sessionsLoading = sessionsLoading,
                 nowEpochMs = nowEpochMs,
                 searching = searching,
                 query = query,
@@ -341,6 +346,7 @@ private fun SessionsBody(
     roster: SessionRoster,
     trails: Map<String, TrailThumb>,
     homeDir: String?,
+    sessionsLoading: Boolean,
     nowEpochMs: Long,
     searching: Boolean,
     query: String,
@@ -423,7 +429,9 @@ private fun SessionsBody(
                 )
             }
         }
-        if (shown.isEmpty()) {
+        if (shown.isEmpty() && sessionsLoading && !(searching && query.isNotBlank())) {
+            SessionLoading()
+        } else if (shown.isEmpty()) {
             SessionEmpty(
                 selected = selected,
                 searching = searching && query.isNotBlank(),
@@ -538,16 +546,18 @@ private fun ScopeFilterChip(
     val selectedPath = pathScope?.let { pathText(it.cwd, pathTexts, homeDir) }
     Box {
         FilterChip(
+            modifier = Modifier.widthIn(max = 160.dp),
             selected = filter.scope != SessionScope.AllOnline,
             onClick = { open = true },
             label = {
                 Text(
                     selectedPath?.chip ?: scopeLabel(filter.scope, hostName),
                     maxLines = 1,
+                    softWrap = false,
                     overflow = TextOverflow.Ellipsis,
                     fontFamily = if (pathScope != null) FontFamily.Monospace else null,
                     modifier = Modifier
-                        .widthIn(max = 160.dp)
+                        .widthIn(max = 72.dp)
                         .semantics {
                             if (selectedPath != null) contentDescription = selectedPath.relative
                         },
@@ -629,7 +639,7 @@ private fun ScopeFilterChip(
 private fun MenuGroupLabel(text: String) {
     Text(
         text,
-        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 2.dp),
+        modifier = Modifier.padding(start = 48.dp, end = 16.dp, top = 8.dp, bottom = 2.dp),
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -666,10 +676,12 @@ private fun ScopeMenuItem(
                 )
             }
         },
-        leadingIcon = if (selected) {
-            { Icon(Icons.Filled.Check, contentDescription = null) }
-        } else {
-            null
+        leadingIcon = {
+            Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                if (selected) {
+                    Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(24.dp))
+                }
+            }
         },
         onClick = onClick,
     )
@@ -702,11 +714,34 @@ private fun SessionEmpty(
             searching -> {
                 Text(stringResource(R.string.empty_filter), style = MaterialTheme.typography.titleMedium)
             }
+            scopeCount == 0 && filter.scope is SessionScope.Path -> {
+                Text(
+                    scopeText,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.MiddleEllipsis,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.widthIn(max = 280.dp),
+                )
+                Text(
+                    stringResource(R.string.empty_path_tail),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = onNewSession,
+                    modifier = Modifier.padding(top = 16.dp),
+                ) { Text(stringResource(R.string.new_session)) }
+                TextButton(onClick = { onFilter(filter.copy(scope = SessionScope.AllOnline)) }) {
+                    Text(stringResource(R.string.filter_see_all))
+                }
+            }
             scopeCount == 0 -> {
                 Text(
                     emptyScopeMessage(filter.scope, scopeText),
                     style = MaterialTheme.typography.titleMedium,
-                    fontFamily = if (filter.scope is SessionScope.Path) FontFamily.Monospace else null,
                 )
                 Button(
                     onClick = onNewSession,
@@ -731,6 +766,23 @@ private fun SessionEmpty(
                 Text(stringResource(R.string.empty_filter), style = MaterialTheme.typography.titleMedium)
             }
         }
+    }
+}
+
+@Composable
+private fun SessionLoading() {
+    Column(
+        Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CircularProgressIndicator()
+        Text(
+            stringResource(R.string.sessions_loading),
+            modifier = Modifier.padding(top = 12.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -820,6 +872,7 @@ private fun StatsRow(roster: SessionRoster, scopeLabel: String, monospace: Boole
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        Spacer(Modifier.width(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             StatDot(LuviaTheme.extended.live, stringResource(R.string.stats_running, roster.running))
             Spacer(Modifier.width(12.dp))

@@ -22,6 +22,7 @@ struct SessionListView: View {
     var roster: SessionRoster
     var scopePaths: [SessionPathOption]
     var scopeSubtitle: String
+    var sessionListLoading: Bool = false
     var homeDir: String? = nil
     var filtersHighlighted: Bool
     var catalog: [AgentThread]
@@ -92,7 +93,10 @@ struct SessionListView: View {
                     sessionChrome
                 }
                 if shown.isEmpty {
-                    if pathScopeCwd != nil, agentCount == 0, !model.hosts.isEmpty {
+                    if sessionListLoading && !searching {
+                        ProgressView("正在读取会话")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if pathScopeCwd != nil, agentCount == 0, !model.hosts.isEmpty {
                         pathEmpty
                     } else {
                         ContentUnavailableView(
@@ -213,7 +217,7 @@ struct SessionListView: View {
     }
 
     private var summaryRow: some View {
-        HStack(alignment: .center, spacing: 8) {
+        HStack(alignment: .center, spacing: 12) {
             HStack(spacing: 0) {
                 Text(scopeSubtitle)
                     .lineLimit(1)
@@ -254,11 +258,18 @@ struct SessionListView: View {
     }
 
     private var pathEmpty: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
             if let cwd = pathScopeCwd {
-                Text("\(HostFilterBridge.relative(cwd, home: homeDir)) 下没有会话")
-                    .font(.system(size: 14, design: .monospaced))
-                    .multilineTextAlignment(.center)
+                VStack(spacing: 4) {
+                    Text(HostFilterBridge.relative(cwd, home: homeDir))
+                        .font(.system(size: 14, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 280)
+                    Text("下没有会话")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
             Button("新建会话", action: onNewSession)
             Button("看全部") { onScope(HostFilterBridge.allOnline()) }
@@ -316,20 +327,12 @@ struct SessionListView: View {
         Button {
             onScope(HostFilterBridge.allOnline())
         } label: {
-            if HostFilterBridge.isAllOnline(filter.scope) {
-                Label("全部", systemImage: "checkmark")
-            } else {
-                Text("全部")
-            }
+            scopeChoice("全部", selected: HostFilterBridge.isAllOnline(filter.scope))
         }
         Button {
             onScope(HostFilterBridge.currentHost())
         } label: {
-            if HostFilterBridge.isCurrentHost(filter.scope) {
-                Label("这台电脑", systemImage: "checkmark")
-            } else {
-                Text("这台电脑")
-            }
+            scopeChoice("这台电脑", selected: HostFilterBridge.isCurrentHost(filter.scope))
         }
         .disabled(model.selectedHostID == nil)
         if !scopePaths.isEmpty {
@@ -341,6 +344,9 @@ struct SessionListView: View {
                 onScope(HostFilterBridge.path(option.cwd))
             } label: {
                 HStack {
+                    Image(systemName: "checkmark")
+                        .frame(width: 24)
+                        .opacity(selected ? 1 : 0)
                     Image(systemName: "folder")
                     Text(HostFilterBridge.relative(option.cwd, home: homeDir))
                         .font(.system(size: 14, design: .monospaced))
@@ -349,15 +355,22 @@ struct SessionListView: View {
                     Spacer(minLength: 12)
                     Text("\(option.count)")
                         .foregroundStyle(.secondary)
-                    if selected {
-                        Image(systemName: "checkmark")
-                    }
                 }
                 .accessibilityLabel(HostFilterBridge.relative(option.cwd, home: homeDir))
             }
         }
         if scopePaths.count > 3, !scopePathsExpanded {
             Button("更多") { scopePathsExpanded = true }
+        }
+    }
+
+    private func scopeChoice(_ title: String, selected: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark")
+                .frame(width: 24)
+                .opacity(selected ? 1 : 0)
+            Text(title)
+                .lineLimit(1)
         }
     }
 

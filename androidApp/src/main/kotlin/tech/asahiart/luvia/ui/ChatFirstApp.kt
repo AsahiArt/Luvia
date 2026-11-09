@@ -31,6 +31,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,7 +47,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.delay
 import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.LuviaViewModel
 import tech.asahiart.luvia.resolveStartupHost
@@ -58,8 +58,10 @@ import tech.asahiart.luvia.thread.HostSessionFilter
 import tech.asahiart.luvia.thread.SessionFilter
 import tech.asahiart.luvia.thread.SessionScope
 import tech.asahiart.luvia.thread.awaitingAcpThread
+import tech.asahiart.luvia.thread.displayedHostSessionFilter
 import tech.asahiart.luvia.thread.filterSessionsByHost
 import tech.asahiart.luvia.thread.hostHomeDirectory
+import tech.asahiart.luvia.thread.hostSessionListLoading
 import tech.asahiart.luvia.thread.openSessionPaths
 import tech.asahiart.luvia.thread.withSelectedPath
 import tech.asahiart.luvia.thread.pendingReplyCount
@@ -112,11 +114,20 @@ fun ChatFirstApp(
     val allThreads = sortSessions(state?.threads(selected.id).orEmpty())
     val onlineHostIds = hosts.filter { it.connection == ConnectionBadge.Live }.map { it.id }.toSet()
     val catalog = sortSessions(hosts.flatMap { host -> hostStates[host.id]?.threads(host.id).orEmpty() })
-    val filter = selected?.id
-        ?.takeIf { filterEpoch >= 0 }
-        ?.let(viewModel::hostSessionFilter)
-        ?: HostSessionFilter()
     val selectedThreads = catalog.filter { it.hostId == selected?.id }
+    val filter = selected?.id?.let { id ->
+        filterEpoch
+        displayedHostSessionFilter(
+            viewModel.hostSessionFilter(id),
+            selectedThreads,
+            viewModel.hostSessionPinned(id),
+        )
+    } ?: HostSessionFilter()
+    val sessionsLoading = selected != null &&
+        hostSessionListLoading(selectedThreads.size, selected.connection == ConnectionBadge.Live)
+    SideEffect {
+        selected?.id?.let { viewModel.noteArrivedSessions(it, selectedThreads) }
+    }
     val homeDir = hostHomeDirectory(selected?.username, selectedThreads.mapNotNull { it.cwd })
     val inScope = filterSessionsByHost(
         catalog,
@@ -140,16 +151,6 @@ fun ChatFirstApp(
         ).size,
         paths = withSelectedPath(openSessionPaths(catalog, selected?.id), filter.scope),
     )
-    // Size is a key so each growth cancels the settle timer. Restore runs only
-    // after the host session list has been unchanged for 2s (partial Live lists
-    // like 14→73 must not trigger path→host fallback).
-    LaunchedEffect(selected?.id, state != null, selected?.connection, selectedThreads.size) {
-        val host = selected ?: return@LaunchedEffect
-        delay(2_000)
-        val listKnown = hostStates[host.id] != null &&
-            (host.connection == ConnectionBadge.Live || selectedThreads.isNotEmpty())
-        viewModel.restoreHostFilter(host.id, selectedThreads, listKnown)
-    }
     val openThread = allThreads.firstOrNull { it.id == threadId }
     val openBlocked = launchIntent?.getBooleanExtra(StatusNotificationController.EXTRA_OPEN_BLOCKED, false) == true
     var consumedLaunch by rememberSaveable { mutableStateOf(false) }
@@ -397,6 +398,7 @@ fun ChatFirstApp(
                 onRetry = { selected?.id?.let(viewModel::connect) },
                 roster = sessionRoster(inScope),
                 homeDir = homeDir,
+                sessionsLoading = sessionsLoading,
                 trails = buildMap {
                     for (host in hosts) {
                         val hostState = hostStates[host.id] ?: continue

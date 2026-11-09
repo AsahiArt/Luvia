@@ -20,10 +20,10 @@ public sealed class SessionScope {
 /**
  * Scheme ②: one scope and one status, remembered together for a host.
  *
- * Cold start restores both from [HostFilterMemory]. [restoreHostSessionFilter]
- * then drops a path that has no sessions on that host. A host switch does not
- * restore the previous scope: see [applyHostSwitch]. While the user stays on a
- * path, a count of zero does not change the scope.
+ * Cold start reads both from [HostFilterMemory] and does not write them back.
+ * [displayedHostSessionFilter] may show [SessionScope.CurrentHost] until that
+ * path is pinned. A host switch does not restore the previous scope: see
+ * [applyHostSwitch]. A pinned path stays selected at count zero.
  */
 public data class HostSessionFilter(
     val scope: SessionScope = SessionScope.AllOnline,
@@ -177,12 +177,8 @@ public class DecodingHostFilterMemory(
 }
 
 /**
- * Cold start, or the next time this host is restored.
- * A remembered path with no session on [threadsForHost] becomes [SessionScope.CurrentHost].
- * Status stays. Other scopes stay. Does not write.
- *
- * Do not call this when the user is already sitting on that path and the last
- * session closes. Call it only when the session list for the host is known.
+ * Display-only. A path with no matching session becomes [SessionScope.CurrentHost].
+ * Status stays. Does not write.
  */
 public fun restoreHostSessionFilter(
     stored: HostSessionFilter,
@@ -193,6 +189,36 @@ public fun restoreHostSessionFilter(
     val live = threadsForHost.any { thread -> normalizeSessionCwd(thread.cwd) == wanted }
     return if (live) stored else stored.copy(scope = SessionScope.CurrentHost)
 }
+
+/**
+ * What the session list shows. Does not write.
+ *
+ * A pinned path stays, even at count zero. An unpinned path is [restoreHostSessionFilter].
+ * Any other scope is [stored].
+ */
+public fun displayedHostSessionFilter(
+    stored: HostSessionFilter,
+    arrivedThreads: List<AgentThread>,
+    pinned: Boolean,
+): HostSessionFilter {
+    if (stored.scope !is SessionScope.Path) return stored
+    if (pinned) return stored
+    return restoreHostSessionFilter(stored, arrivedThreads)
+}
+
+/** True when [stored]'s path has at least one session in [arrivedThreads]. */
+public fun shouldPinStoredPath(
+    stored: HostSessionFilter,
+    arrivedThreads: List<AgentThread>,
+): Boolean {
+    val path = stored.scope as? SessionScope.Path ?: return false
+    val wanted = normalizeSessionCwd(path.cwd) ?: return false
+    return arrivedThreads.any { thread -> normalizeSessionCwd(thread.cwd) == wanted }
+}
+
+/** This host has not delivered a session yet, and it is not live. */
+public fun hostSessionListLoading(sessionCount: Int, connectionLive: Boolean): Boolean =
+    sessionCount == 0 && !connectionLive
 
 /**
  * Keep a selected path in the menu after its last session closes.
