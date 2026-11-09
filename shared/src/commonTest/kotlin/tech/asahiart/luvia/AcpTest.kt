@@ -305,6 +305,140 @@ class AcpTest {
     }
 
     @Test
+    fun newAcpFixWithoutControlRefusesAndLeavesTheDraftEmpty() = runTest {
+        val opens = mutableListOf<JsonObject>()
+        val session =
+            openAcpClient(
+                backgroundScope,
+                opens = opens,
+                methods =
+                    listOf(
+                        Methods.CAPABILITIES,
+                        Methods.ACP_AGENTS,
+                        Methods.ACP_SESSION_LIST,
+                    ),
+            )
+        val runtime = sampleRuntime(agent = "pi", cwd = "/tmp/pane", workspaceCwd = "/tmp/work")
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        assertTrue(uhp.state.value.canMutate)
+        assertEquals(false, session.supports(UhpMethods.ACP_SESSION_OPEN))
+        uhp.setShowLaunchAcp(true)
+        uhp.setLaunchAcpAgent("claude")
+        uhp.setLaunchAcpCwd("/tmp/keep")
+        val before = uhp.state.value.acp
+        assertEquals(FailureHandoff.Refused, uhp.handoffFailure("AnsiParserTest FAILED", "7", "codex"))
+        assertEquals("", uhp.state.value.acp.draft)
+        assertEquals(before, uhp.state.value.acp)
+        assertTrue(opens.isEmpty())
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun newAcpFixAsObserverRefusesAndLeavesTheDraftEmpty() = runTest {
+        val opens = mutableListOf<JsonObject>()
+        val session = openAcpClient(backgroundScope, opens = opens)
+        val runtime =
+            sampleRuntime(
+                agent = "pi",
+                cwd = "/tmp/pane",
+                workspaceCwd = "/tmp/work",
+                role = HostRole.Observer,
+            )
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        assertEquals(true, uhp.state.value.isObserver)
+        assertEquals(false, uhp.state.value.canMutate)
+        assertTrue(session.supports(UhpMethods.ACP_SESSION_OPEN))
+        uhp.setShowLaunchAcp(true)
+        uhp.setLaunchAcpAgent("claude")
+        uhp.setLaunchAcpCwd("/tmp/keep")
+        val before = uhp.state.value.acp
+        assertEquals(FailureHandoff.Refused, uhp.handoffFailure("AnsiParserTest FAILED", "7", "codex"))
+        assertEquals("", uhp.state.value.acp.draft)
+        assertEquals(before, uhp.state.value.acp)
+        assertTrue(opens.isEmpty())
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun newAcpFixRefusesWhileStartingAndKeepsThatSession() = runTest {
+        val session = openAcpClient(backgroundScope)
+        val runtime = sampleRuntime(agent = "pi", cwd = "/tmp/pane", workspaceCwd = "/tmp/work")
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        uhp.setLaunchAcpAgent("codex")
+        uhp.setLaunchAcpCwd("/tmp/work")
+        uhp.launchAcp()
+        val before = uhp.state.value.acp
+        assertEquals(AcpRunState.Starting, before.run)
+        assertEquals("codex", before.launchAgentId)
+        assertEquals(FailureHandoff.Refused, uhp.handoffFailure("AnsiParserTest FAILED", "7", "claude"))
+        assertEquals(before, uhp.state.value.acp)
+        assertEquals("", uhp.state.value.acp.draft)
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun newAcpFixRefusesWhileWorkingAndKeepsThatSession() = runTest {
+        val session = openAcpClient(backgroundScope, streamEvents = listOf(AGENT_HELLO, TURN_ENDED))
+        val runtime = sampleRuntime(agent = "pi", cwd = "/tmp/pane", workspaceCwd = "/tmp/work")
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        uhp.setLaunchAcpAgent("codex")
+        uhp.setLaunchAcpCwd("/tmp/work")
+        uhp.launchAcp()
+        withTimeout(2.seconds) {
+            uhp.state.first { state ->
+                state.acp.run == AcpRunState.Ready &&
+                    state.acp.info?.sessionId == "sess_1" &&
+                    state.acp.transcript.any { it is AcpTranscriptItem.Turn }
+            }
+        }
+        uhp.setAcpDraft("still working")
+        assertTrue(uhp.promptAcp())
+        val before = uhp.state.value.acp
+        assertEquals(AcpRunState.Working, before.run)
+        assertEquals("", before.draft)
+        assertEquals(FailureHandoff.Refused, uhp.handoffFailure("AnsiParserTest FAILED", "7", "claude"))
+        assertEquals(before, uhp.state.value.acp)
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun newAcpFixDraftsOnlyAfterTheChosenAgentStarts() = runTest {
+        val opens = mutableListOf<JsonObject>()
+        val session = openAcpClient(backgroundScope, opens = opens)
+        val runtime = sampleRuntime(agent = "pi", cwd = "/tmp/pane", workspaceCwd = "/tmp/work")
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        uhp.setLaunchAcpAgent("claude")
+        uhp.setLaunchAcpCwd("/tmp/other")
+        assertEquals(FailureHandoff.Drafted, uhp.handoffFailure("AnsiParserTest FAILED", "7", "codex"))
+        val started = uhp.state.value.acp
+        assertEquals(AcpRunState.Starting, started.run)
+        assertEquals("codex", started.launchAgentId)
+        assertEquals("/tmp/work", started.launchCwd)
+        assertEquals("请修这个失败：\nAnsiParserTest FAILED", started.draft)
+        val opened =
+            withTimeout(2.seconds) {
+                uhp.state.first { it.acp.info?.sessionId == "sess_1" }.acp
+            }
+        assertEquals("codex", opened.launchAgentId)
+        assertEquals("codex", opened.info?.agentId)
+        assertEquals("请修这个失败：\nAnsiParserTest FAILED", opened.draft)
+        val params = opens.single()
+        assertEquals("codex", params.getValue("agent").jsonPrimitive.content)
+        assertEquals("/tmp/work", params.getValue("cwd").jsonPrimitive.content)
+        uhp.close()
+        session.close()
+    }
+
+    @Test
     fun choosingTheSessionAgentStillUsesThePanePath() = runTest {
         val session = openAcpClient(backgroundScope, extraMethods = listOf(Methods.AGENT_PROMPT))
         val runtime = sampleRuntime(agent = "pi", cwd = "/tmp/work")
@@ -340,14 +474,18 @@ private suspend fun openAcpClient(
     opens: MutableList<JsonObject>? = null,
     streamEvents: List<String> = emptyList(),
     extraMethods: List<String> = emptyList(),
+    methods: List<String>? = null,
 ): LuviaSession {
-    val methods =
-        listOf(
-            Methods.CAPABILITIES,
-            Methods.ACP_AGENTS,
-            Methods.ACP_SESSION_LIST,
-            Methods.ACP_SESSION_OPEN,
-        ) + extraMethods
+    val advertised =
+        methods
+            ?: (
+                listOf(
+                    Methods.CAPABILITIES,
+                    Methods.ACP_AGENTS,
+                    Methods.ACP_SESSION_LIST,
+                    Methods.ACP_SESSION_OPEN,
+                ) + extraMethods
+            )
     val factory =
         ScriptedFactory(scope) { framer ->
             val prelude = parseObject(framer.readFrame())
@@ -367,7 +505,7 @@ private suspend fun openAcpClient(
                             ) {
                                 opens += request.params
                             }
-                            respondAcp(framer, request, methods)
+                            respondAcp(framer, request, advertised)
                             if (request.method == Methods.ACP_SESSION_OPEN) {
                                 streamEvents.forEach { framer.writeFrame(it) }
                                 if (actions != null) {
@@ -435,6 +573,7 @@ private fun sampleRuntime(
     agent: String? = null,
     cwd: String? = null,
     workspaceCwd: String? = null,
+    role: HostRole = HostRole.Controller,
 ): HostRuntime {
     val summary =
         AgentSummary(
@@ -457,7 +596,7 @@ private fun sampleRuntime(
                 sshPort = 22,
                 username = "misaka",
                 hostKeyFingerprints = listOf("SHA256:abc"),
-                role = HostRole.Controller,
+                role = role,
                 lastStatus = HostStatus.Unknown,
                 lastUpdatedEpochMs = 0L,
                 lastConnectedAddress = null,

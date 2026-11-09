@@ -180,17 +180,37 @@ public class HostUhp(
 
     /**
      * #47 new ACP session for a different agent, then the fix text in that composer.
-     * An ACP draft that already has text is left alone.
+     * An ACP draft that already has text is left alone. Working or Starting is left
+     * alone and is not stopped. The draft is written only after launch is Starting
+     * as [agentType]; otherwise only the launch fields just prepared are put back.
      */
     private fun draftFixOnNewAcp(excerpt: String, agentType: String, paneId: String?): FailureHandoff {
         val body = excerpt.trim()
         if (body.isEmpty()) return FailureHandoff.Refused
-        if (state.value.acp.draft.isNotBlank()) return FailureHandoff.Refused
+        val before = state.value.acp
+        if (before.draft.isNotBlank()) return FailureHandoff.Refused
+        if (before.run == AcpRunState.Working || before.run == AcpRunState.Starting) {
+            return FailureHandoff.Refused
+        }
         setLaunchAcpAgent(agentType)
         setLaunchAcpCwd(failureHandoffCwd(paneId))
         launchAcp()
+        val launched = state.value.acp
+        if (launched.run != AcpRunState.Starting || launched.launchAgentId != agentType) {
+            restorePreparedAcpLaunch(before)
+            return FailureHandoff.Refused
+        }
         setAcpDraft(FIX_LEAD + body)
         return FailureHandoff.Drafted
+    }
+
+    /** Puts back agent, directory, and launch error from a start that did not take. Does not close the session. */
+    private fun restorePreparedAcpLaunch(before: AcpState) {
+        setLaunchAcpAgent(before.launchAgentId)
+        setLaunchAcpCwd(before.launchCwd)
+        if (state.value.acp.errorText != before.errorText) {
+            ctx.update { it.copy(acp = it.acp.copy(errorText = before.errorText)) }
+        }
     }
 
     private fun failureHandoffCwd(paneId: String?): String {
