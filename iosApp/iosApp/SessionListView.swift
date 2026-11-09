@@ -18,11 +18,19 @@ struct SessionListView: View {
     @Bindable var model: AppModel
     var threads: [AgentThread]
     var pending: [AgentThread]
-    var filter: SessionFilter
+    var filter: HostSessionFilter
     var roster: SessionRoster
+    var scopePaths: [SessionPathOption]
+    var scopeSubtitle: String
+    var filtersHighlighted: Bool
+    var catalog: [AgentThread]
+    var onlineHostIDs: Set<String>
     var trails: [String: TrailThumb] = [:]
     var latencyMs: Int? = nil
-    var onFilter: (SessionFilter) -> Void
+    var onScope: (SessionScope) -> Void
+    var onStatus: (SessionFilter) -> Void
+    var onSelectHost: (HostViewState) -> Void
+    var onFocusFilter: (HostViewState, SessionScope, SessionFilter) -> Void
     var onOpen: (AgentThread) -> Void
     var onAnswer: (AgentThread, AskOption) -> Void
     var onPair: () -> Void
@@ -36,6 +44,11 @@ struct SessionListView: View {
     @State private var searching = false
     @State private var query = ""
     @State private var lastChromeTapUptime: TimeInterval = -.infinity
+    @State private var scopePathsExpanded = false
+    @State private var scanning = false
+    @State private var pairError: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Group {
@@ -53,141 +66,267 @@ struct SessionListView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if showsChrome { homeTabBar }
         }
+        .sheet(isPresented: $scanning) {
+            QRScannerView(
+                onCode: { code in
+                    scanning = false
+                    let raw = code
+                    _Concurrency.Task { @MainActor in
+                        await completeScan(raw)
+                    }
+                },
+                onUnavailable: {
+                    pairError = "相机不可用。"
+                    scanning = false
+                },
+                onCancel: { scanning = false }
+            )
+        }
     }
 
     private var sessions: some View {
-        let host = model.selectedHost
-        return VStack(spacing: 0) {
-            if showsChrome {
-                header(host)
-                titleRow
-                if searching {
-                    TextField("搜索会话", text: $query)
-                        .textFieldStyle(.roundedBorder)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 4)
+        NavigationStack {
+            VStack(spacing: 0) {
+                if showsChrome {
+                    sessionChrome
                 }
-                if waitingCount > 0 {
-                    HStack {
-                        Button("\(waitingCount) 个待你决定") { onFilter(.needsYou) }
-                            .foregroundStyle(Self.decide)
-                        Spacer()
-                        Button("全部") { onFilter(.all) }
-                            .foregroundStyle(Color.blue)
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 4)
+                if shown.isEmpty {
+                    ContentUnavailableView(
+                        emptyTitle,
+                        systemImage: "bubble.left.and.bubble.right",
+                        description: Text(emptyDetail)
+                    )
+                } else {
+                    sessionScroll
                 }
-                if !visiblePending.isEmpty && filter != .running && filter != .idle {
-                    stackedDecisions
-                }
-                HStack(spacing: 0) {
-                    filterChip("全部 \(agentCount)", .all)
-                    filterChip("等你 \(waitingCount)", .needsYou)
-                    filterChip("运行 \(runningCount)", .running)
-                    filterChip("空闲 \(idleCount)", .idle)
-                }
-                .padding(3)
-                .background(Self.segmentTrack, in: Capsule())
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
             }
-            if shown.isEmpty {
-                ContentUnavailableView(
-                    host == nil ? "配对一台电脑" : "没有会话",
-                    systemImage: "bubble.left.and.bubble.right",
-                    description: Text("新会话用顶栏 +。电脑上的 agent 仍由主机创建。")
-                )
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(shown.enumerated()), id: \.element.id) { index, thread in
-                            // Plain Button gestures inside this scroll view win hits on the
-                            // tab bar. A bounded tap stays inside the row.
-                            sessionRow(thread)
-                                .contentShape(.interaction, Rectangle())
-                                .onTapGesture { onOpen(thread) }
-                                .accessibilityElement(children: .combine)
-                                .accessibilityAddTraits(.isButton)
-                                .accessibilityAction { onOpen(thread) }
-                            if index < shown.count - 1 {
-                                Divider().padding(.leading, 84)
-                            }
-                        }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("会话")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar(showsChrome ? .visible : .hidden, for: .navigationBar)
+            .toolbarTitleMenu { scopeMenu }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { hostMenu }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if let host = model.selectedHost, host.connection != .live {
+                        Button("重试") { model.connect(host.id) }
                     }
-                    .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
+                    Button(action: onNewSession) {
+                        Image(systemName: "plus")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 36, height: 36)
+                            .luviaGlass(in: Circle())
+                    }
+                    .accessibilityLabel("新会话")
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color(.systemGroupedBackground))
     }
 
     private var machines: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("机器")
-                .font(.largeTitle.bold())
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-            Text("已配对的电脑。点一台查看它的会话。")
-                .font(.subheadline)
+        MachinesHome(
+            model: model,
+            catalog: catalog,
+            onlineHostIDs: onlineHostIDs,
+            latencyMs: latencyMs,
+            pairError: pairError,
+            onPair: onPair,
+            onScan: {
+                pairError = nil
+                scanning = true
+            },
+            onFocus: { host, scope, status in
+                onFocusFilter(host, scope, status)
+                tab = .sessions
+            }
+        )
+    }
+
+    private var sessionChrome: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(scopeSubtitle)
+                .font(HostFilterBridge.cwd(of: filter.scope) == nil ? .subheadline : .subheadline.monospaced())
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-            if model.hosts.isEmpty {
-                ContentUnavailableView("配对一台电脑", systemImage: "laptopcomputer", description: Text("配对之后会出现在这里。"))
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(model.hosts) { host in
-                            HStack(spacing: 12) {
-                                Circle()
-                                    .fill(dotColor(host.connection))
-                                    .frame(width: 10, height: 10)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(host.name).font(.headline)
-                                    Text(connectionLabel(host.connection))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if host.id == model.selectedHostID {
-                                    Image(systemName: "checkmark")
-                                        .foregroundStyle(.blue)
-                                }
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 14)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(.interaction, Rectangle())
-                            .onTapGesture {
-                                model.select(host)
-                                tab = .sessions
-                            }
-                            .accessibilityElement(children: .combine)
-                            .accessibilityAddTraits(.isButton)
-                            .accessibilityAction {
-                                model.select(host)
-                                tab = .sessions
-                            }
-                        }
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(filtersHighlighted ? Color.accentColor.opacity(0.18) : Color.clear)
+                )
+            Picker("状态", selection: statusBinding) {
+                Text("全部 \(agentCount)").tag(SessionFilter.all)
+                Text("等你 \(waitingCount)").tag(SessionFilter.needsYou)
+                Text("运行 \(runningCount)").tag(SessionFilter.running)
+                Text("空闲 \(idleCount)").tag(SessionFilter.idle)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("会话状态")
+            .padding(2)
+            .overlay {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(filtersHighlighted ? Color.accentColor : Color.clear, lineWidth: 2)
+            }
+            if searching {
+                TextField("搜索会话", text: $query)
+                    .textFieldStyle(.roundedBorder)
+            }
+            if waitingCount > 0 && filter.status != .running && filter.status != .idle {
+                Button("等你决定 · \(waitingCount)") { onStatus(.needsYou) }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(needsYouColor)
+                    .buttonStyle(.plain)
+            }
+            if !visiblePending.isEmpty && filter.status != .running && filter.status != .idle {
+                stackedDecisions
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: filtersHighlighted)
+    }
+
+    private var sessionScroll: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(shown.enumerated()), id: \.element.id) { index, thread in
+                    sessionRow(thread)
+                        .contentShape(.interaction, Rectangle())
+                        .onTapGesture { onOpen(thread) }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAction { onOpen(thread) }
+                    if index < shown.count - 1 {
+                        Divider().padding(.leading, 84)
                     }
                 }
             }
-            HStack {
-                Button("配对电脑", action: onPair)
-                    .buttonStyle(.bordered)
-                if model.selectedHost != nil {
-                    Button("打开终端", action: onTerminal)
-                        .buttonStyle(.bordered)
+            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+        }
+    }
+
+    private var statusBinding: Binding<SessionFilter> {
+        Binding(get: { filter.status }, set: onStatus)
+    }
+
+    private var needsYouColor: Color {
+        colorScheme == .dark ? Color(hex: "FFB340") : Color(hex: "FF9F0A")
+    }
+
+    private var emptyTitle: String {
+        if model.hosts.isEmpty { return "配对一台电脑" }
+        switch filter.status {
+        case .needsYou: return "没有等你决定的"
+        case .running: return "没有运行中的会话"
+        case .idle: return "没有空闲会话"
+        default: return "没有会话"
+        }
+    }
+
+    private var emptyDetail: String {
+        if model.hosts.isEmpty { return "在电脑上运行 luvia-host pair" }
+        return scopeSubtitle
+    }
+
+    private var hostMenu: some View {
+        let host = model.selectedHost
+        return Menu {
+            ForEach(model.hosts) { item in
+                Button(item.name) { onSelectHost(item) }
+            }
+            Button("配对电脑", action: onPair)
+            if host != nil {
+                Button("打开终端", action: onTerminal)
+                Button("电脑设置", action: onSettings)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(dotColor(host?.connection))
+                    .frame(width: 8, height: 8)
+                Text(host?.name ?? "没有电脑")
+                    .font(.subheadline.weight(.semibold).monospaced())
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .luviaGlass(in: Capsule())
+        }
+        .tint(.primary)
+    }
+
+    @ViewBuilder
+    private var scopeMenu: some View {
+        Button {
+            onScope(HostFilterBridge.allOnline())
+        } label: {
+            if HostFilterBridge.isAllOnline(filter.scope) {
+                Label("全部", systemImage: "checkmark")
+            } else {
+                Text("全部")
+            }
+        }
+        Button {
+            onScope(HostFilterBridge.currentHost())
+        } label: {
+            if HostFilterBridge.isCurrentHost(filter.scope) {
+                Label("这台电脑", systemImage: "checkmark")
+            } else {
+                Text("这台电脑")
+            }
+        }
+        .disabled(model.selectedHostID == nil)
+        if !scopePaths.isEmpty {
+            Divider()
+        }
+        ForEach(menuPaths, id: \.cwd) { option in
+            let selected = HostFilterBridge.cwd(of: filter.scope) == option.cwd
+            Button {
+                onScope(HostFilterBridge.path(option.cwd))
+            } label: {
+                HStack {
+                    Image(systemName: "folder")
+                    Text(MachinePath.display(option.cwd))
+                        .font(.body.monospaced())
+                    Spacer(minLength: 12)
+                    if selected {
+                        Image(systemName: "checkmark")
+                    }
                 }
             }
-            .tint(.blue)
-            .padding(16)
+        }
+        if scopePaths.count > 3, !scopePathsExpanded {
+            Button("更多") { scopePathsExpanded = true }
+        }
+    }
+
+    private var menuPaths: [SessionPathOption] {
+        if scopePathsExpanded || scopePaths.count <= 3 { return scopePaths }
+        let head = Array(scopePaths.prefix(3))
+        guard let cwd = HostFilterBridge.cwd(of: filter.scope) else { return head }
+        if head.contains(where: { $0.cwd == cwd }) { return head }
+        guard let extra = scopePaths.first(where: { $0.cwd == cwd }) else { return head }
+        return head + [extra]
+    }
+
+    private func completeScan(_ raw: String) async {
+        let name = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch model.beginPairing(deviceLabel: name.isEmpty ? "iPhone" : name, role: .controller) {
+        case .success(let draft):
+            let result = await model.completePairing(draft: draft, rawCode: raw)
+            if case .failure(let error) = result {
+                pairError = error.message
+            } else {
+                tab = .sessions
+            }
+        case .failure(let error):
+            pairError = error.message
         }
     }
 
@@ -215,80 +354,10 @@ struct SessionListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func header(_ host: HostViewState?) -> some View {
-        HStack(spacing: 8) {
-            Menu {
-                ForEach(model.hosts) { item in
-                    Button(item.name) { model.select(item) }
-                }
-                Button("配对电脑", action: onPair)
-                if host != nil {
-                    Button("电脑设置", action: onSettings)
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(dotColor(host?.connection))
-                        .frame(width: 8, height: 8)
-                    Text(host?.name ?? "没有电脑")
-                        .font(.subheadline.weight(.semibold).monospaced())
-                        .lineLimit(1)
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.semibold))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .luviaGlass(in: Capsule())
-            }
-            .tint(.primary)
-            Spacer()
-            if let host, host.connection != .live {
-                Button("重试") { model.connect(host.id) }
-                    .buttonStyle(.bordered)
-                    .tint(.blue)
-            }
-            Button(action: onNewSession) {
-                Image(systemName: "plus")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 36, height: 36)
-                    .luviaGlass(in: Circle())
-            }
-            .buttonStyle(.plain)
-            .tint(.blue)
-            .accessibilityLabel("新会话")
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-    }
-
-    private var titleRow: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("会话")
-                .font(.largeTitle.bold())
-            Spacer(minLength: 12)
-            Text(statsLine)
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.trailing)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 4)
-    }
-
     private var agentCount: Int { kotlinInt(roster.agents) ?? 0 }
     private var runningCount: Int { kotlinInt(roster.running) ?? 0 }
     private var waitingCount: Int { kotlinInt(roster.waiting) ?? 0 }
     private var idleCount: Int { kotlinInt(roster.idle) ?? 0 }
-
-    private var statsLine: String {
-        var parts = ["\(agentCount) agents"]
-        if let latencyMs {
-            parts.append("\(latencyMs) ms")
-        }
-        parts.append("\(runningCount) 运行")
-        parts.append("\(waitingCount) 等你")
-        return parts.joined(separator: " · ")
-    }
 
     /// Floating glass over the session list. The glass view hit-tests the glyph only,
     /// so a tap on 机器 used to fall through and open the row underneath.
@@ -633,25 +702,6 @@ struct SessionListView: View {
                 .stroke(Self.decide.opacity(0.35), lineWidth: 1.5)
         )
         .shadow(color: .black.opacity(0.07), radius: 10, y: 4)
-    }
-
-    private func filterChip(_ title: String, _ value: SessionFilter) -> some View {
-        let selected = filter == value
-        return Button {
-            onFilter(value)
-        } label: {
-            Text(title)
-                .font(.subheadline.weight(selected ? .semibold : .medium))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 7)
-                .background(selected ? Color(.systemBackground) : Color.clear, in: Capsule())
-                .shadow(color: selected ? .black.opacity(0.12) : .clear, radius: 3, y: 1)
-                .foregroundStyle(selected ? Color.primary : Color.secondary)
-        }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity)
     }
 
     /// List rows use a brand mark when [agentBrandLogo] knows the agent.
