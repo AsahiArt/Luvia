@@ -171,16 +171,6 @@ class SessionListTest {
         )
         assertEquals("Replace", recommendedOption(marked)?.label)
         assertTrue(marked.options[1].recommended)
-        assertNull(initialAskSelection(marked))
-    }
-
-    @Test
-    fun initialAskSelectionIsNull() {
-        val ask = Ask(
-            "ship?",
-            listOf(AskOption("Yes", AskTone.Primary, AskAction.Prompt("y"), recommended = true)),
-        )
-        assertNull(initialAskSelection(ask))
     }
 
     @Test
@@ -193,15 +183,15 @@ class SessionListTest {
     }
 
     @Test
-    fun noteOnFreeTextRowTypesFromTheCursor() {
+    fun noteOnFreeTextRowTypesAfterDigitZ() {
         val ask = Ask(
             "q?",
-            listOf(AskOption("允许", AskTone.Primary, AskAction.Keys(listOf(AgentKey.ENTER)))),
-            freeTextNav = listOf(AgentKey.DOWN, AgentKey.DOWN),
+            listOf(AskOption("允许", AskTone.Primary, AskAction.Keys(listOf(AgentKey.Char('1'))))),
+            freeTextNav = listOf(AgentKey.Char('z')),
         )
         val sent = askSubmission(ask, null, " hi ")
         val keys = (sent!!.action as AskAction.Keys).keys
-        assertEquals(listOf("down", "down", "h", "i", "enter"), keys.map { it.wire })
+        assertEquals(listOf("z", "h", "i", "enter"), keys.map { it.wire })
         assertFalse(askHasFreeText(Ask("q?", emptyList())))
     }
 

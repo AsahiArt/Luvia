@@ -203,8 +203,9 @@ class ThreadTest {
         val ask = state.threads("h").single().ask!!
         assertEquals(question, ask.question)
         assertEquals(listOf("允许", "不允许"), ask.options.map { it.label })
-        assertEquals(AskAction.Keys(listOf(AgentKey.ENTER)), ask.options[0].action)
-        assertEquals(AskAction.Keys(listOf(AgentKey.DOWN, AgentKey.ENTER)), ask.options[1].action)
+        assertEquals(listOf("1"), (ask.options[0].action as AskAction.Keys).keys.map { it.wire })
+        assertEquals(listOf("2"), (ask.options[1].action as AskAction.Keys).keys.map { it.wire })
+        assertEquals(listOf("z"), ask.freeTextNav!!.map { it.wire })
         assertTrue(ask.options[0].recommended)
         assertTrue(!ask.options[0].consequence.isNullOrBlank())
         assertTrue(ask.options[0].consequence!!.contains("probe.txt"))
@@ -270,11 +271,8 @@ class ThreadTest {
         assertEquals("是否继续跑测试？", ask.question)
         assertEquals(listOf("允许", "不允许"), ask.options.map { it.label })
         assertEquals(
-            listOf(
-                AskAction.Keys(listOf(AgentKey.ENTER)),
-                AskAction.Keys(listOf(AgentKey.DOWN, AgentKey.ENTER)),
-            ),
-            ask.options.map { it.action },
+            listOf(listOf("1"), listOf("2")),
+            ask.options.map { (it.action as AskAction.Keys).keys.map { key -> key.wire } },
         )
         assertEquals(2, ask.options.size)
         assertTrue(ask.options.none { it.label in setOf("Keep", "Archive", "Wipe") })
@@ -323,17 +321,29 @@ class ThreadTest {
     }
 
     @Test
-    fun keysNavigateRelativeToCursorOnOption2() {
-        val grok = """
+    fun grokAskUsesDirectNumberKeys() {
+        val transcript = """
+            |是否允许？
+            |1 (○) 允许
+            |2 (○) 不允许
+            |""".trimMargin()
+        val ask = blockedAsk(transcript)
+        assertEquals(listOf("允许", "不允许"), ask.options.map { it.label })
+        assertEquals(listOf("1"), (ask.options[0].action as AskAction.Keys).keys.map { it.wire })
+        assertEquals(listOf("2"), (ask.options[1].action as AskAction.Keys).keys.map { it.wire })
+
+        val filled = """
             |是否允许？
             |1 (○) 允许
             |2 (●) 不允许
             |""".trimMargin()
-        val grokAsk = blockedAsk(grok)
-        assertEquals(listOf("允许", "不允许"), grokAsk.options.map { it.label })
-        assertEquals(AskAction.Keys(listOf(AgentKey.UP, AgentKey.ENTER)), grokAsk.options[0].action)
-        assertEquals(AskAction.Keys(listOf(AgentKey.ENTER)), grokAsk.options[1].action)
+        val filledAsk = blockedAsk(filled)
+        assertEquals(listOf("1"), (filledAsk.options[0].action as AskAction.Keys).keys.map { it.wire })
+        assertEquals(listOf("2"), (filledAsk.options[1].action as AskAction.Keys).keys.map { it.wire })
+    }
 
+    @Test
+    fun keysNavigateRelativeToCursorOnOption2() {
         val claude = """
             |是否允许？
             |  1. 允许
@@ -346,17 +356,16 @@ class ThreadTest {
     }
 
     @Test
-    fun plainNumberedListIsNotAnAsk() {
+    fun numberedBlockWithoutCursorHasNoPrompt() {
         val transcript = """
             |Run the tests?
-            |1. foo
-            |2. bar
+            |1. Yes
+            |2. No
             |""".trimMargin()
         val ask = blockedAsk(transcript)
         assertEquals("Run the tests?", ask.question)
-        assertEquals(listOf("Yes", "No"), ask.options.map { it.label })
-        assertEquals(AskAction.Prompt("y"), ask.options[0].action)
-        assertEquals(AskAction.Prompt("n"), ask.options[1].action)
+        assertTrue(ask.options.isEmpty())
+        assertTrue(ask.options.none { it.action is AskAction.Prompt })
     }
 
     @Test

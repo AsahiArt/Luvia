@@ -78,8 +78,8 @@ public data class Ask(
     public val index: Int = 1,
     public val total: Int = 1,
     /**
-     * Arrow keys from the TUI cursor to the free-text row (`z (○) Type your answer here`),
-     * without Enter. Null when that row is not in this Ask.
+     * Keys that focus the free-text row (`z (○) Type your answer here`), without Enter.
+     * Grok submits that row with `z`, so this is `Char('z')`. Null when the row is absent.
      */
     public val freeTextNav: List<AgentKey>? = null,
 )
@@ -289,7 +289,12 @@ private fun isAgentQuestion(line: String): Boolean {
     return before.any { it.isLetterOrDigit() || it.code in 0x4E00..0x9FFF }
 }
 
-/** Question plus the option block directly under that question. Yes/No when that block has no choices. */
+/**
+ * Question plus the option block under it.
+ * No option block → Yes/No prompts.
+ * A recognized block that cannot be answered with keys → the question and no options,
+ * so the UI can send the user to the terminal instead of inventing Yes/No.
+ */
 internal fun paneDecision(transcript: String?): Ask {
     val clean = transcript?.let(::stripAnsi)
     val hit = clean?.let { findQuestionHit(it.lines()) }
@@ -297,12 +302,13 @@ internal fun paneDecision(transcript: String?): Ask {
     val parsed = if (clean != null && hit != null) {
         parseOptionsBelow(clean.lines(), hit.anchorIndex)
     } else {
-        ParsedChoices(emptyList(), null)
+        ParsedChoices(emptyList(), null, recognized = false)
     }
-    return if (parsed.options.isNotEmpty()) {
-        Ask(question, parsed.options, freeTextNav = parsed.freeTextNav)
-    } else {
-        paneAsk(question)
+    return when {
+        parsed.options.isNotEmpty() || parsed.freeTextNav != null ->
+            Ask(question, parsed.options, freeTextNav = parsed.freeTextNav)
+        parsed.recognized -> Ask(question, emptyList())
+        else -> paneAsk(question)
     }
 }
 
@@ -332,36 +338,32 @@ internal fun parseGrokAskOptions(transcript: String?): List<AskOption> {
 }
 
 private data class CollectedChoice(
+    val key: String,
     val label: String,
     val tone: AskTone,
     val consequence: String?,
     val recommended: Boolean,
     val grok: Boolean,
-    val filled: Boolean,
     val claudeCursor: Boolean,
 )
 
 private data class ParsedChoices(
     val options: List<AskOption>,
     val freeTextNav: List<AgentKey>?,
+    val recognized: Boolean,
 )
 
 /**
- * Choices under [anchorIndex]. Keys are relative to the TUI cursor, not to option 1.
+ * Choices under [anchorIndex].
  *
- * Cursor: Grok `(●)` wins. [stripAnsi] folds that glyph to `(*)`, which is the same mark.
- * Else a Claude `❯` / `›` row. Live Grok paints `(○)` on every row, including the focused
- * one, and does not leave reverse-video in pane text, so an all-`(○)` Grok block is focused
- * on row 0. Anything else has no cursor: return no options and let [paneDecision] fall back
- * to Yes/No.
- *
- * A plain `1. foo` list is not an Ask: numbered rows with no Claude cursor and no Grok
- * radio are dropped. Unmarked rows in the same contiguous block as a `❯` row stay, so the
- * cursor may sit on a later option.
+ * Grok `N (○|●)` rows — `(●)` is `(*)` after [stripAnsi] — answer with that digit.
+ * Live Grok submits on the number key alone, so there is no cursor and no Enter.
+ * Claude/Codex `❯` / `›` rows still move from that cursor, then Enter.
+ * A numbered block with no cursor glyph is recognized but has no keys.
  */
 private fun parseOptionsBelow(lines: List<String>, anchorIndex: Int): ParsedChoices {
     val collected = mutableListOf<CollectedChoice>()
-    var zIndex = -1
+    var hasFreeText = false
     var index = anchorIndex + 1
     var inBlock = false
     while (index < lines.size) {
@@ -381,24 +383,22 @@ private fun parseOptionsBelow(lines: List<String>, anchorIndex: Int): ParsedChoi
         val claudeCursor = hasClaudeCursor(raw)
         val numbered = if (grok == null) matchNumberedChoice(fragment) else null
         val rest: String
+        val key: String
         val grokRow: Boolean
-        val filled: Boolean
         when {
             grok != null && isFreeTextChoice(grok.key, grok.rest) -> {
-                zIndex = collected.size
+                hasFreeText = true
                 break
             }
             grok != null -> {
                 rest = grok.rest
+                key = grok.key
                 grokRow = true
-                filled = grok.filled
             }
             numbered != null -> {
-                // Unmarked rows stay in the block so a cursor on a later row still counts.
-                // A block with no Grok radio and no Claude cursor is dropped below.
                 rest = numbered.second
+                key = numbered.first
                 grokRow = false
-                filled = false
             }
             else -> break
         }
@@ -431,45 +431,54 @@ private fun parseOptionsBelow(lines: List<String>, anchorIndex: Int): ParsedChoi
             next++
         }
         collected += CollectedChoice(
+            key = key,
             label = label,
             tone = optionTone(label, marksRecommended(rest)),
             consequence = stripTuiChrome(joinHardWrapped(parts)).trim().ifBlank { null },
             recommended = marksRecommended(rest),
             grok = grokRow,
-            filled = filled,
             claudeCursor = claudeCursor && !grokRow,
         )
         inBlock = true
         index = next
     }
-    if (collected.isEmpty()) return ParsedChoices(emptyList(), null)
-    val cursor = cursorIndex(collected)
-    if (cursor < 0) return ParsedChoices(emptyList(), null)
-    val options = collected.mapIndexed { row, choice ->
-        AskOption(
-            label = choice.label,
-            tone = choice.tone,
-            action = AskAction.Keys(keysToRow(cursor, row)),
-            consequence = choice.consequence,
-            recommended = choice.recommended,
-        )
-    }
-    val freeTextNav = if (zIndex >= 0) movesBetween(cursor, zIndex) else null
-    return ParsedChoices(options, freeTextNav)
+    return finishChoices(collected, hasFreeText)
 }
 
-/**
- * `(●)` or a Claude cursor glyph. All-`(○)` Grok defaults to row 0 because the live TUI
- * starts there and does not mark focus in the captured text.
- */
-private fun cursorIndex(collected: List<CollectedChoice>): Int {
-    val filled = collected.indexOfFirst { it.filled }
-    if (filled >= 0) return filled
-    val claude = collected.indexOfFirst { it.claudeCursor }
-    if (claude >= 0) return claude
-    if (collected.all { it.grok }) return 0
-    return -1
+private fun finishChoices(collected: List<CollectedChoice>, hasFreeText: Boolean): ParsedChoices {
+    if (collected.isEmpty() && !hasFreeText) return ParsedChoices(emptyList(), null, recognized = false)
+    val freeText = if (hasFreeText) listOf(AgentKey.Char('z')) else null
+    if (collected.isEmpty()) return ParsedChoices(emptyList(), freeText, recognized = true)
+    if (collected.all { it.grok }) {
+        val digits = collected.map { it.key.singleOrNull()?.let(AgentKey::Char) }
+        if (digits.any { it == null }) return ParsedChoices(emptyList(), null, recognized = true)
+        return ParsedChoices(
+            options = collected.mapIndexed { index, choice ->
+                choice.toOption(AskAction.Keys(listOf(digits[index]!!)))
+            },
+            freeTextNav = freeText,
+            recognized = true,
+        )
+    }
+    val cursor = collected.indexOfFirst { it.claudeCursor }
+    if (cursor < 0) return ParsedChoices(emptyList(), null, recognized = true)
+    return ParsedChoices(
+        options = collected.mapIndexed { row, choice ->
+            choice.toOption(AskAction.Keys(keysToRow(cursor, row)))
+        },
+        freeTextNav = freeText,
+        recognized = true,
+    )
 }
+
+private fun CollectedChoice.toOption(action: AskAction): AskOption =
+    AskOption(
+        label = label,
+        tone = tone,
+        action = action,
+        consequence = consequence,
+        recommended = recommended,
+    )
 
 private fun keysToRow(cursor: Int, target: Int): List<AgentKey> =
     movesBetween(cursor, target) + AgentKey.ENTER

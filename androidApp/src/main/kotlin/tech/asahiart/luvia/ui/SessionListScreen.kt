@@ -227,6 +227,7 @@ fun SessionListScreen(
                 onFilter = onFilter,
                 onOpenThread = onOpenThread,
                 onAnswer = onAnswer,
+                onOpenTerminal = onOpenTerminal,
             )
             HomeTab.Machines -> MachinesBody(
                 padding = padding,
@@ -323,6 +324,7 @@ private fun SessionsBody(
     onFilter: (SessionFilter) -> Unit,
     onOpenThread: (AgentThread) -> Unit,
     onAnswer: (AgentThread, AskOption) -> Unit,
+    onOpenTerminal: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(padding)) {
         StatsRow(roster, latencyMs)
@@ -362,6 +364,7 @@ private fun SessionsBody(
                     enabled = selected?.isObserver != true,
                     onAnswer = { option -> onAnswer(thread, option) },
                     onOpen = { onOpenThread(thread) },
+                    onOpenTerminal = onOpenTerminal,
                 )
             }
         }
@@ -765,6 +768,7 @@ private fun DecisionPreview(
     enabled: Boolean,
     onAnswer: (AskOption) -> Unit,
     onOpen: () -> Unit,
+    onOpenTerminal: () -> Unit,
 ) {
     val ask = thread.ask ?: return
     val primary = recommendedOption(ask) ?: ask.options.firstOrNull()
@@ -795,7 +799,15 @@ private fun DecisionPreview(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (primary != null || secondary != null) {
+            if (ask.options.isEmpty()) {
+                Button(
+                    onClick = onOpenTerminal,
+                    enabled = enabled,
+                    modifier = Modifier.padding(top = 12.dp),
+                ) {
+                    Text(stringResource(R.string.answer_in_terminal))
+                }
+            } else if (primary != null || secondary != null) {
                 Row(
                     Modifier.fillMaxWidth().padding(top = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

@@ -582,6 +582,11 @@ struct SessionListView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { onOpen(thread) }
             HStack(spacing: 8) {
+                if options.isEmpty {
+                    Button("去终端回答", action: onTerminal)
+                        .buttonStyle(.borderedProminent)
+                        .tint(Self.decide)
+                }
                 if let primary {
                     Button(primary.label) { onAnswer(thread, primary) }
                         .buttonStyle(.borderedProminent)

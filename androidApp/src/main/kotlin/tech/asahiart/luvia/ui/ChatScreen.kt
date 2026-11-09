@@ -90,7 +90,6 @@ import tech.asahiart.luvia.thread.proseWithoutTrail
 import tech.asahiart.luvia.thread.askHasFreeText
 import tech.asahiart.luvia.thread.askSubmission
 import tech.asahiart.luvia.thread.canSubmitAsk
-import tech.asahiart.luvia.thread.initialAskSelection
 import tech.asahiart.luvia.thread.structuredDiffFiles
 import tech.asahiart.luvia.thread.testBarCells
 import tech.asahiart.luvia.thread.toolTrailView
@@ -205,6 +204,7 @@ fun ChatScreen(
                 total = queueTotal,
                 enabled = !isObserver && !sending && !offline,
                 onAnswer = onAnswer,
+                onOpenTerminal = onOpenTerminal,
             )
         }
         val canType = !isObserver && !sending && !offline
@@ -784,9 +784,10 @@ private fun DecisionCard(
     total: Int,
     enabled: Boolean,
     onAnswer: (AskOption) -> Unit,
+    onOpenTerminal: () -> Unit,
 ) {
     val agentName = agentType?.takeIf { it.isNotBlank() } ?: sessionTitle
-    var selected by remember(ask.question, ask.options) { mutableStateOf(initialAskSelection(ask)) }
+    var selected by remember(ask.question, ask.options) { mutableStateOf<AskOption?>(null) }
     var note by remember(ask.question, ask.options) { mutableStateOf("") }
     val liveNote = if (askHasFreeText(ask)) note else ""
     val submitEnabled = enabled && canSubmitAsk(selected, liveNote)
@@ -829,6 +830,16 @@ private fun DecisionCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (ask.options.isEmpty()) {
+                Button(
+                    onClick = onOpenTerminal,
+                    enabled = enabled,
+                    modifier = Modifier.padding(top = 12.dp),
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Text(stringResource(R.string.answer_in_terminal))
+                }
+            }
             ask.options.forEach { option ->
                 val picked = option == selected
                 Row(
@@ -892,7 +903,7 @@ private fun DecisionCard(
                     }
                 }
             }
-            if (askHasFreeText(ask)) {
+            if (ask.options.isNotEmpty() && askHasFreeText(ask)) {
                 BasicTextField(
                     value = note,
                     onValueChange = { note = it },
@@ -917,7 +928,7 @@ private fun DecisionCard(
                     },
                 )
             }
-            Row(
+            if (ask.options.isNotEmpty()) Row(
                 Modifier.fillMaxWidth().padding(top = 12.dp),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,

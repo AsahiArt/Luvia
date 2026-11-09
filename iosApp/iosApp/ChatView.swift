@@ -318,6 +318,13 @@ struct ChatView: View {
                     .font(.title2.weight(.bold))
                     .lineLimit(2)
                     .truncationMode(.tail)
+                if options.isEmpty {
+                    Button("去终端回答", action: onTerminal)
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.capsule)
+                        .tint(.blue)
+                        .disabled(!canCompose)
+                }
                 ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                     let picked = selectedOptionID == optionID(option)
                     let suggested = option.recommended
@@ -357,6 +364,7 @@ struct ChatView: View {
                     }
                     .buttonStyle(.plain)
                 }
+                if !options.isEmpty {
                 HStack(alignment: .center, spacing: 10) {
                     if SessionListKt.askHasFreeText(ask: ask) {
                         TextField("补充说明（可选）", text: $decisionNote, axis: .vertical)
@@ -376,6 +384,7 @@ struct ChatView: View {
                     .tint(.blue)
                     .disabled(!canContinue)
                     .opacity(canContinue ? 1 : 0.38)
+                }
                 }
             }
             .padding(16)

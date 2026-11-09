@@ -199,12 +199,6 @@ public fun diffLines(summary: String?): List<String>? {
 public fun recommendedOption(ask: Ask): AskOption? =
     ask.options.firstOrNull { it.recommended } ?: ask.options.firstOrNull { it.tone == AskTone.Primary }
 
-/** Decision cards start with nothing selected. The TUI cursor is not a selection. */
-public fun initialAskSelection(ask: Ask): AskOption? {
-    if (ask.options.isEmpty() && ask.freeTextNav == null) return null
-    return null
-}
-
 /** Continue is allowed after an explicit choice or a non-blank note. */
 public fun canSubmitAsk(selected: AskOption?, note: String): Boolean =
     selected != null || note.trim().isNotEmpty()
@@ -213,8 +207,8 @@ public fun canSubmitAsk(selected: AskOption?, note: String): Boolean =
 public fun askHasFreeText(ask: Ask): Boolean = ask.freeTextNav != null
 
 /**
- * What Continue should send. A non-blank note on an Ask with a free-text row moves
- * from the TUI cursor to that row, types the note, and presses Enter.
+ * What Continue should send. A non-blank note on an Ask with a free-text row sends
+ * that row's keys (Grok: `z`), types the note, and presses Enter.
  * Otherwise the selected option is sent; a Prompt may include the note.
  */
 public fun askSubmission(ask: Ask, selected: AskOption?, note: String): AskOption? {
