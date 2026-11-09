@@ -438,6 +438,8 @@ struct HostViewState: Identifiable, Hashable, Sendable {
     var paneTerminalIds: [String: String]
     var terminalPanes: [TerminalPaneChoiceItem]
     var workspaces: [WorkspaceItem]
+    /// Agents on the persisted snapshot, or nil when this host has no snapshot.
+    var snapshotAgentCount: Int?
 
     init(
         id: String,
@@ -461,7 +463,8 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         backend: String = "luvus",
         paneTerminalIds: [String: String] = [:],
         terminalPanes: [TerminalPaneChoiceItem] = [],
-        workspaces: [WorkspaceItem] = []
+        workspaces: [WorkspaceItem] = [],
+        snapshotAgentCount: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -485,6 +488,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         self.paneTerminalIds = paneTerminalIds
         self.terminalPanes = terminalPanes
         self.workspaces = workspaces
+        self.snapshotAgentCount = snapshotAgentCount
     }
 
     init(_ runtime: HostRuntime) {
@@ -573,7 +577,8 @@ struct HostViewState: Identifiable, Hashable, Sendable {
             backend: runtime.backend,
             paneTerminalIds: terminalIds,
             terminalPanes: terminalPanes,
-            workspaces: workspaceItems
+            workspaces: workspaceItems,
+            snapshotAgentCount: snapshot.map { KotlinLists.array($0.agents as Any).count }
         )
     }
 

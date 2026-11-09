@@ -7,6 +7,7 @@ import tech.asahiart.luvia.thread.DecodingHostFilterMemory
 import tech.asahiart.luvia.thread.HostFilterEntries
 import tech.asahiart.luvia.thread.HostSessionFilter
 import tech.asahiart.luvia.thread.NowState
+import tech.asahiart.luvia.thread.SessionScope
 import tech.asahiart.luvia.thread.applyHostSwitch
 import tech.asahiart.luvia.thread.restoreHostSessionFilter
 import android.content.SharedPreferences
@@ -85,8 +86,10 @@ class LuviaViewModel(
      * user is already sitting on is left alone, even at count 0.
      */
     fun restoreHostFilter(hostId: String, threads: List<AgentThread>, listKnown: Boolean) {
-        if (!listKnown || !restoredHosts.add(hostId)) return
+        if (!listKnown) return
         val stored = hostFilterMemory.get(hostId)
+        if (stored.scope is SessionScope.Path && threads.isEmpty()) return
+        if (!restoredHosts.add(hostId)) return
         val next = restoreHostSessionFilter(stored, threads)
         if (next == stored) return
         hostFilterMemory.put(hostId, next)

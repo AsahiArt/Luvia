@@ -312,10 +312,17 @@ struct ContentView: View {
 
     private var restoreToken: String {
         let id = model.selectedHostID ?? ""
-        let host = model.selectedHost
         let count = realCatalog.filter { $0.hostId == id }.count
-        let known = model.hostStates[id] != nil && (host?.connection == .live || host?.lastUpdated != nil || count > 0)
-        return "\(id)#\(known)#\(count)"
+        let expected = model.selectedHost?.snapshotAgentCount
+        let known = sessionListKnown(hostId: id, count: count, expected: expected)
+        return "\(id)#\(known)#\(count)#\(expected.map(String.init) ?? "-")"
+    }
+
+    private func sessionListKnown(hostId: String, count: Int, expected: Int?) -> Bool {
+        guard model.hostStates[hostId] != nil else { return false }
+        let caughtUp = count > 0 && (expected == nil || count >= (expected ?? 0))
+        let emptyLive = model.selectedHost?.connection == .live && expected == 0 && count == 0
+        return caughtUp || emptyLive
     }
 
     private func noteHostSwitch(_ hostId: String) {
@@ -328,7 +335,7 @@ struct ContentView: View {
     private func scheduleRestore() {
         restoreTask?.cancel()
         restoreTask = _Concurrency.Task { @MainActor in
-            try? await _Concurrency.Task.sleep(nanoseconds: 400_000_000)
+            try? await _Concurrency.Task.sleep(nanoseconds: 1_000_000_000)
             guard !_Concurrency.Task.isCancelled else { return }
             restoreSelectedFilter()
         }
@@ -339,7 +346,11 @@ struct ContentView: View {
         guard let id = model.selectedHostID, !restoredHosts.contains(id) else { return }
         let host = model.selectedHost
         let threads = realCatalog.filter { $0.hostId == id }
-        let known = model.hostStates[id] != nil && (host?.connection == .live || host?.lastUpdated != nil || !threads.isEmpty)
+        let known = sessionListKnown(
+            hostId: id,
+            count: threads.count,
+            expected: host?.snapshotAgentCount
+        )
         guard known else { return }
         restoredHosts.insert(id)
         let stored = HostFilterBridge.stored(for: id)
