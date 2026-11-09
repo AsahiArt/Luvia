@@ -154,6 +154,10 @@ public data class PaneSummary(
     public val rootProcessPid: Long? = null,
     public val rootProcessStartMarker: String? = null,
     public val agentName: String? = null,
+    /** Snapshot workspace index. Null when this pane was not placed under a workspace. */
+    public val workspaceIndex: Int? = null,
+    /** Snapshot tab index inside [workspaceIndex]. Null when this pane was not placed under a tab. */
+    public val tabIndex: Int? = null,
 )
 
 

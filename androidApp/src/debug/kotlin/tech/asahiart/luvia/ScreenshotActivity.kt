@@ -79,7 +79,7 @@ class ScreenshotActivity : ComponentActivity() {
                     "chat" -> SampleShots.Chat()
                     "terminal" -> TerminalScreen(
                         model = SampleShots.terminal,
-                        pendingDecisions = 1,
+                        unreadCount = 1,
                         onBack = {},
                         onSelectPane = {},
                         onRequestControl = {},
@@ -87,11 +87,10 @@ class ScreenshotActivity : ComponentActivity() {
                         onSendText = {},
                         onSendKey = {},
                         connection = ConnectionBadge.Live,
-                        canAskFix = true,
                     )
                     "terminal-offline" -> TerminalScreen(
                         model = SampleShots.terminal.copy(control = TerminalControl.Observing, synced = false),
-                        pendingDecisions = 0,
+                        unreadCount = 0,
                         onBack = {},
                         onSelectPane = {},
                         onRequestControl = {},
@@ -418,7 +417,7 @@ private object SampleShots {
             ) {
                 TerminalScreen(
                     model = terminal,
-                    pendingDecisions = 1,
+                    unreadCount = 1,
                     onBack = {},
                     onSelectPane = {},
                     onRequestControl = {},

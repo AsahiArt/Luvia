@@ -188,6 +188,16 @@ class ContractTest {
         assertEquals("reviewer", mapSnapshot(parseObject(named)).agents.single().name)
     }
 
+    @Test
+    fun snapshotKeepsPaneWorkspaceAndTab() {
+        val snapshot = mapSnapshot(parseObject(TABBED_SNAPSHOT))
+        assertEquals(listOf(1, 1, 1, 2), snapshot.panes.map { it.workspaceIndex })
+        assertEquals(listOf(1, 1, 2, 1), snapshot.panes.map { it.tabIndex })
+        val implied = mapSnapshot(parseObject(IMPLIED_TAB_INDEX_SNAPSHOT))
+        assertEquals(listOf(1, 1), implied.panes.map { it.workspaceIndex })
+        assertEquals(listOf(1, 2), implied.panes.map { it.tabIndex })
+    }
+
 
     @Test
     fun afterSequenceIsSentOnSubscribe() = runTest {
@@ -505,3 +515,9 @@ private const val INVENTORY_RESULT: String =
 
 private const val SNAPSHOT_RESULT: String =
     """{"event_sequence":1546888,"protocol":{"major":1,"minor":0,"name":"luvus-uhp"},"server_generation":"217854434c900f8f55353d65833bc820","session":"default","type":"session_snapshot","workspaces":[{"active":false,"branch":"main","cwd":"/Users/misaka/.config/emacs","index":1,"name":"emacs","pinned":false,"tabs":[{"active":true,"index":1,"kind":"panes","name":null,"panes":[{"agent":"zsh","agent_authority":"command_fallback","agent_session":null,"agent_status":"idle","content_revision":20,"cwd":"/Users/misaka/.config/emacs","focused":false,"kind":"terminal","pane_id":"1","root_process":{"pid":35989,"start_marker":"1788094672.822376"},"terminal_id":"b73a178a4292efa92678eee2609f966a"}]}]}]}"""
+
+private const val TABBED_SNAPSHOT: String =
+    """{"event_sequence":1,"server_generation":"aa","session":"default","workspaces":[{"index":1,"name":"one","pinned":false,"active":true,"tabs":[{"index":1,"panes":[{"pane_id":"1","terminal_id":"t1","kind":"terminal","focused":true},{"pane_id":"2","terminal_id":"t2","kind":"terminal","focused":false}]},{"index":2,"panes":[{"pane_id":"3","terminal_id":"t3","kind":"terminal","focused":false}]}]},{"index":2,"name":"two","pinned":false,"active":false,"tabs":[{"index":1,"panes":[{"pane_id":"4","terminal_id":"t4","kind":"terminal","focused":false}]}]}]}"""
+
+private const val IMPLIED_TAB_INDEX_SNAPSHOT: String =
+    """{"event_sequence":1,"server_generation":"aa","session":"default","workspaces":[{"name":"one","pinned":false,"active":true,"tabs":[{"panes":[{"pane_id":"1","kind":"terminal","focused":true}]},{"panes":[{"pane_id":"2","kind":"terminal","focused":false}]}]}]}"""
