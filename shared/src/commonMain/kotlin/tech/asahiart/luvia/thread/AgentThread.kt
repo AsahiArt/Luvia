@@ -368,10 +368,12 @@ private fun parseOptionsBelow(lines: List<String>, anchorIndex: Int): List<AskOp
             parts += follow
             next++
         }
+        // Grok/Claude Ask TUIs have no prompt composer while the card is up; navigate + Enter.
+        val nav = List(options.size) { AgentKey.DOWN } + AgentKey.ENTER
         options += AskOption(
             label = label,
             tone = optionTone(label, recommended),
-            action = AskAction.Prompt(key),
+            action = AskAction.Keys(nav),
             consequence = stripTuiChrome(joinHardWrapped(parts)).trim().ifBlank { null },
             recommended = recommended,
         )

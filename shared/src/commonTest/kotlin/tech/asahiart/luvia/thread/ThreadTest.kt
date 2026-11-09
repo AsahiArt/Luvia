@@ -12,6 +12,7 @@ import tech.asahiart.luvia.AcpTranscriptRole
 import tech.asahiart.luvia.AgentDetailState
 import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.AgentReadResult
+import tech.asahiart.luvia.AgentKey
 import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.AgentSummary
 import tech.asahiart.luvia.ConnectionFreshness
@@ -196,8 +197,8 @@ class ThreadTest {
         val ask = state.threads("h").single().ask!!
         assertEquals(question, ask.question)
         assertEquals(listOf("允许", "不允许"), ask.options.map { it.label })
-        assertEquals(AskAction.Prompt("1"), ask.options[0].action)
-        assertEquals(AskAction.Prompt("2"), ask.options[1].action)
+        assertEquals(AskAction.Keys(listOf(AgentKey.ENTER)), ask.options[0].action)
+        assertEquals(AskAction.Keys(listOf(AgentKey.DOWN, AgentKey.ENTER)), ask.options[1].action)
         assertTrue(ask.options[0].recommended)
         assertTrue(!ask.options[0].consequence.isNullOrBlank())
         assertTrue(ask.options[0].consequence!!.contains("probe.txt"))
@@ -262,8 +263,14 @@ class ThreadTest {
         ).threads("h").single().ask!!
         assertEquals("是否继续跑测试？", ask.question)
         assertEquals(listOf("允许", "不允许"), ask.options.map { it.label })
-        assertEquals(listOf(AskAction.Prompt("1"), AskAction.Prompt("2")), ask.options.map { it.action })
-        assertTrue(ask.options.none { (it.action as AskAction.Prompt).text == "3" })
+        assertEquals(
+            listOf(
+                AskAction.Keys(listOf(AgentKey.ENTER)),
+                AskAction.Keys(listOf(AgentKey.DOWN, AgentKey.ENTER)),
+            ),
+            ask.options.map { it.action },
+        )
+        assertEquals(2, ask.options.size)
         assertTrue(ask.options.none { it.label in setOf("Keep", "Archive", "Wipe") })
     }
 
@@ -286,8 +293,8 @@ class ThreadTest {
         ).threads("h").single().ask!!
         assertEquals("Run ./gradlew :shared:jvmTest?", ask.question)
         assertEquals(listOf("Yes", "No"), ask.options.map { it.label })
-        assertEquals(AskAction.Prompt("1"), ask.options[0].action)
-        assertEquals(AskAction.Prompt("2"), ask.options[1].action)
+        assertEquals(AskAction.Keys(listOf(AgentKey.ENTER)), ask.options[0].action)
+        assertEquals(AskAction.Keys(listOf(AgentKey.DOWN, AgentKey.ENTER)), ask.options[1].action)
         assertTrue(ask.options.none { it.label in setOf("保留", "覆盖", "稍后") })
     }
 
