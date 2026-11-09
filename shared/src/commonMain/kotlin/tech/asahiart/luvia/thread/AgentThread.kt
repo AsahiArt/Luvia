@@ -124,7 +124,7 @@ internal fun AgentSummary.toThread(hostId: String, transcript: String?): AgentTh
         title = name?.takeIf { it.isNotBlank() } ?: agent?.takeIf { it.isNotBlank() } ?: "Agent",
         agentType = agent,
         status = status,
-        ask = if (waiting) paneAsk(decisionQuestionText(null, plain)) else null,
+        ask = if (waiting) paneDecision(plain) else null,
         summary = last,
         updatedEpochMs = null,
         paneId = paneId,
@@ -145,25 +145,119 @@ public fun decisionQuestionText(permissionTitle: String?, transcript: String?): 
 
 internal fun lastAgentQuestion(transcript: String?): String? {
     val clean = transcript?.let(::stripAnsi) ?: return null
-    val lines = clean.lines().filter { it.isNotBlank() }
-    for (raw in lines.asReversed()) {
-        val line = raw.trim()
-        if (isPaneFooterLine(line) || isOptionLine(line) || isBareOrPromptOnly(line)) continue
-        if (isAgentQuestion(line)) return stripLeadingPromptMarkers(line)
-        if (isToolCallLine(line) || isToolContinuation(raw) || isDiffStart(raw) || isDiffBody(raw)) continue
+    val lines = clean.lines()
+    var index = lines.lastIndex
+    while (index >= 0) {
+        val raw = lines[index]
+        if (raw.isBlank()) {
+            index--
+            continue
+        }
+        val fragment = questionFragment(raw)
+        if (
+            fragment.isEmpty() ||
+            isPaneFooterLine(fragment) ||
+            isKeyHintLine(fragment) ||
+            isOptionLine(fragment) ||
+            isBareOrPromptOnly(raw) ||
+            isOptionContinuation(lines, index)
+        ) {
+            index--
+            continue
+        }
+        if (isAgentQuestion(fragment)) {
+            val parts = mutableListOf(fragment)
+            var up = index - 1
+            while (up >= 0) {
+                if (lines[up].isBlank()) break
+                val prev = questionFragment(lines[up])
+                if (prev.isEmpty()) break
+                if (
+                    isPaneFooterLine(prev) ||
+                    isKeyHintLine(prev) ||
+                    isOptionLine(prev) ||
+                    isBareOrPromptOnly(lines[up])
+                ) {
+                    break
+                }
+                if (!isQuestionWrapBefore(prev, parts.first())) break
+                parts.add(0, prev)
+                up--
+            }
+            return joinHardWrapped(parts).trim()
+        }
+        if (isSkippableToolNoise(raw)) {
+            index--
+            continue
+        }
         return null
     }
     return null
 }
 
-/** A lone ? / ？, or a prompt glyph with no real question, such as "? gradle". */
+private fun questionFragment(raw: String): String = stripLeadingPromptMarkers(raw.trim())
+
+/** A lone ? / ？, or a prompt glyph with no real question, such as "? gradle". Box bars alone are not a prompt. */
 private fun isBareOrPromptOnly(line: String): Boolean {
     val trimmed = line.trim()
     if (trimmed.isEmpty()) return false
-    if (trimmed.all { it == '?' || it == '？' }) return true
-    val stripped = stripLeadingPromptMarkers(trimmed)
-    if (stripped == trimmed) return false
+    val withoutBox = stripLeadingBox(trimmed)
+    if (withoutBox.isEmpty() || withoutBox.all { it == '?' || it == '？' }) return true
+    val stripped = stripLeadingPromptMarkers(withoutBox)
+    if (stripped == withoutBox) return false
     return !isAgentQuestion(trimmed)
+}
+
+/**
+ * The line above a wrapped question is the same sentence when the seam is a hard wrap:
+ * previous text does not already end a sentence, and the next line continues a token or CJK.
+ */
+private fun isQuestionWrapBefore(previous: String, next: String): Boolean {
+    if (previous.isEmpty() || next.isEmpty()) return false
+    val end = previous.last()
+    if (end == '.' || end == '?' || end == '!' || end == '。' || end == '？' || end == '！' || end == '…') {
+        return false
+    }
+    val start = next.first()
+    if (start.isLowerCase() || start.isDigit()) return true
+    if (end == '-' || end == '/' || end == '_' || end == '\\') return true
+    if (isCjk(end) && (isCjk(start) || start.isLetterOrDigit())) return true
+    if (isCjk(start) && (isCjk(end) || end.isLetterOrDigit())) return true
+    return false
+}
+
+private fun isCjk(ch: Char): Boolean = ch.code in 0x4E00..0x9FFF
+
+/** Indented description under a `N (○)` row. Not a new question, so scanning keeps walking. */
+private fun isOptionContinuation(lines: List<String>, index: Int): Boolean {
+    if (!isHangingIndent(lines[index])) return false
+    val fragment = questionFragment(lines[index])
+    if (fragment.isEmpty() || isOptionLine(fragment) || isKeyHintLine(fragment) || isAgentQuestion(fragment)) {
+        return false
+    }
+    var up = index - 1
+    while (up >= 0) {
+        if (lines[up].isBlank()) return false
+        val prev = questionFragment(lines[up])
+        if (prev.isEmpty()) {
+            up--
+            continue
+        }
+        if (isOptionLine(prev)) return true
+        if (!isHangingIndent(lines[up])) return false
+        up--
+    }
+    return false
+}
+
+private fun isSkippableToolNoise(raw: String): Boolean {
+    val fragment = questionFragment(raw)
+    val framed = raw.trimStart().firstOrNull()?.let { it == '│' || it == '┃' || it == '|' || it == '▌' || it == '▎' } == true
+    return if (framed) {
+        isToolCallLine(fragment) || isDiffStart(fragment) || isDiffBody(fragment)
+    } else {
+        isToolCallLine(fragment) || isToolContinuation(raw) || isDiffStart(raw) || isDiffBody(raw)
+    }
 }
 
 /** True when the line asks something: a ? / ？ with real text before it. */
@@ -181,16 +275,159 @@ private fun isAgentQuestion(line: String): Boolean {
     return before.any { it.isLetterOrDigit() || it.code in 0x4E00..0x9FFF }
 }
 
+/** Question plus radio options from a blocked pane. Yes/No when the pane has no `N (○)` rows. */
+internal fun paneDecision(transcript: String?): Ask {
+    val question = decisionQuestionText(null, transcript)
+    val parsed = parseGrokAskOptions(transcript)
+    return if (parsed.isNotEmpty()) Ask(question, parsed) else paneAsk(question)
+}
+
+/**
+ * Yes/No fallback. Enter and Esc are pane chrome, not answers, so they are not options.
+ */
 internal fun paneAsk(question: String?): Ask =
     Ask(
         question = question,
         options = listOf(
             AskOption("Yes", AskTone.Primary, AskAction.Prompt("y")),
             AskOption("No", AskTone.Neutral, AskAction.Prompt("n")),
-            AskOption("Enter", AskTone.Neutral, AskAction.Keys(listOf(AgentKey.ENTER))),
-            AskOption("Esc", AskTone.Neutral, AskAction.Keys(listOf(AgentKey.ESC))),
         ),
     )
+
+/**
+ * Grok Ask rows: `N (○) label    description`, description wraps on a hanging indent.
+ * `z (○) Type your answer here` is the free-text note, not an option.
+ * [AskOption.recommended] is set only when that row says Recommended.
+ */
+internal fun parseGrokAskOptions(transcript: String?): List<AskOption> {
+    val clean = transcript?.let(::stripAnsi) ?: return emptyList()
+    val lines = clean.lines()
+    val options = mutableListOf<AskOption>()
+    var index = 0
+    while (index < lines.size) {
+        val choice = matchGrokChoice(lines[index])
+        if (choice == null) {
+            index++
+            continue
+        }
+        val key = choice.first
+        val rest = choice.second.trim()
+        if (isFreeTextChoice(key, rest) || isKeyHintLine(rest)) {
+            index++
+            continue
+        }
+        val split = splitLabelAndConsequence(rest)
+        val label = stripTrailingRecommended(split.label)
+        if (label.isEmpty() || isKeyHintLabel(label)) {
+            index++
+            continue
+        }
+        val recommended = marksRecommended(rest)
+        val parts = mutableListOf<String>()
+        if (split.consequence.isNotBlank()) parts += split.consequence.trim()
+        var next = index + 1
+        while (next < lines.size) {
+            if (lines[next].isBlank()) break
+            val follow = questionFragment(lines[next])
+            if (follow.isEmpty()) {
+                next++
+                continue
+            }
+            if (matchGrokChoice(lines[next]) != null || isOptionLine(follow) || isKeyHintLine(follow) || isPaneFooterLine(follow)) {
+                break
+            }
+            if (!isHangingIndent(lines[next])) break
+            parts += follow
+            next++
+        }
+        options += AskOption(
+            label = label,
+            tone = optionTone(label, recommended),
+            action = AskAction.Prompt(key),
+            consequence = joinHardWrapped(parts).trim().ifBlank { null },
+            recommended = recommended,
+        )
+        index = next
+    }
+    return options
+}
+
+private data class LabelSplit(val label: String, val consequence: String)
+
+private fun splitLabelAndConsequence(rest: String): LabelSplit {
+    val gap = Regex("""\s{2,}""").find(rest)
+    if (gap == null) return LabelSplit(rest.trim(), "")
+    return LabelSplit(
+        rest.substring(0, gap.range.first).trim(),
+        rest.substring(gap.range.last + 1).trim(),
+    )
+}
+
+private fun isFreeTextChoice(key: String, rest: String): Boolean {
+    if (key.equals("z", ignoreCase = true)) return true
+    return splitLabelAndConsequence(rest).label.trim().equals("type your answer here", ignoreCase = true)
+}
+
+private fun marksRecommended(text: String): Boolean {
+    val lower = text.lowercase()
+    if (lower.contains("(recommended)")) return true
+    return hasRecommendedToken(lower)
+}
+
+private fun hasRecommendedToken(lower: String): Boolean {
+    val token = "recommended"
+    var from = 0
+    while (from < lower.length) {
+        val at = lower.indexOf(token, from)
+        if (at < 0) return false
+        val beforeOk = at == 0 || !lower[at - 1].isLetter()
+        val after = at + token.length
+        val afterOk = after == lower.length || !lower[after].isLetter()
+        if (beforeOk && afterOk) return true
+        from = at + token.length
+    }
+    return false
+}
+
+private fun stripTrailingRecommended(label: String): String {
+    var s = label.trim()
+    while (true) {
+        val lower = s.lowercase()
+        s = when {
+            lower.endsWith("(recommended)") -> s.dropLast("(recommended)".length).trim()
+            else -> {
+                val tokenAt = lower.length - "recommended".length
+                if (
+                    tokenAt >= 0 &&
+                    lower.endsWith("recommended") &&
+                    (tokenAt == 0 || !lower[tokenAt - 1].isLetter())
+                ) {
+                    s.dropLast("recommended".length).trim()
+                } else {
+                    return s
+                }
+            }
+        }
+    }
+}
+
+private fun isKeyHintLabel(label: String): Boolean {
+    val n = label.trim().lowercase()
+    if (n.contains("shift+x") || n.contains("↑") || n.contains("↓")) return true
+    return n in setOf(
+        "tab", "esc", "escape", "enter", "submit", "scrollback", "dismiss", "navigate", "copy",
+    )
+}
+
+private fun optionTone(label: String, recommended: Boolean): AskTone {
+    val n = label.trim().lowercase()
+    if (n == "no" || n == "n" || n == "否") return AskTone.Neutral
+    if (n.contains("不允许") || n.contains("拒绝") || n.contains("deny") || n.contains("reject")) {
+        return AskTone.Destructive
+    }
+    if (recommended || n == "yes" || n == "y" || n.contains("允许") || n.contains("allow")) return AskTone.Primary
+    return AskTone.Neutral
+}
 
 public fun AcpState.toThread(hostId: String): AgentThread {
     val request = permission?.takeIf { run == AcpRunState.AwaitingPermission }

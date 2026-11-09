@@ -57,20 +57,86 @@ internal fun isPaneFooterLine(line: String): Boolean {
             money.containsMatchIn(trimmed))
 }
 
+private val leadingBox = Regex("""^[│┃|▌▎]+\s*""")
 private val promptMarker = Regex("""^(?:[›❯>]\s+|[?？]\s+)""")
 private val optionLine = Regex("""^(?:[❯›>•·●]\s*)?\d+[.)、]\s+\S""")
+private val grokChoiceLine = Regex(
+    """^(?:[•·●]\s*)?(\d+|[zZ])\s*\(\s*[○●]\s*\)\s*(.+)$""",
+)
+private val keyHintLine = Regex(
+    """(?i)(?:(?:^|[\s│┃|])(?:tab|esc|enter)\s*:)|shift\s*\+\s*x|↑\s*/\s*↓|↑↓""",
+)
 
-/** Claude/Codex numbered choice rows under a permission prompt. Skip when scanning. */
-internal fun isOptionLine(line: String): Boolean = optionLine.containsMatchIn(line.trim())
+/**
+ * Claude/Codex `1. Yes` rows and Grok `1 (○) label` / `z (○) Type your answer` rows.
+ * Skip these when scanning for the question.
+ */
+internal fun isOptionLine(line: String): Boolean {
+    val trimmed = stripLeadingPromptMarkers(line.trim())
+    if (trimmed.isEmpty()) return false
+    return optionLine.containsMatchIn(trimmed) || grokChoiceLine.containsMatchIn(trimmed)
+}
 
-/** Drop leading › / ❯ / > / ? prompt glyphs so the card shows the real question. */
-internal fun stripLeadingPromptMarkers(line: String): String {
+/** Keybinding chrome (`Tab:`, `Esc:`, `Enter:submit`, `Shift+x`, `↑/↓ navigate`). Not a question or an option. */
+internal fun isKeyHintLine(line: String): Boolean {
+    val trimmed = stripLeadingPromptMarkers(line.trim())
+    if (trimmed.isEmpty() || trimmed.length > 200) return false
+    return keyHintLine.containsMatchIn(trimmed)
+}
+
+/** Radio row `N (○|●) rest`, or null when the line is not one. The key keeps its original case. */
+internal fun matchGrokChoice(line: String): Pair<String, String>? {
+    val trimmed = stripLeadingPromptMarkers(line.trim())
+    val match = grokChoiceLine.find(trimmed) ?: return null
+    return match.groupValues[1] to match.groupValues[2]
+}
+
+/** Frame columns (`│┃|\▌▎`) and the padding that follows them. Prompt glyphs stay. */
+internal fun stripLeadingBox(line: String): String {
     var s = line.trimStart()
     while (true) {
-        val next = promptMarker.replaceFirst(s, "").trimStart()
+        val next = leadingBox.replaceFirst(s, "").trimStart()
         if (next == s) return s
         s = next
     }
+}
+
+/**
+ * True when a following line is indented under a radio row (the description wrap),
+ * not the two-space frame padding on the question itself.
+ */
+internal fun isHangingIndent(raw: String): Boolean {
+    val afterBar = raw.trimStart().dropWhile { it == '│' || it == '┃' || it == '|' || it == '▌' || it == '▎' }
+    return afterBar.takeWhile { it == ' ' || it == '\t' }.length >= 4
+}
+
+/**
+ * Drop leading box bars and › / ❯ / > / ? prompt glyphs so the card shows the real question.
+ * Bars are stripped again after a prompt glyph, and the other way around.
+ */
+internal fun stripLeadingPromptMarkers(line: String): String {
+    var s = line.trimStart()
+    while (true) {
+        val noBox = leadingBox.replaceFirst(s, "")
+        val noPrompt = promptMarker.replaceFirst(noBox, "").trimStart()
+        val next = leadingBox.replaceFirst(noPrompt, "").trimStart()
+        if (next == s) return s
+        s = next
+    }
+}
+
+/**
+ * Join hard-wrapped pane lines. Spaces that are already in a fragment stay.
+ * Nothing is inserted at the seam: a mid-token cut such as `term-` + `probe.txt`,
+ * or CJK broken between characters, must not grow a space.
+ */
+internal fun joinHardWrapped(parts: List<String>): String {
+    val sb = StringBuilder()
+    for (part in parts) {
+        if (part.isEmpty()) continue
+        sb.append(part)
+    }
+    return sb.toString()
 }
 
 internal fun isToolCallLine(line: String): Boolean {

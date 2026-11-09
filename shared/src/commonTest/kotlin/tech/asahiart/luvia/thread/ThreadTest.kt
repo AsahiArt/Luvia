@@ -19,6 +19,7 @@ import tech.asahiart.luvia.HostUhpState
 import tech.asahiart.luvia.StoredPanePreview
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -53,8 +54,9 @@ class ThreadTest {
         val thread = state.threads("h").single()
         assertEquals("luvus", thread.projectLabel)
         assertEquals("Run migration? (y/n)", thread.ask?.question)
-        assertEquals(listOf("Yes", "No", "Enter", "Esc"), thread.ask?.options?.map { it.label })
+        assertEquals(listOf("Yes", "No"), thread.ask?.options?.map { it.label })
         assertEquals(AskAction.Prompt("y"), thread.ask?.options?.first()?.action)
+        assertTrue(thread.ask?.options?.none { it.recommended } == true)
         assertTrue(thread.commands().any { it.name == "/compact" })
     }
 
@@ -158,6 +160,50 @@ class ThreadTest {
             |$piStatusBar
             |""".trimMargin()
         assertEquals(question, decisionQuestionText(null, transcript))
+    }
+
+    @Test
+    fun grokAskJoinsWrappedQuestionAndParsesOptions() {
+        val transcript = """
+            |  ┃
+            |  ┃  是否允许在这个仅用于终端帧探测的 /tmp 沙箱里创建仅含一行 probe 的 term-
+            |  ┃  probe.txt，且不会影响系统其他位置？
+            |  ┃
+            |  ┃
+            |  ┃  1 (○) 允许 (Recommended)    允许在该 /tmp 沙箱中创建仅含一行 probe 的 term
+            |  ┃                            probe.txt，不改动系统其他位置。
+            |  ┃  2 (○) 不允许                 不创建 term-probe.txt，也不对沙箱或系统其他位
+            |  ┃  z (○) Type your answer here
+            |  ┃
+            |  ┃  ↑/↓ navigate · y copy                                       Enter:submit
+            |  ┃
+            |  Tab:next answer  │  Esc:scrollback  │  Shift+x:dismiss
+            |""".trimMargin()
+        val question = "是否允许在这个仅用于终端帧探测的 /tmp 沙箱里创建仅含一行 probe 的 term-probe.txt，且不会影响系统其他位置？"
+        assertEquals(question, decisionQuestionText(null, transcript))
+        assertTrue(question.contains("term-probe.txt"))
+        assertTrue(question.contains("其他位置？"))
+        assertTrue(question.length > 40)
+        assertFalse(question.contains("┃"))
+        assertFalse(question.contains("│"))
+        val state = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        )
+        val ask = state.threads("h").single().ask!!
+        assertEquals(question, ask.question)
+        assertEquals(listOf("允许", "不允许"), ask.options.map { it.label })
+        assertEquals(AskAction.Prompt("1"), ask.options[0].action)
+        assertEquals(AskAction.Prompt("2"), ask.options[1].action)
+        assertTrue(ask.options[0].recommended)
+        assertTrue(!ask.options[0].consequence.isNullOrBlank())
+        assertTrue(ask.options[0].consequence!!.contains("probe.txt"))
+        assertFalse(ask.options[1].recommended)
+        assertEquals(AskTone.Primary, ask.options[0].tone)
+        assertEquals(AskTone.Destructive, ask.options[1].tone)
+        val banned = listOf("Yes", "No", "Enter", "Esc", "z", "Tab", "submit", "scrollback", "dismiss", "navigate", "copy")
+        assertTrue(ask.options.none { opt -> banned.any { opt.label.contains(it, ignoreCase = true) } })
+        assertTrue(ask.options.none { it.label.contains("Shift") })
     }
 
     @Test

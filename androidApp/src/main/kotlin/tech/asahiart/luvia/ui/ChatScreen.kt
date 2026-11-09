@@ -864,7 +864,7 @@ private fun DecisionCard(
                     Column(Modifier.padding(start = 10.dp).weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(option.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                        if (option.recommended || option == recommended) {
+                        if (option.recommended) {
                             Surface(
                                 color = MaterialTheme.colorScheme.tertiary,
                                 shape = RoundedCornerShape(10.dp),

@@ -318,7 +318,7 @@ struct ChatView: View {
                     .truncationMode(.tail)
                 ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                     let picked = optionID(option) == (selectedOptionID ?? recommended.map(optionID))
-                    let suggested = option.recommended || optionID(option) == recommended.map(optionID)
+                    let suggested = option.recommended
                     Button {
                         selectedOptionID = optionID(option)
                     } label: {
