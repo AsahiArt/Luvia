@@ -132,12 +132,13 @@ fun ChatFirstApp(
         ).size,
         paths = withSelectedPath(openSessionPaths(catalog, selected?.id), filter.scope),
     )
-    LaunchedEffect(selected?.id, selected?.hasSnapshot, selectedThreads.size) {
+    LaunchedEffect(selected?.id, state != null, selected?.connection, selectedThreads.size) {
         val host = selected ?: return@LaunchedEffect
         viewModel.restoreHostFilter(
             host.id,
             selectedThreads,
-            listKnown = host.hasSnapshot || selectedThreads.isNotEmpty(),
+            listKnown = hostStates[host.id] != null &&
+                (host.connection == ConnectionBadge.Live || selectedThreads.isNotEmpty()),
         )
     }
     val openThread = allThreads.firstOrNull { it.id == threadId }
