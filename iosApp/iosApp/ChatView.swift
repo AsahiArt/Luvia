@@ -335,7 +335,9 @@ struct ChatView: View {
                                     }
                                 }
                                 if let consequence = option.consequence, !consequence.isEmpty {
-                                    Text(consequence).font(.caption).foregroundStyle(.secondary)
+                                    Text(consequence)
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                             Spacer(minLength: 8)

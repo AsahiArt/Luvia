@@ -25,6 +25,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ThreadTest {
+    private fun hasTuiBlock(text: String?): Boolean =
+        text?.any { it.code in 0x2580..0x259F } == true
+
     private val piStatusBar =
         "↑248k ↓59k R11M CH99.6% " + "$" + "12.824 … grok-4.7-build-fast * high"
 
@@ -204,6 +207,40 @@ class ThreadTest {
         val banned = listOf("Yes", "No", "Enter", "Esc", "z", "Tab", "submit", "scrollback", "dismiss", "navigate", "copy")
         assertTrue(ask.options.none { opt -> banned.any { opt.label.contains(it, ignoreCase = true) } })
         assertTrue(ask.options.none { it.label.contains("Shift") })
+    }
+
+    @Test
+    fun grokAskStripsBlockElementsFromOptions() {
+        val transcript = """
+            |  ┃
+            |  ┃  是否允许在这个仅用于终端帧探测的 /tmp 沙箱里创建仅含一行 probe 的 term-
+            |  ┃  probe.txt，且不会影响系统其他位置？
+            |  ┃
+            |  ┃  1 (○) 允许 (Recommended)    允许在该 /tmp 沙箱中创建仅含一行 probe 的 term
+            |  ┃                            probe.txt，不改动系统其他位置。█
+            |  ┃  2 (○) 不允许                 不创建 term-probe.txt█
+            |  ┃  z (○) Type your answer here
+            |""".trimMargin()
+        val question = "是否允许在这个仅用于终端帧探测的 /tmp 沙箱里创建仅含一行 probe 的 term-probe.txt，且不会影响系统其他位置？"
+        val ask = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        ).threads("h").single().ask!!
+        assertEquals(question, ask.question)
+        assertEquals(question, decisionQuestionText(null, transcript))
+        assertFalse(ask.question!!.contains("┃"))
+        assertFalse(ask.question!!.contains("│"))
+        assertFalse(hasTuiBlock(ask.question))
+        assertEquals(listOf("允许", "不允许"), ask.options.map { it.label })
+        assertEquals("不创建 term-probe.txt", ask.options[1].consequence)
+        assertTrue(ask.options[0].consequence!!.contains("probe.txt"))
+        assertTrue(ask.options[0].consequence!!.contains("其他位置。"))
+        assertTrue(ask.options.all { opt ->
+            !opt.label.contains("█") &&
+                opt.consequence?.contains("█") != true &&
+                !hasTuiBlock(opt.label) &&
+                !hasTuiBlock(opt.consequence)
+        })
     }
 
     @Test

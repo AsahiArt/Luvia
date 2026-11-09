@@ -879,7 +879,12 @@ private fun DecisionCard(
                         }
                     }
                     option.consequence?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     if (option.tone == AskTone.Destructive) {
                         Text(stringResource(R.string.option_rejects), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)

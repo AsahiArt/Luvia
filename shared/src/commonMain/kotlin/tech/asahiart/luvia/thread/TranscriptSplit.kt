@@ -126,15 +126,36 @@ internal fun stripLeadingPromptMarkers(line: String): String {
 }
 
 /**
+ * TUI chrome that leaks into a question, label, or description: box drawing
+ * (U+2500–U+257F), block elements (U+2580–U+259F, including ▌ ▎ █), and the ASCII bar `|`.
+ * CJK punctuation is outside these ranges and stays.
+ */
+internal fun stripTuiChrome(text: String): String {
+    if (text.none { isTuiChrome(it) }) return text
+    val sb = StringBuilder(text.length)
+    for (ch in text) {
+        if (!isTuiChrome(ch)) sb.append(ch)
+    }
+    return sb.toString()
+}
+
+private fun isTuiChrome(ch: Char): Boolean {
+    val code = ch.code
+    return ch == '|' || code in 0x2500..0x257F || code in 0x2580..0x259F
+}
+
+/**
  * Join hard-wrapped pane lines. Spaces that are already in a fragment stay.
  * Nothing is inserted at the seam: a mid-token cut such as `term-` + `probe.txt`,
  * or CJK broken between characters, must not grow a space.
+ * Block and box glyphs are removed from each fragment so a scrollbar █ does not survive the join.
  */
 internal fun joinHardWrapped(parts: List<String>): String {
     val sb = StringBuilder()
     for (part in parts) {
-        if (part.isEmpty()) continue
-        sb.append(part)
+        val clean = stripTuiChrome(part)
+        if (clean.isEmpty()) continue
+        sb.append(clean)
     }
     return sb.toString()
 }

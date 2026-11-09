@@ -139,7 +139,7 @@ internal fun AgentSummary.toThread(hostId: String, transcript: String?): AgentTh
  */
 public fun decisionQuestionText(permissionTitle: String?, transcript: String?): String {
     val title = permissionTitle?.trim()?.takeIf { it.isNotEmpty() }
-    if (title != null) return title
+    if (title != null) return stripTuiChrome(title).trim().ifEmpty { DECISION_QUESTION_FALLBACK }
     return lastAgentQuestion(transcript) ?: DECISION_QUESTION_FALLBACK
 }
 
@@ -184,7 +184,7 @@ internal fun lastAgentQuestion(transcript: String?): String? {
                 parts.add(0, prev)
                 up--
             }
-            return joinHardWrapped(parts).trim()
+            return stripTuiChrome(joinHardWrapped(parts)).trim()
         }
         if (isSkippableToolNoise(raw)) {
             index--
@@ -195,7 +195,8 @@ internal fun lastAgentQuestion(transcript: String?): String? {
     return null
 }
 
-private fun questionFragment(raw: String): String = stripLeadingPromptMarkers(raw.trim())
+private fun questionFragment(raw: String): String =
+    stripTuiChrome(stripLeadingPromptMarkers(raw.trim()))
 
 /** A lone ? / ？, or a prompt glyph with no real question, such as "? gradle". Box bars alone are not a prompt. */
 private fun isBareOrPromptOnly(line: String): Boolean {
@@ -317,14 +318,15 @@ internal fun parseGrokAskOptions(transcript: String?): List<AskOption> {
             continue
         }
         val split = splitLabelAndConsequence(rest)
-        val label = stripTrailingRecommended(split.label)
+        val label = stripTuiChrome(stripTrailingRecommended(split.label)).trim()
         if (label.isEmpty() || isKeyHintLabel(label)) {
             index++
             continue
         }
         val recommended = marksRecommended(rest)
         val parts = mutableListOf<String>()
-        if (split.consequence.isNotBlank()) parts += split.consequence.trim()
+        val firstConsequence = stripTuiChrome(split.consequence).trim()
+        if (firstConsequence.isNotEmpty()) parts += firstConsequence
         var next = index + 1
         while (next < lines.size) {
             if (lines[next].isBlank()) break
@@ -344,7 +346,7 @@ internal fun parseGrokAskOptions(transcript: String?): List<AskOption> {
             label = label,
             tone = optionTone(label, recommended),
             action = AskAction.Prompt(key),
-            consequence = joinHardWrapped(parts).trim().ifBlank { null },
+            consequence = stripTuiChrome(joinHardWrapped(parts)).trim().ifBlank { null },
             recommended = recommended,
         )
         index = next
