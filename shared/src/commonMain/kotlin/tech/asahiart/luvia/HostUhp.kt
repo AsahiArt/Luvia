@@ -180,16 +180,20 @@ public class HostUhp(
 
     /**
      * #47 new ACP session for a different agent, then the fix text in that composer.
-     * An ACP draft that already has text is left alone. Working or Starting is left
-     * alone and is not stopped. The draft is written only after launch is Starting
-     * as [agentType]; otherwise only the launch fields just prepared are put back.
+     * An ACP draft that already has text is left alone. Working, Starting, or
+     * AwaitingPermission is left alone and is not stopped. The draft is written only
+     * after launch is Starting as [agentType]; otherwise only the launch fields just
+     * prepared are put back.
      */
     private fun draftFixOnNewAcp(excerpt: String, agentType: String, paneId: String?): FailureHandoff {
         val body = excerpt.trim()
         if (body.isEmpty()) return FailureHandoff.Refused
         val before = state.value.acp
         if (before.draft.isNotBlank()) return FailureHandoff.Refused
-        if (before.run == AcpRunState.Working || before.run == AcpRunState.Starting) {
+        if (before.run == AcpRunState.Working ||
+            before.run == AcpRunState.Starting ||
+            before.run == AcpRunState.AwaitingPermission
+        ) {
             return FailureHandoff.Refused
         }
         setLaunchAcpAgent(agentType)

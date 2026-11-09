@@ -410,6 +410,35 @@ class AcpTest {
     }
 
     @Test
+    fun newAcpFixRefusesWhileAwaitingPermissionAndKeepsThatRequest() = runTest {
+        val opens = mutableListOf<JsonObject>()
+        val session = openAcpClient(backgroundScope, opens = opens, streamEvents = listOf(PERMISSION))
+        val runtime = sampleRuntime(agent = "pi", cwd = "/tmp/pane", workspaceCwd = "/tmp/work")
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        uhp.setLaunchAcpAgent("codex")
+        uhp.setLaunchAcpCwd("/tmp/work")
+        uhp.launchAcp()
+        val before =
+            withTimeout(2.seconds) {
+                uhp.state.first { state ->
+                    state.acp.run == AcpRunState.AwaitingPermission && state.acp.permission?.requestId == "req-1"
+                }.acp
+            }
+        val opensBefore = opens.size
+        assertEquals(1, opensBefore)
+        assertEquals("", before.draft)
+        assertEquals(FailureHandoff.Refused, uhp.handoffFailure("AnsiParserTest FAILED", "7", "claude"))
+        assertEquals(before, uhp.state.value.acp)
+        assertEquals(AcpRunState.AwaitingPermission, uhp.state.value.acp.run)
+        assertEquals(before.permission, uhp.state.value.acp.permission)
+        assertEquals("", uhp.state.value.acp.draft)
+        assertEquals(opensBefore, opens.size)
+        uhp.close()
+        session.close()
+    }
+
+    @Test
     fun newAcpFixDraftsOnlyAfterTheChosenAgentStarts() = runTest {
         val opens = mutableListOf<JsonObject>()
         val session = openAcpClient(backgroundScope, opens = opens)
