@@ -233,7 +233,7 @@ class ThreadTest {
         assertFalse(hasTuiBlock(ask.question))
         assertEquals(listOf("允许", "不允许"), ask.options.map { it.label })
         assertEquals("不创建 term-probe.txt", ask.options[1].consequence)
-        assertTrue(ask.options[0].consequence!!.contains("probe.txt"))
+        assertTrue(ask.options[0].consequence!!.contains("term probe.txt"))
         assertTrue(ask.options[0].consequence!!.contains("其他位置。"))
         assertTrue(ask.options.all { opt ->
             !opt.label.contains("█") &&
@@ -241,6 +241,72 @@ class ThreadTest {
                 !hasTuiBlock(opt.label) &&
                 !hasTuiBlock(opt.consequence)
         })
+    }
+
+    @Test
+    fun askOptionsStayInsideTheCurrentBlock() {
+        val transcript = """
+            |要删掉缓存吗？
+            |1 (○) Keep
+            |2 (○) Archive
+            |3 (○) Wipe
+            |已选择 Keep。
+            |
+            |是否继续跑测试？
+            |1 (○) 允许 (Recommended)    只跑当前模块
+            |2 (○) 不允许                 先停下来
+            |""".trimMargin()
+        val ask = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        ).threads("h").single().ask!!
+        assertEquals("是否继续跑测试？", ask.question)
+        assertEquals(listOf("允许", "不允许"), ask.options.map { it.label })
+        assertEquals(listOf(AskAction.Prompt("1"), AskAction.Prompt("2")), ask.options.map { it.action })
+        assertTrue(ask.options.none { (it.action as AskAction.Prompt).text == "3" })
+        assertTrue(ask.options.none { it.label in setOf("Keep", "Archive", "Wipe") })
+    }
+
+    @Test
+    fun currentClaudeAskIgnoresOlderGrokOptions() {
+        val transcript = """
+            |要删掉缓存吗？
+            |1 (○) 保留
+            |2 (○) 覆盖
+            |3 (○) 稍后
+            |已拒绝。
+            |
+            |Run ./gradlew :shared:jvmTest?
+            |❯ 1. Yes
+            |  2. No
+            |""".trimMargin()
+        val ask = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        ).threads("h").single().ask!!
+        assertEquals("Run ./gradlew :shared:jvmTest?", ask.question)
+        assertEquals(listOf("Yes", "No"), ask.options.map { it.label })
+        assertEquals(AskAction.Prompt("1"), ask.options[0].action)
+        assertEquals(AskAction.Prompt("2"), ask.options[1].action)
+        assertTrue(ask.options.none { it.label in setOf("保留", "覆盖", "稍后") })
+    }
+
+    @Test
+    fun tuiChromeKeepsInteriorPipesAndDropsBlocks() {
+        val transcript = """
+            |Ship a | b now?
+            |1 (○) 允许    keep a | b█
+            |2 (○) 不允许    不创建
+            |""".trimMargin()
+        val ask = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        ).threads("h").single().ask!!
+        assertEquals("Ship a | b now?", ask.question)
+        assertTrue(ask.question!!.contains("a | b"))
+        assertEquals("keep a | b", ask.options[0].consequence)
+        assertFalse(hasTuiBlock(ask.options[0].consequence))
+        assertFalse(ask.options[0].consequence!!.contains("█"))
     }
 
     @Test

@@ -143,9 +143,15 @@ public fun decisionQuestionText(permissionTitle: String?, transcript: String?): 
     return lastAgentQuestion(transcript) ?: DECISION_QUESTION_FALLBACK
 }
 
+private data class QuestionHit(val text: String, val anchorIndex: Int)
+
 internal fun lastAgentQuestion(transcript: String?): String? {
     val clean = transcript?.let(::stripAnsi) ?: return null
-    val lines = clean.lines()
+    return findQuestionHit(clean.lines())?.text
+}
+
+/** The current question and the line index of its last wrapped row. Options belong under that line. */
+private fun findQuestionHit(lines: List<String>): QuestionHit? {
     var index = lines.lastIndex
     while (index >= 0) {
         val raw = lines[index]
@@ -184,7 +190,9 @@ internal fun lastAgentQuestion(transcript: String?): String? {
                 parts.add(0, prev)
                 up--
             }
-            return stripTuiChrome(joinHardWrapped(parts)).trim()
+            val text = stripTuiChrome(joinHardWrapped(parts)).trim()
+            if (text.isEmpty()) return null
+            return QuestionHit(text, index)
         }
         if (isSkippableToolNoise(raw)) {
             index--
@@ -276,10 +284,12 @@ private fun isAgentQuestion(line: String): Boolean {
     return before.any { it.isLetterOrDigit() || it.code in 0x4E00..0x9FFF }
 }
 
-/** Question plus radio options from a blocked pane. Yes/No when the pane has no `N (○)` rows. */
+/** Question plus the option block directly under that question. Yes/No when that block has no choices. */
 internal fun paneDecision(transcript: String?): Ask {
-    val question = decisionQuestionText(null, transcript)
-    val parsed = parseGrokAskOptions(transcript)
+    val clean = transcript?.let(::stripAnsi)
+    val hit = clean?.let { findQuestionHit(it.lines()) }
+    val question = hit?.text ?: DECISION_QUESTION_FALLBACK
+    val parsed = if (clean != null && hit != null) parseOptionsBelow(clean.lines(), hit.anchorIndex) else emptyList()
     return if (parsed.isNotEmpty()) Ask(question, parsed) else paneAsk(question)
 }
 
@@ -296,33 +306,43 @@ internal fun paneAsk(question: String?): Ask =
     )
 
 /**
- * Grok Ask rows: `N (○) label    description`, description wraps on a hanging indent.
- * `z (○) Type your answer here` is the free-text note, not an option.
+ * Choices for the current Ask only: the contiguous block under [anchorIndex].
+ * Older Ask rows above that question are ignored. A blank line, key-hint, or footer ends the block.
+ * Grok `N (○)` and Claude/Codex `1. Yes` rows are both choices. `z (○)` is the free-text note.
  * [AskOption.recommended] is set only when that row says Recommended.
  */
 internal fun parseGrokAskOptions(transcript: String?): List<AskOption> {
     val clean = transcript?.let(::stripAnsi) ?: return emptyList()
     val lines = clean.lines()
+    val hit = findQuestionHit(lines) ?: return emptyList()
+    return parseOptionsBelow(lines, hit.anchorIndex)
+}
+
+private fun parseOptionsBelow(lines: List<String>, anchorIndex: Int): List<AskOption> {
     val options = mutableListOf<AskOption>()
-    var index = 0
+    var index = anchorIndex + 1
+    var inBlock = false
     while (index < lines.size) {
-        val choice = matchGrokChoice(lines[index])
-        if (choice == null) {
+        val raw = lines[index]
+        if (raw.isBlank()) {
+            if (inBlock) break
             index++
             continue
         }
+        val fragment = questionFragment(raw)
+        if (fragment.isEmpty()) {
+            index++
+            continue
+        }
+        if (isKeyHintLine(fragment) || isPaneFooterLine(fragment)) break
+        val choice = matchGrokChoice(raw) ?: matchNumberedChoice(fragment)
+        if (choice == null) break
         val key = choice.first
         val rest = choice.second.trim()
-        if (isFreeTextChoice(key, rest) || isKeyHintLine(rest)) {
-            index++
-            continue
-        }
+        if (isFreeTextChoice(key, rest)) break
         val split = splitLabelAndConsequence(rest)
         val label = stripTuiChrome(stripTrailingRecommended(split.label)).trim()
-        if (label.isEmpty() || isKeyHintLabel(label)) {
-            index++
-            continue
-        }
+        if (label.isEmpty() || isKeyHintLabel(label)) break
         val recommended = marksRecommended(rest)
         val parts = mutableListOf<String>()
         val firstConsequence = stripTuiChrome(split.consequence).trim()
@@ -335,7 +355,13 @@ internal fun parseGrokAskOptions(transcript: String?): List<AskOption> {
                 next++
                 continue
             }
-            if (matchGrokChoice(lines[next]) != null || isOptionLine(follow) || isKeyHintLine(follow) || isPaneFooterLine(follow)) {
+            if (
+                matchGrokChoice(lines[next]) != null ||
+                matchNumberedChoice(follow) != null ||
+                isOptionLine(follow) ||
+                isKeyHintLine(follow) ||
+                isPaneFooterLine(follow)
+            ) {
                 break
             }
             if (!isHangingIndent(lines[next])) break
@@ -349,6 +375,7 @@ internal fun parseGrokAskOptions(transcript: String?): List<AskOption> {
             consequence = stripTuiChrome(joinHardWrapped(parts)).trim().ifBlank { null },
             recommended = recommended,
         )
+        inBlock = true
         index = next
     }
     return options

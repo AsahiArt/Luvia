@@ -75,7 +75,6 @@ import tech.asahiart.luvia.thread.Ask
 import tech.asahiart.luvia.thread.AskAction
 import tech.asahiart.luvia.thread.outputRuns
 import tech.asahiart.luvia.thread.AskOption
-import tech.asahiart.luvia.thread.AskTone
 import tech.asahiart.luvia.thread.CodeTokenKind
 import tech.asahiart.luvia.thread.DiffFileView
 import tech.asahiart.luvia.thread.DiffLineView
@@ -885,9 +884,6 @@ private fun DecisionCard(
                             fontSize = 13.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    }
-                    if (option.tone == AskTone.Destructive) {
-                        Text(stringResource(R.string.option_rejects), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                     }
                     }
                 }

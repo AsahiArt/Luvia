@@ -91,6 +91,15 @@ internal fun matchGrokChoice(line: String): Pair<String, String>? {
     return match.groupValues[1] to match.groupValues[2]
 }
 
+private val numberedChoiceLine = Regex("""^(?:[❯›>•·●]\s*)?(\d+)[.)、]\s+(.+)""")
+
+/** Claude/Codex row `1. Yes` / `2. No`, or null. */
+internal fun matchNumberedChoice(line: String): Pair<String, String>? {
+    val trimmed = stripLeadingPromptMarkers(line.trim())
+    val match = numberedChoiceLine.find(trimmed) ?: return null
+    return match.groupValues[1] to match.groupValues[2]
+}
+
 /** Frame columns (`│┃|\▌▎`) and the padding that follows them. Prompt glyphs stay. */
 internal fun stripLeadingBox(line: String): String {
     var s = line.trimStart()
@@ -126,35 +135,48 @@ internal fun stripLeadingPromptMarkers(line: String): String {
 }
 
 /**
- * TUI chrome that leaks into a question, label, or description: box drawing
- * (U+2500–U+257F), block elements (U+2580–U+259F, including ▌ ▎ █), and the ASCII bar `|`.
+ * Leading box/bar chrome only (`|`, U+2500–U+257F, U+2580–U+259F), plus block elements
+ * U+2580–U+259F anywhere (scrollbar █). A pipe inside the text, as in `a | b`, stays.
  * CJK punctuation is outside these ranges and stays.
  */
 internal fun stripTuiChrome(text: String): String {
-    if (text.none { isTuiChrome(it) }) return text
-    val sb = StringBuilder(text.length)
-    for (ch in text) {
-        if (!isTuiChrome(ch)) sb.append(ch)
+    var start = 0
+    while (start < text.length && isLeadingBarChrome(text[start])) start++
+    if (start >= text.length) return ""
+    if (start == 0 && text.none { it.code in 0x2580..0x259F }) return text
+    val sb = StringBuilder(text.length - start)
+    for (index in start until text.length) {
+        val ch = text[index]
+        if (ch.code in 0x2580..0x259F) continue
+        sb.append(ch)
     }
     return sb.toString()
 }
 
-private fun isTuiChrome(ch: Char): Boolean {
+private fun isLeadingBarChrome(ch: Char): Boolean {
     val code = ch.code
     return ch == '|' || code in 0x2500..0x257F || code in 0x2580..0x259F
 }
 
+private fun isLatinAlnum(ch: Char): Boolean =
+    ch in 'A'..'Z' || ch in 'a'..'z' || ch in '0'..'9'
+
 /**
- * Join hard-wrapped pane lines. Spaces that are already in a fragment stay.
- * Nothing is inserted at the seam: a mid-token cut such as `term-` + `probe.txt`,
- * or CJK broken between characters, must not grow a space.
- * Block and box glyphs are removed from each fragment so a scrollbar █ does not survive the join.
+ * Join hard-wrapped pane lines. Spaces already in a fragment stay.
+ * One space is inserted only when both sides are Latin letters or digits and the
+ * previous fragment does not end in `-` or `_`. CJK seams and `term-` + `probe.txt` stay tight.
+ * Block elements are removed from each fragment so a scrollbar █ does not survive the join.
  */
 internal fun joinHardWrapped(parts: List<String>): String {
     val sb = StringBuilder()
     for (part in parts) {
         val clean = stripTuiChrome(part)
         if (clean.isEmpty()) continue
+        if (sb.isNotEmpty()) {
+            val left = sb[sb.length - 1]
+            val right = clean[0]
+            if (left != '-' && left != '_' && isLatinAlnum(left) && isLatinAlnum(right)) sb.append(' ')
+        }
         sb.append(clean)
     }
     return sb.toString()
