@@ -8,6 +8,7 @@ import tech.asahiart.luvia.AcpToolCall
 import tech.asahiart.luvia.AcpToolStatus
 import tech.asahiart.luvia.AcpTranscriptItem
 import tech.asahiart.luvia.AgentDetailState
+import tech.asahiart.luvia.AgentKey
 import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.AgentSummary
@@ -170,6 +171,38 @@ class SessionListTest {
         )
         assertEquals("Replace", recommendedOption(marked)?.label)
         assertTrue(marked.options[1].recommended)
+        assertNull(initialAskSelection(marked))
+    }
+
+    @Test
+    fun initialAskSelectionIsNull() {
+        val ask = Ask(
+            "ship?",
+            listOf(AskOption("Yes", AskTone.Primary, AskAction.Prompt("y"), recommended = true)),
+        )
+        assertNull(initialAskSelection(ask))
+    }
+
+    @Test
+    fun canSubmitAskRequiresSelectionOrNote() {
+        val option = AskOption("Yes", AskTone.Primary, AskAction.Prompt("y"))
+        assertFalse(canSubmitAsk(null, ""))
+        assertFalse(canSubmitAsk(null, " \n\t"))
+        assertTrue(canSubmitAsk(option, ""))
+        assertTrue(canSubmitAsk(null, "hello"))
+    }
+
+    @Test
+    fun noteOnFreeTextRowTypesFromTheCursor() {
+        val ask = Ask(
+            "q?",
+            listOf(AskOption("允许", AskTone.Primary, AskAction.Keys(listOf(AgentKey.ENTER)))),
+            freeTextNav = listOf(AgentKey.DOWN, AgentKey.DOWN),
+        )
+        val sent = askSubmission(ask, null, " hi ")
+        val keys = (sent!!.action as AskAction.Keys).keys
+        assertEquals(listOf("down", "down", "h", "i", "enter"), keys.map { it.wire })
+        assertFalse(askHasFreeText(Ask("q?", emptyList())))
     }
 
     @Test

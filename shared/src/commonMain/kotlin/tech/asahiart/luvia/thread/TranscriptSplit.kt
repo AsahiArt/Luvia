@@ -61,7 +61,7 @@ private val leadingBox = Regex("""^[│┃|▌▎]+\s*""")
 private val promptMarker = Regex("""^(?:[›❯>]\s+|[?？]\s+)""")
 private val optionLine = Regex("""^(?:[❯›>•·●]\s*)?\d+[.)、]\s+\S""")
 private val grokChoiceLine = Regex(
-    """^(?:[•·●]\s*)?(\d+|[zZ])\s*\(\s*[○●]\s*\)\s*(.+)$""",
+    """^(?:[•·●*]\s*)?(\d+|[zZ])\s*\(\s*([○●*])\s*\)\s*(.+)$""",
 )
 private val keyHintLine = Regex(
     """(?i)(?:(?:^|[\s│┃|])(?:tab|esc|enter)\s*:)|shift\s*\+\s*x|↑\s*/\s*↓|↑↓""",
@@ -84,11 +84,28 @@ internal fun isKeyHintLine(line: String): Boolean {
     return keyHintLine.containsMatchIn(trimmed)
 }
 
+/**
+ * Radio row `N (○|●) rest`. [GrokChoice.filled] is true for `(●)`.
+ * [stripAnsi] folds U+25CF to `*`, so `(*)` is the same filled radio.
+ */
+internal data class GrokChoice(val key: String, val rest: String, val filled: Boolean)
+
 /** Radio row `N (○|●) rest`, or null when the line is not one. The key keeps its original case. */
-internal fun matchGrokChoice(line: String): Pair<String, String>? {
+internal fun matchGrokChoice(line: String): GrokChoice? {
     val trimmed = stripLeadingPromptMarkers(line.trim())
     val match = grokChoiceLine.find(trimmed) ?: return null
-    return match.groupValues[1] to match.groupValues[2]
+    val mark = match.groupValues[2]
+    return GrokChoice(
+        key = match.groupValues[1],
+        rest = match.groupValues[3],
+        filled = mark == "●" || mark == "*",
+    )
+}
+
+/** Claude/Codex cursor, detected before prompt glyphs are stripped. `>` alone is not a cursor. */
+internal fun hasClaudeCursor(raw: String): Boolean {
+    val stripped = stripLeadingBox(raw.trim())
+    return stripped.startsWith("❯") || stripped.startsWith("›")
 }
 
 private val numberedChoiceLine = Regex("""^(?:[❯›>•·●]\s*)?(\d+)[.)、]\s+(.+)""")

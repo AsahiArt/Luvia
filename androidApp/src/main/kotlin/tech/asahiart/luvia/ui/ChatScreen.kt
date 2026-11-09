@@ -50,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
 import tech.asahiart.luvia.R
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -72,7 +73,6 @@ import tech.asahiart.luvia.AcpToolCall
 import tech.asahiart.luvia.stripAnsi
 import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.Ask
-import tech.asahiart.luvia.thread.AskAction
 import tech.asahiart.luvia.thread.outputRuns
 import tech.asahiart.luvia.thread.AskOption
 import tech.asahiart.luvia.thread.CodeTokenKind
@@ -87,7 +87,10 @@ import tech.asahiart.luvia.thread.diffModulePath
 import tech.asahiart.luvia.thread.highlightCode
 import tech.asahiart.luvia.thread.proseSpans
 import tech.asahiart.luvia.thread.proseWithoutTrail
-import tech.asahiart.luvia.thread.recommendedOption
+import tech.asahiart.luvia.thread.askHasFreeText
+import tech.asahiart.luvia.thread.askSubmission
+import tech.asahiart.luvia.thread.canSubmitAsk
+import tech.asahiart.luvia.thread.initialAskSelection
 import tech.asahiart.luvia.thread.structuredDiffFiles
 import tech.asahiart.luvia.thread.testBarCells
 import tech.asahiart.luvia.thread.toolTrailView
@@ -783,9 +786,10 @@ private fun DecisionCard(
     onAnswer: (AskOption) -> Unit,
 ) {
     val agentName = agentType?.takeIf { it.isNotBlank() } ?: sessionTitle
-    val recommended = recommendedOption(ask)
-    var selected by remember(ask.question, ask.options) { mutableStateOf(recommended ?: ask.options.firstOrNull()) }
+    var selected by remember(ask.question, ask.options) { mutableStateOf(initialAskSelection(ask)) }
     var note by remember(ask.question, ask.options) { mutableStateOf("") }
+    val liveNote = if (askHasFreeText(ask)) note else ""
+    val submitEnabled = enabled && canSubmitAsk(selected, liveNote)
     val onCard = MaterialTheme.colorScheme.onTertiaryContainer
     Surface(
         color = MaterialTheme.colorScheme.tertiaryContainer,
@@ -888,29 +892,31 @@ private fun DecisionCard(
                     }
                 }
             }
-            BasicTextField(
-                value = note,
-                onValueChange = { note = it },
-                enabled = enabled,
-                modifier = Modifier
-                    .padding(top = 10.dp)
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                decorationBox = { inner ->
-                    Box {
-                        if (note.isEmpty()) {
-                            Text(
-                                if (enabled) stringResource(R.string.note_hint) else stringResource(R.string.observer_cannot_answer),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+            if (askHasFreeText(ask)) {
+                BasicTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    enabled = enabled,
+                    modifier = Modifier
+                        .padding(top = 10.dp)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                    decorationBox = { inner ->
+                        Box {
+                            if (note.isEmpty()) {
+                                Text(
+                                    if (enabled) stringResource(R.string.note_hint) else stringResource(R.string.observer_cannot_answer),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            inner()
                         }
-                        inner()
-                    }
-                },
-            )
+                    },
+                )
+            }
             Row(
                 Modifier.fillMaxWidth().padding(top = 12.dp),
                 horizontalArrangement = Arrangement.End,
@@ -918,19 +924,13 @@ private fun DecisionCard(
             ) {
                 Button(
                     onClick = {
-                        val choice = selected ?: return@Button
-                        val extra = note.trim()
-                        val action = choice.action
-                        val delivered = if (extra.isNotEmpty() && action is AskAction.Prompt) {
-                            val base = action.text.trim()
-                            choice.copy(action = AskAction.Prompt(if (base.isEmpty()) extra else "$base\n$extra"))
-                        } else {
-                            choice
-                        }
+                        val delivered = askSubmission(ask, selected, liveNote) ?: return@Button
                         onAnswer(delivered)
                         note = ""
+                        selected = null
                     },
-                    enabled = enabled && selected != null,
+                    enabled = submitEnabled,
+                    modifier = Modifier.alpha(if (submitEnabled) 1f else 0.38f),
                     shape = RoundedCornerShape(20.dp),
                 ) {
                     Text(stringResource(R.string.select_and_continue))

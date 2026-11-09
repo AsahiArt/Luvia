@@ -35,6 +35,12 @@ class ThreadTest {
     private fun pane(id: String, status: AgentStatus, agent: String = "claude") =
         AgentSummary(paneId = id, name = null, status = status, agent = agent, workspaceId = "w1", workspaceName = "luvus")
 
+    private fun blockedAsk(transcript: String): Ask =
+        HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        ).threads("h").single().ask!!
+
     private fun acp(run: AcpRunState, permission: AcpPermissionRequest? = null) =
         AcpState(
             open = true,
@@ -314,6 +320,43 @@ class ThreadTest {
         assertEquals("keep a | b", ask.options[0].consequence)
         assertFalse(hasTuiBlock(ask.options[0].consequence))
         assertFalse(ask.options[0].consequence!!.contains("█"))
+    }
+
+    @Test
+    fun keysNavigateRelativeToCursorOnOption2() {
+        val grok = """
+            |是否允许？
+            |1 (○) 允许
+            |2 (●) 不允许
+            |""".trimMargin()
+        val grokAsk = blockedAsk(grok)
+        assertEquals(listOf("允许", "不允许"), grokAsk.options.map { it.label })
+        assertEquals(AskAction.Keys(listOf(AgentKey.UP, AgentKey.ENTER)), grokAsk.options[0].action)
+        assertEquals(AskAction.Keys(listOf(AgentKey.ENTER)), grokAsk.options[1].action)
+
+        val claude = """
+            |是否允许？
+            |  1. 允许
+            |❯ 2. 不允许
+            |""".trimMargin()
+        val claudeAsk = blockedAsk(claude)
+        assertEquals(listOf("允许", "不允许"), claudeAsk.options.map { it.label })
+        assertEquals(AskAction.Keys(listOf(AgentKey.UP, AgentKey.ENTER)), claudeAsk.options[0].action)
+        assertEquals(AskAction.Keys(listOf(AgentKey.ENTER)), claudeAsk.options[1].action)
+    }
+
+    @Test
+    fun plainNumberedListIsNotAnAsk() {
+        val transcript = """
+            |Run the tests?
+            |1. foo
+            |2. bar
+            |""".trimMargin()
+        val ask = blockedAsk(transcript)
+        assertEquals("Run the tests?", ask.question)
+        assertEquals(listOf("Yes", "No"), ask.options.map { it.label })
+        assertEquals(AskAction.Prompt("y"), ask.options[0].action)
+        assertEquals(AskAction.Prompt("n"), ask.options[1].action)
     }
 
     @Test

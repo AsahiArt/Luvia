@@ -279,7 +279,9 @@ struct ChatView: View {
 
     private func decision(_ ask: Ask) -> some View {
         let options: [AskOption] = KotlinLists.array(ask.options as Any)
-        let recommended = SessionListKt.recommendedOption(ask: ask)
+        let selected = options.first { selectedOptionID == optionID($0) }
+        let liveNote = SessionListKt.askHasFreeText(ask: ask) ? decisionNote : ""
+        let canContinue = canCompose && SessionListKt.canSubmitAsk(selected: selected, note: liveNote)
         let peek = queueTotal > queueIndex
         let agent = thread.agentType?.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = (agent?.isEmpty == false ? agent! : thread.title)
@@ -317,7 +319,7 @@ struct ChatView: View {
                     .lineLimit(2)
                     .truncationMode(.tail)
                 ForEach(Array(options.enumerated()), id: \.offset) { _, option in
-                    let picked = optionID(option) == (selectedOptionID ?? recommended.map(optionID))
+                    let picked = selectedOptionID == optionID(option)
                     let suggested = option.recommended
                     Button {
                         selectedOptionID = optionID(option)
@@ -356,22 +358,24 @@ struct ChatView: View {
                     .buttonStyle(.plain)
                 }
                 HStack(alignment: .center, spacing: 10) {
-                    TextField("补充说明（可选）", text: $decisionNote, axis: .vertical)
-                        .lineLimit(1...3)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .luviaGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                        .disabled(!canCompose)
+                    if SessionListKt.askHasFreeText(ask: ask) {
+                        TextField("补充说明（可选）", text: $decisionNote, axis: .vertical)
+                            .lineLimit(1...3)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .luviaGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                            .disabled(!canCompose)
+                    }
                     Button("继续") {
-                        let choice = options.first { optionID($0) == (selectedOptionID ?? recommended.map(optionID)) }
-                        if let choice {
+                        if let choice = SessionListKt.askSubmission(ask: ask, selected: selected, note: liveNote) {
                             confirm(choice)
                         }
                     }
                     .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.capsule)
                     .tint(.blue)
-                    .disabled(!canCompose)
+                    .disabled(!canContinue)
+                    .opacity(canContinue ? 1 : 0.38)
                 }
             }
             .padding(16)
@@ -462,18 +466,13 @@ struct ChatView: View {
         #if DEBUG
         if PlaytestChatKt.isPlaytestThread(id: thread.id) {
             decisionNote = ""
+            selectedOptionID = nil
             return
         }
         #endif
-        let note = decisionNote.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !note.isEmpty, thread.kind == .pane, case .prompt(let prompt) = onEnum(of: choice.action) {
-            let base = prompt.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let text = base.isEmpty ? note : "\(base)\n\(note)"
-            model.hostUhp()?.sendToThread(text: text)
-        } else {
-            model.uhpRegistry.answer(thread: thread, option: choice)
-        }
+        model.uhpRegistry.answer(thread: thread, option: choice)
         decisionNote = ""
+        selectedOptionID = nil
     }
 
     private var composer: some View {

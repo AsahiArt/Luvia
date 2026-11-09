@@ -77,6 +77,11 @@ public data class Ask(
     public val options: List<AskOption>,
     public val index: Int = 1,
     public val total: Int = 1,
+    /**
+     * Arrow keys from the TUI cursor to the free-text row (`z (○) Type your answer here`),
+     * without Enter. Null when that row is not in this Ask.
+     */
+    public val freeTextNav: List<AgentKey>? = null,
 )
 
 public fun HostUhpState.threads(hostId: String): List<AgentThread> {
@@ -289,8 +294,16 @@ internal fun paneDecision(transcript: String?): Ask {
     val clean = transcript?.let(::stripAnsi)
     val hit = clean?.let { findQuestionHit(it.lines()) }
     val question = hit?.text ?: DECISION_QUESTION_FALLBACK
-    val parsed = if (clean != null && hit != null) parseOptionsBelow(clean.lines(), hit.anchorIndex) else emptyList()
-    return if (parsed.isNotEmpty()) Ask(question, parsed) else paneAsk(question)
+    val parsed = if (clean != null && hit != null) {
+        parseOptionsBelow(clean.lines(), hit.anchorIndex)
+    } else {
+        ParsedChoices(emptyList(), null)
+    }
+    return if (parsed.options.isNotEmpty()) {
+        Ask(question, parsed.options, freeTextNav = parsed.freeTextNav)
+    } else {
+        paneAsk(question)
+    }
 }
 
 /**
@@ -315,11 +328,40 @@ internal fun parseGrokAskOptions(transcript: String?): List<AskOption> {
     val clean = transcript?.let(::stripAnsi) ?: return emptyList()
     val lines = clean.lines()
     val hit = findQuestionHit(lines) ?: return emptyList()
-    return parseOptionsBelow(lines, hit.anchorIndex)
+    return parseOptionsBelow(lines, hit.anchorIndex).options
 }
 
-private fun parseOptionsBelow(lines: List<String>, anchorIndex: Int): List<AskOption> {
-    val options = mutableListOf<AskOption>()
+private data class CollectedChoice(
+    val label: String,
+    val tone: AskTone,
+    val consequence: String?,
+    val recommended: Boolean,
+    val grok: Boolean,
+    val filled: Boolean,
+    val claudeCursor: Boolean,
+)
+
+private data class ParsedChoices(
+    val options: List<AskOption>,
+    val freeTextNav: List<AgentKey>?,
+)
+
+/**
+ * Choices under [anchorIndex]. Keys are relative to the TUI cursor, not to option 1.
+ *
+ * Cursor: Grok `(●)` wins. [stripAnsi] folds that glyph to `(*)`, which is the same mark.
+ * Else a Claude `❯` / `›` row. Live Grok paints `(○)` on every row, including the focused
+ * one, and does not leave reverse-video in pane text, so an all-`(○)` Grok block is focused
+ * on row 0. Anything else has no cursor: return no options and let [paneDecision] fall back
+ * to Yes/No.
+ *
+ * A plain `1. foo` list is not an Ask: numbered rows with no Claude cursor and no Grok
+ * radio are dropped. Unmarked rows in the same contiguous block as a `❯` row stay, so the
+ * cursor may sit on a later option.
+ */
+private fun parseOptionsBelow(lines: List<String>, anchorIndex: Int): ParsedChoices {
+    val collected = mutableListOf<CollectedChoice>()
+    var zIndex = -1
     var index = anchorIndex + 1
     var inBlock = false
     while (index < lines.size) {
@@ -335,15 +377,34 @@ private fun parseOptionsBelow(lines: List<String>, anchorIndex: Int): List<AskOp
             continue
         }
         if (isKeyHintLine(fragment) || isPaneFooterLine(fragment)) break
-        val choice = matchGrokChoice(raw) ?: matchNumberedChoice(fragment)
-        if (choice == null) break
-        val key = choice.first
-        val rest = choice.second.trim()
-        if (isFreeTextChoice(key, rest)) break
-        val split = splitLabelAndConsequence(rest)
+        val grok = matchGrokChoice(raw)
+        val claudeCursor = hasClaudeCursor(raw)
+        val numbered = if (grok == null) matchNumberedChoice(fragment) else null
+        val rest: String
+        val grokRow: Boolean
+        val filled: Boolean
+        when {
+            grok != null && isFreeTextChoice(grok.key, grok.rest) -> {
+                zIndex = collected.size
+                break
+            }
+            grok != null -> {
+                rest = grok.rest
+                grokRow = true
+                filled = grok.filled
+            }
+            numbered != null -> {
+                // Unmarked rows stay in the block so a cursor on a later row still counts.
+                // A block with no Grok radio and no Claude cursor is dropped below.
+                rest = numbered.second
+                grokRow = false
+                filled = false
+            }
+            else -> break
+        }
+        val split = splitLabelAndConsequence(rest.trim())
         val label = stripTuiChrome(stripTrailingRecommended(split.label)).trim()
         if (label.isEmpty() || isKeyHintLabel(label)) break
-        val recommended = marksRecommended(rest)
         val parts = mutableListOf<String>()
         val firstConsequence = stripTuiChrome(split.consequence).trim()
         if (firstConsequence.isNotEmpty()) parts += firstConsequence
@@ -358,6 +419,7 @@ private fun parseOptionsBelow(lines: List<String>, anchorIndex: Int): List<AskOp
             if (
                 matchGrokChoice(lines[next]) != null ||
                 matchNumberedChoice(follow) != null ||
+                hasClaudeCursor(lines[next]) ||
                 isOptionLine(follow) ||
                 isKeyHintLine(follow) ||
                 isPaneFooterLine(follow)
@@ -368,19 +430,57 @@ private fun parseOptionsBelow(lines: List<String>, anchorIndex: Int): List<AskOp
             parts += follow
             next++
         }
-        // Grok/Claude Ask TUIs have no prompt composer while the card is up; navigate + Enter.
-        val nav = List(options.size) { AgentKey.DOWN } + AgentKey.ENTER
-        options += AskOption(
+        collected += CollectedChoice(
             label = label,
-            tone = optionTone(label, recommended),
-            action = AskAction.Keys(nav),
+            tone = optionTone(label, marksRecommended(rest)),
             consequence = stripTuiChrome(joinHardWrapped(parts)).trim().ifBlank { null },
-            recommended = recommended,
+            recommended = marksRecommended(rest),
+            grok = grokRow,
+            filled = filled,
+            claudeCursor = claudeCursor && !grokRow,
         )
         inBlock = true
         index = next
     }
-    return options
+    if (collected.isEmpty()) return ParsedChoices(emptyList(), null)
+    val cursor = cursorIndex(collected)
+    if (cursor < 0) return ParsedChoices(emptyList(), null)
+    val options = collected.mapIndexed { row, choice ->
+        AskOption(
+            label = choice.label,
+            tone = choice.tone,
+            action = AskAction.Keys(keysToRow(cursor, row)),
+            consequence = choice.consequence,
+            recommended = choice.recommended,
+        )
+    }
+    val freeTextNav = if (zIndex >= 0) movesBetween(cursor, zIndex) else null
+    return ParsedChoices(options, freeTextNav)
+}
+
+/**
+ * `(●)` or a Claude cursor glyph. All-`(○)` Grok defaults to row 0 because the live TUI
+ * starts there and does not mark focus in the captured text.
+ */
+private fun cursorIndex(collected: List<CollectedChoice>): Int {
+    val filled = collected.indexOfFirst { it.filled }
+    if (filled >= 0) return filled
+    val claude = collected.indexOfFirst { it.claudeCursor }
+    if (claude >= 0) return claude
+    if (collected.all { it.grok }) return 0
+    return -1
+}
+
+private fun keysToRow(cursor: Int, target: Int): List<AgentKey> =
+    movesBetween(cursor, target) + AgentKey.ENTER
+
+private fun movesBetween(cursor: Int, target: Int): List<AgentKey> {
+    val delta = target - cursor
+    return when {
+        delta > 0 -> List(delta) { AgentKey.DOWN }
+        delta < 0 -> List(-delta) { AgentKey.UP }
+        else -> emptyList()
+    }
 }
 
 private data class LabelSplit(val label: String, val consequence: String)
