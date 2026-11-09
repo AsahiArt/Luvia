@@ -148,15 +148,38 @@ internal fun lastAgentQuestion(transcript: String?): String? {
     val lines = clean.lines().filter { it.isNotBlank() }
     for (raw in lines.asReversed()) {
         val line = raw.trim()
-        if (isPaneFooterLine(line)) continue
-        if (isAgentQuestion(line)) return line
+        if (isPaneFooterLine(line) || isOptionLine(line) || isBareOrPromptOnly(line)) continue
+        if (isAgentQuestion(line)) return stripLeadingPromptMarkers(line)
         if (isToolCallLine(line) || isToolContinuation(raw) || isDiffStart(raw) || isDiffBody(raw)) continue
         return null
     }
     return null
 }
 
-private fun isAgentQuestion(line: String): Boolean = line.contains('?') || line.contains('？')
+/** A lone ? / ？, or a prompt glyph with no real question, such as "? gradle". */
+private fun isBareOrPromptOnly(line: String): Boolean {
+    val trimmed = line.trim()
+    if (trimmed.isEmpty()) return false
+    if (trimmed.all { it == '?' || it == '？' }) return true
+    val stripped = stripLeadingPromptMarkers(trimmed)
+    if (stripped == trimmed) return false
+    return !isAgentQuestion(trimmed)
+}
+
+/** True when the line asks something: a ? / ？ with real text before it. */
+private fun isAgentQuestion(line: String): Boolean {
+    val stripped = stripLeadingPromptMarkers(line)
+    val qAscii = stripped.indexOf('?')
+    val qFull = stripped.indexOf('？')
+    val qIdx = when {
+        qAscii < 0 -> qFull
+        qFull < 0 -> qAscii
+        else -> minOf(qAscii, qFull)
+    }
+    if (qIdx < 0) return false
+    val before = stripped.take(qIdx).trim()
+    return before.any { it.isLetterOrDigit() || it.code in 0x4E00..0x9FFF }
+}
 
 internal fun paneAsk(question: String?): Ask =
     Ask(

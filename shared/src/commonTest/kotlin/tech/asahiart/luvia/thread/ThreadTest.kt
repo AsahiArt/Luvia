@@ -98,6 +98,82 @@ class ThreadTest {
     }
 
     @Test
+    fun decisionTextStripsLeadingPromptMarkers() {
+        val question = "要把 TokenStore 拆成两个 actual 并补齐 iOS 深色帧吗？"
+        val transcript = "› $question\n~/src/luvia (main)\n$piStatusBar\n"
+        assertEquals(question, decisionQuestionText(null, transcript))
+        assertEquals(
+            "Run migration now?",
+            decisionQuestionText(null, "? Run migration now?\n$piStatusBar\n"),
+        )
+        assertEquals(
+            "Allow editing build.gradle.kts?",
+            decisionQuestionText(null, "❯ Allow editing build.gradle.kts?\n$piStatusBar\n"),
+        )
+    }
+
+    @Test
+    fun decisionTextSkipsBareQuestionMarkLines() {
+        val question = "继续跑 assembleDebug 吗？"
+        val transcript = "$question\n?\n？\n? gradle\n~/src/luvia (main)\n$piStatusBar\n"
+        assertEquals(question, decisionQuestionText(null, transcript))
+        assertEquals(
+            DECISION_QUESTION_FALLBACK,
+            decisionQuestionText(null, "?\n？\n? gradle\n$piStatusBar\n"),
+        )
+    }
+
+    @Test
+    fun decisionTextSkipsClaudeOptionLines() {
+        val question = "Claude wants to edit shared/src/commonMain/kotlin/tech/asahiart/luvia/thread/AgentThread.kt. Allow?"
+        val transcript = """
+            |Looking at AgentThread.kt…
+            |$question
+            |
+            |❯ 1. Yes
+            |  2. No
+            |  3. Tell Claude what to do differently
+            |~/src/luvia (main)
+            |$piStatusBar
+            |""".trimMargin()
+        val state = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        )
+        val thread = state.threads("h").single()
+        assertEquals(question, thread.ask?.question)
+        assertEquals(question, listTrail(thread, null).label)
+        assertEquals(question, decisionQuestionText(null, transcript))
+    }
+
+    @Test
+    fun decisionTextSkipsCodexOptionLines() {
+        val question = "Run ./gradlew :shared:jvmTest?"
+        val transcript = """
+            |$question
+            |❯ 1. Allow once
+            |  2. Allow always
+            |  3. Deny
+            |1. Allow
+            |$piStatusBar
+            |""".trimMargin()
+        assertEquals(question, decisionQuestionText(null, transcript))
+    }
+
+    @Test
+    fun decisionTextDoesNotTunnelThroughUnrelatedProse() {
+        val transcript = """
+            |要把 TokenStore 拆成两个 actual 吗？
+            |我已经改完了，等编译结果。
+            |?
+            |? gradle
+            |1. Allow
+            |$piStatusBar
+            |""".trimMargin()
+        assertEquals(DECISION_QUESTION_FALLBACK, decisionQuestionText(null, transcript))
+    }
+
+    @Test
     fun decisionTextFallsBackWhenOnlyStatusBar() {
         val state = HostUhpState(
             agents = listOf(pane("p1", AgentStatus.Blocked)),

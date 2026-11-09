@@ -57,6 +57,22 @@ internal fun isPaneFooterLine(line: String): Boolean {
             money.containsMatchIn(trimmed))
 }
 
+private val promptMarker = Regex("""^(?:[›❯>]\s+|[?？]\s+)""")
+private val optionLine = Regex("""^(?:[❯›>•·●]\s*)?\d+[.)、]\s+\S""")
+
+/** Claude/Codex numbered choice rows under a permission prompt. Skip when scanning. */
+internal fun isOptionLine(line: String): Boolean = optionLine.containsMatchIn(line.trim())
+
+/** Drop leading › / ❯ / > / ? prompt glyphs so the card shows the real question. */
+internal fun stripLeadingPromptMarkers(line: String): String {
+    var s = line.trimStart()
+    while (true) {
+        val next = promptMarker.replaceFirst(s, "").trimStart()
+        if (next == s) return s
+        s = next
+    }
+}
+
 internal fun isToolCallLine(line: String): Boolean {
     val trimmed = line.trim()
     if (percentShell.containsMatchIn(trimmed)) return true
