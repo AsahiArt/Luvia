@@ -57,7 +57,9 @@ import tech.asahiart.luvia.thread.SessionFilter
 import tech.asahiart.luvia.thread.SessionScope
 import tech.asahiart.luvia.thread.awaitingAcpThread
 import tech.asahiart.luvia.thread.filterSessionsByHost
+import tech.asahiart.luvia.thread.hostHomeDirectory
 import tech.asahiart.luvia.thread.openSessionPaths
+import tech.asahiart.luvia.thread.withSelectedPath
 import tech.asahiart.luvia.thread.pendingReplyCount
 import tech.asahiart.luvia.thread.sessionRoster
 import tech.asahiart.luvia.thread.sortSessions
@@ -94,7 +96,7 @@ fun ChatFirstApp(
     var showNewSession by rememberSaveable { mutableStateOf(false) }
     var confirmUnpair by rememberSaveable { mutableStateOf(false) }
     var awaitingAcp by rememberSaveable { mutableStateOf(false) }
-    val hostFilters by viewModel.hostSessionFilters.collectAsStateWithLifecycle()
+    val filterEpoch by viewModel.hostFilterEpoch.collectAsStateWithLifecycle()
     val profiles = runtimes.map { it.profile }
     val resolvedId = if (startupApplied) hostId else resolveStartupHost(profiles, hostId)?.id ?: hostId
     val selected = hosts.firstOrNull { it.id == resolvedId } ?: hosts.firstOrNull()
@@ -102,7 +104,12 @@ fun ChatFirstApp(
     val allThreads = sortSessions(state?.threads(selected.id).orEmpty())
     val onlineHostIds = hosts.filter { it.connection == ConnectionBadge.Live }.map { it.id }.toSet()
     val catalog = sortSessions(hosts.flatMap { host -> hostStates[host.id]?.threads(host.id).orEmpty() })
-    val filter = selected?.id?.let { hostFilters[it] } ?: HostSessionFilter()
+    val filter = selected?.id
+        ?.takeIf { filterEpoch >= 0 }
+        ?.let(viewModel::hostSessionFilter)
+        ?: HostSessionFilter()
+    val selectedThreads = catalog.filter { it.hostId == selected?.id }
+    val homeDir = hostHomeDirectory(selected?.username, selectedThreads.mapNotNull { it.cwd })
     val inScope = filterSessionsByHost(
         catalog,
         selected?.id,
@@ -123,8 +130,16 @@ fun ChatFirstApp(
             HostSessionFilter(SessionScope.CurrentHost, SessionFilter.All),
             onlineHostIds,
         ).size,
-        paths = openSessionPaths(catalog, selected?.id),
+        paths = withSelectedPath(openSessionPaths(catalog, selected?.id), filter.scope),
     )
+    LaunchedEffect(selected?.id, selected?.hasSnapshot, selectedThreads.size) {
+        val host = selected ?: return@LaunchedEffect
+        viewModel.restoreHostFilter(
+            host.id,
+            selectedThreads,
+            listKnown = host.hasSnapshot || selectedThreads.isNotEmpty(),
+        )
+    }
     val openThread = allThreads.firstOrNull { it.id == threadId }
     val openBlocked = launchIntent?.getBooleanExtra(StatusNotificationController.EXTRA_OPEN_BLOCKED, false) == true
     var consumedLaunch by rememberSaveable { mutableStateOf(false) }
@@ -363,6 +378,7 @@ fun ChatFirstApp(
                 onOpenTerminal = { openTerminal(openThread?.paneId) },
                 onRetry = { selected?.id?.let(viewModel::connect) },
                 roster = sessionRoster(inScope),
+                homeDir = homeDir,
                 trails = buildMap {
                     for (host in hosts) {
                         val hostState = hostStates[host.id] ?: continue

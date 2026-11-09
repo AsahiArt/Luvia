@@ -1,9 +1,9 @@
 import LuviaShared
 
-/// Swift-side calls for the shared per-host filter. Memory is process-local.
+/// Shared per-host filter. The string is stored in UserDefaults, one key per host.
 @MainActor
 enum HostFilterBridge {
-    private static let memory = InMemoryHostFilterMemory()
+    private static let memory = DefaultsHostFilterMemory()
 
     static func stored(for hostId: String?) -> HostSessionFilter {
         guard let hostId else {
@@ -18,6 +18,22 @@ enum HostFilterBridge {
 
     static func switched(to hostId: String) -> HostSessionFilter {
         HostSessionFilterKt.applyHostSwitch(memory, hostId: hostId)
+    }
+
+    static func restore(_ stored: HostSessionFilter, threads: [AgentThread]) -> HostSessionFilter {
+        HostSessionFilterKt.restoreHostSessionFilter(stored: stored, threadsForHost: threads)
+    }
+
+    static func includingSelected(_ paths: [SessionPathOption], scope: SessionScope) -> [SessionPathOption] {
+        HostSessionFilterKt.withSelectedPath(paths: paths, scope: scope)
+    }
+
+    static func homeDirectory(username: String?, paths: [String]) -> String? {
+        HostSessionFilterKt.hostHomeDirectory(username: username, paths: paths)
+    }
+
+    static func relative(_ cwd: String, home: String?) -> String {
+        HostSessionFilterKt.homeRelativePath(cwd: cwd, homeDir: home)
     }
 
     static func allOnline() -> SessionScope { SessionScope.AllOnline.shared }
@@ -67,15 +83,21 @@ enum HostFilterBridge {
     }
 }
 
-enum MachinePath {
-    /// Display only. Filtering still uses the original cwd.
-    static func display(_ cwd: String) -> String {
-        let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
-        let parts = trimmed.split(separator: "/").map(String.init)
-        guard parts.count >= 3, parts[0] == "Users" || parts[0] == "home" else {
-            return trimmed.isEmpty ? cwd : trimmed
+/// UserDefaults backing for [HostFilterMemory]. Keys include the host id.
+private final class DefaultsHostFilterMemory: NSObject, HostFilterMemory {
+    func get(hostId: String) -> HostSessionFilter {
+        guard let raw = UserDefaults.standard.string(forKey: Self.key(hostId)) else {
+            return HostSessionFilter(scope: SessionScope.AllOnline.shared, status: .all)
         }
-        let rest = parts.dropFirst(2).joined(separator: "/")
-        return rest.isEmpty ? "~" : "~/\(rest)"
+        return HostSessionFilterKt.decodeHostSessionFilter(raw: raw)
+    }
+
+    func put(hostId: String, filter: HostSessionFilter) {
+        let encoded = HostSessionFilterKt.encodeHostSessionFilter(filter: filter)
+        UserDefaults.standard.set(encoded, forKey: Self.key(hostId))
+    }
+
+    private static func key(_ hostId: String) -> String {
+        "host-session-filter:\(hostId)"
     }
 }

@@ -74,6 +74,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -86,8 +88,10 @@ import tech.asahiart.luvia.thread.ListTrailTone
 import tech.asahiart.luvia.thread.HostSessionFilter
 import tech.asahiart.luvia.thread.SessionFilter
 import tech.asahiart.luvia.thread.SessionPathOption
+import tech.asahiart.luvia.thread.SessionPathText
 import tech.asahiart.luvia.thread.SessionRoster
 import tech.asahiart.luvia.thread.SessionScope
+import tech.asahiart.luvia.thread.sessionPathTexts
 import tech.asahiart.luvia.thread.TrailThumb
 import tech.asahiart.luvia.thread.listTrail
 import tech.asahiart.luvia.thread.AGENT_BRAND_ASSET_CLAUDE
@@ -133,7 +137,7 @@ fun SessionListScreen(
     onRetry: () -> Unit = {},
     roster: SessionRoster = sessionRoster(threads),
     trails: Map<String, TrailThumb> = emptyMap(),
-    latencyMs: Long? = null,
+    homeDir: String? = null,
     nowEpochMs: Long = System.currentTimeMillis(),
     terminalModifier: Modifier = Modifier,
 ) {
@@ -234,7 +238,7 @@ fun SessionListScreen(
                 onNewSession = onNewSession,
                 roster = roster,
                 trails = trails,
-                latencyMs = latencyMs,
+                homeDir = homeDir,
                 nowEpochMs = nowEpochMs,
                 searching = searching,
                 query = query,
@@ -336,7 +340,7 @@ private fun SessionsBody(
     onNewSession: () -> Unit,
     roster: SessionRoster,
     trails: Map<String, TrailThumb>,
-    latencyMs: Long?,
+    homeDir: String?,
     nowEpochMs: Long,
     searching: Boolean,
     query: String,
@@ -346,13 +350,18 @@ private fun SessionsBody(
     onOpenThread: (AgentThread) -> Unit,
     onAnswer: (AgentThread, AskOption) -> Unit,
 ) {
-    val scopeText = scopeLabel(filter.scope, selected?.name)
+    val pathTexts = sessionPathTexts(scopeChoices.paths.map { it.cwd }, homeDir)
+    val scopeText = scopeSummary(filter.scope, selected?.name, pathTexts, homeDir)
     val liveHostIds = onlineHostIds ?: run {
         val current = selected
         if (current != null && current.connection == ConnectionBadge.Live) setOf(current.id) else emptySet()
     }
     Column(Modifier.fillMaxSize().padding(padding)) {
-        StatsRow(roster, latencyMs, scopeText)
+        StatsRow(
+            roster,
+            scopeText,
+            monospace = filter.scope is SessionScope.Path,
+        )
         if (
             selected != null &&
             (selected.connection == ConnectionBadge.Offline || selected.connection == ConnectionBadge.Stale)
@@ -383,6 +392,8 @@ private fun SessionsBody(
             hostName = selected?.name,
             choices = scopeChoices,
             roster = roster,
+            pathTexts = pathTexts,
+            homeDir = homeDir,
             onFilter = onFilter,
         )
         val showCards = pending.isNotEmpty() &&
@@ -446,13 +457,15 @@ private fun SessionFilterRow(
     hostName: String?,
     choices: SessionScopeChoices,
     roster: SessionRoster,
+    pathTexts: List<SessionPathText>,
+    homeDir: String?,
     onFilter: (HostSessionFilter) -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        Modifier.fillMaxWidth().padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ScopeFilterChip(filter, hostName, choices, onFilter)
+        ScopeFilterChip(filter, hostName, choices, pathTexts, homeDir, onFilter)
         Box(
             Modifier
                 .padding(horizontal = 8.dp)
@@ -485,6 +498,7 @@ private fun SessionFilterRow(
                 label = stringResource(R.string.filter_idle_count, roster.idle),
                 onClick = { onFilter(filter.copy(status = SessionFilter.Idle)) },
             )
+            Spacer(Modifier.width(16.dp))
         }
     }
 }
@@ -514,22 +528,29 @@ private fun ScopeFilterChip(
     filter: HostSessionFilter,
     hostName: String?,
     choices: SessionScopeChoices,
+    pathTexts: List<SessionPathText>,
+    homeDir: String?,
     onFilter: (HostSessionFilter) -> Unit,
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
     var showAllPaths by rememberSaveable { mutableStateOf(false) }
     val pathScope = filter.scope as? SessionScope.Path
+    val selectedPath = pathScope?.let { pathText(it.cwd, pathTexts, homeDir) }
     Box {
         FilterChip(
             selected = filter.scope != SessionScope.AllOnline,
             onClick = { open = true },
             label = {
                 Text(
-                    scopeLabel(filter.scope, hostName),
+                    selectedPath?.chip ?: scopeLabel(filter.scope, hostName),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     fontFamily = if (pathScope != null) FontFamily.Monospace else null,
-                    modifier = Modifier.widthIn(max = 148.dp),
+                    modifier = Modifier
+                        .widthIn(max = 160.dp)
+                        .semantics {
+                            if (selectedPath != null) contentDescription = selectedPath.relative
+                        },
                 )
             },
             leadingIcon = if (pathScope != null) {
@@ -580,10 +601,10 @@ private fun ScopeFilterChip(
             )
             if (choices.paths.isNotEmpty()) {
                 MenuGroupLabel(stringResource(R.string.scope_path_group))
-                val visible = if (showAllPaths) choices.paths else choices.paths.take(VISIBLE_PATHS)
+                val visible = visiblePaths(choices.paths, pathScope, showAllPaths)
                 visible.forEach { path ->
                     ScopeMenuItem(
-                        label = path.cwd,
+                        label = pathText(path.cwd, pathTexts, homeDir).relative,
                         count = path.count,
                         selected = pathScope != null && sameCwd(pathScope.cwd, path.cwd),
                         mono = true,
@@ -629,8 +650,13 @@ private fun ScopeMenuItem(
                     label,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontFamily = if (mono) FontFamily.Monospace else null,
+                    softWrap = false,
+                    overflow = if (mono) TextOverflow.MiddleEllipsis else TextOverflow.Ellipsis,
+                    style = if (mono) {
+                        MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
+                    } else {
+                        MaterialTheme.typography.bodyLarge
+                    },
                 )
                 Spacer(Modifier.width(16.dp))
                 Text(
@@ -677,7 +703,11 @@ private fun SessionEmpty(
                 Text(stringResource(R.string.empty_filter), style = MaterialTheme.typography.titleMedium)
             }
             scopeCount == 0 -> {
-                Text(emptyScopeMessage(filter.scope, scopeText), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    emptyScopeMessage(filter.scope, scopeText),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontFamily = if (filter.scope is SessionScope.Path) FontFamily.Monospace else null,
+                )
                 Button(
                     onClick = onNewSession,
                     modifier = Modifier.padding(top = 16.dp),
@@ -726,6 +756,31 @@ private fun sameCwd(left: String, right: String): Boolean {
     return a == b
 }
 
+private fun pathText(cwd: String, texts: List<SessionPathText>, homeDir: String?): SessionPathText =
+    texts.firstOrNull { sameCwd(it.cwd, cwd) } ?: sessionPathTexts(listOf(cwd), homeDir).first()
+
+@Composable
+private fun scopeSummary(
+    scope: SessionScope,
+    hostName: String?,
+    texts: List<SessionPathText>,
+    homeDir: String?,
+): String = when (scope) {
+    is SessionScope.Path -> pathText(scope.cwd, texts, homeDir).relative
+    else -> scopeLabel(scope, hostName)
+}
+
+private fun visiblePaths(
+    paths: List<SessionPathOption>,
+    selected: SessionScope.Path?,
+    showAll: Boolean,
+): List<SessionPathOption> {
+    if (showAll || paths.size <= VISIBLE_PATHS) return paths
+    val head = paths.take(VISIBLE_PATHS)
+    val extra = selected?.let { scope -> paths.firstOrNull { sameCwd(it.cwd, scope.cwd) } } ?: return head
+    return if (head.any { sameCwd(it.cwd, extra.cwd) }) head else head + extra
+}
+
 @Composable
 private fun statusWord(status: SessionFilter): String =
     when (status) {
@@ -736,19 +791,40 @@ private fun statusWord(status: SessionFilter): String =
     }
 
 @Composable
-private fun StatsRow(roster: SessionRoster, latencyMs: Long?, scopeLabel: String) {
-    val agents = stringResource(R.string.scope_summary, scopeLabel, roster.agents)
-    val latency = if (latencyMs != null) stringResource(R.string.stats_latency, latencyMs.toInt()) else null
-    val head = if (latency != null) "$agents · $latency" else agents
+private fun StatsRow(roster: SessionRoster, scopeLabel: String, monospace: Boolean) {
+    val summary = stringResource(R.string.scope_summary, scopeLabel, roster.agents)
+    val count = stringResource(R.string.scope_session_count, roster.agents)
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(head, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.weight(1f))
-        StatDot(LuviaTheme.extended.live, stringResource(R.string.stats_running, roster.running))
-        Spacer(Modifier.width(12.dp))
-        StatDot(MaterialTheme.colorScheme.tertiary, stringResource(R.string.stats_waiting, roster.waiting))
+        Row(
+            Modifier.weight(1f).semantics { contentDescription = summary },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                scopeLabel,
+                modifier = Modifier.weight(1f, fill = false),
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.MiddleEllipsis,
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = if (monospace) FontFamily.Monospace else null,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                count,
+                maxLines = 1,
+                softWrap = false,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            StatDot(LuviaTheme.extended.live, stringResource(R.string.stats_running, roster.running))
+            Spacer(Modifier.width(12.dp))
+            StatDot(MaterialTheme.colorScheme.tertiary, stringResource(R.string.stats_waiting, roster.waiting))
+        }
     }
 }
 
@@ -757,7 +833,7 @@ private fun StatDot(color: androidx.compose.ui.graphics.Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).background(color, CircleShape))
         Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge)
+        Text(label, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge)
     }
 }
 

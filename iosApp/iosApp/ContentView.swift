@@ -10,7 +10,7 @@ struct ContentView: View {
     @State private var filterRevision = 0
     @State private var filtersHighlighted = false
     @State private var highlightTask: _Concurrency.Task<Void, Never>?
-    @State private var skipHostFilterReset = false
+    @State private var restoredHosts: Set<String> = []
     @State private var showSettings = false
     @State private var showNewSession = false
     @State private var cwd = ""
@@ -52,6 +52,7 @@ struct ContentView: View {
         .onAppear {
             model.autoConnectIfNeeded()
             applyPairingGate()
+            restoreSelectedFilter()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { model.autoConnectIfNeeded(force: true) }
@@ -69,16 +70,8 @@ struct ContentView: View {
                 model.pendingOpenAgentID = nil
             }
         }
-        .onChange(of: model.selectedHostID) { previous, next in
-            guard let next, previous != next else { return }
-            if skipHostFilterReset {
-                skipHostFilterReset = false
-                filterRevision += 1
-                return
-            }
-            guard previous != nil else { return }
-            _ = HostFilterBridge.switched(to: next)
-            filterRevision += 1
+        .onChange(of: restoreToken) { _, _ in
+            restoreSelectedFilter()
         }
         .sheet(isPresented: $showSettings) { settings }
         .sheet(isPresented: $showNewSession) { newSession }
@@ -98,6 +91,9 @@ struct ContentView: View {
             PairingView(
                 model: model,
                 onPaired: {
+                    if let id = model.selectedHostID {
+                        noteHostSwitch(id)
+                    }
                     userOpenedPairing = false
                     stage = "sessions"
                 },
@@ -146,7 +142,11 @@ struct ContentView: View {
                     pending: pending,
                     filter: currentFilter,
                     roster: SessionListKt.sessionRoster(threads: scopeThreads),
-                    scopePaths: HostFilterBridge.paths(threads: realCatalog, hostId: model.selectedHostID),
+                    scopePaths: HostFilterBridge.includingSelected(
+                        HostFilterBridge.paths(threads: realCatalog, hostId: model.selectedHostID),
+                        scope: currentFilter.scope
+                    ),
+                    homeDir: selectedHome,
                     scopeSubtitle: scopeSubtitle,
                     filtersHighlighted: filtersHighlighted,
                     catalog: realCatalog,
@@ -272,9 +272,7 @@ struct ContentView: View {
         case .currentHost:
             return model.selectedHost?.name ?? "这台电脑"
         case .path(let path):
-            let shown = MachinePath.display(path.cwd)
-            guard let name = model.selectedHost?.name, !name.isEmpty else { return shown }
-            return "\(shown) · \(name)"
+            return HostFilterBridge.relative(path.cwd, home: selectedHome)
         }
     }
 
@@ -305,6 +303,43 @@ struct ContentView: View {
         catalog.first { $0.id == threadID }
     }
 
+    private var selectedHome: String? {
+        guard let host = model.selectedHost else { return nil }
+        let paths = realCatalog.compactMap { $0.hostId == host.id ? $0.cwd : nil }
+        return HostFilterBridge.homeDirectory(username: host.username, paths: paths)
+    }
+
+    private var restoreToken: String {
+        let id = model.selectedHostID ?? ""
+        let host = model.selectedHost
+        let count = realCatalog.filter { $0.hostId == id }.count
+        let known = model.hostStates[id] != nil && (host?.connection == .live || host?.lastUpdated != nil || count > 0)
+        return "\(id)#\(known)#\(count)"
+    }
+
+    private func noteHostSwitch(_ hostId: String) {
+        _ = HostFilterBridge.switched(to: hostId)
+        restoredHosts.insert(hostId)
+        filterRevision += 1
+    }
+
+    /// Once per host, after that host's session list is known. Not on every list change.
+    private func restoreSelectedFilter() {
+        guard let id = model.selectedHostID, !restoredHosts.contains(id) else { return }
+        let host = model.selectedHost
+        let threads = realCatalog.filter { $0.hostId == id }
+        let known = model.hostStates[id] != nil && (host?.connection == .live || host?.lastUpdated != nil || !threads.isEmpty)
+        guard known else { return }
+        restoredHosts.insert(id)
+        let stored = HostFilterBridge.stored(for: id)
+        let next = HostFilterBridge.restore(stored, threads: threads)
+        let before = HostSessionFilterKt.encodeHostSessionFilter(filter: stored)
+        let after = HostSessionFilterKt.encodeHostSessionFilter(filter: next)
+        guard before != after else { return }
+        HostFilterBridge.remember(next, hostId: id)
+        filterRevision += 1
+    }
+
     private func rememberScope(_ scope: SessionScope) {
         guard let id = model.selectedHostID else { return }
         HostFilterBridge.remember(
@@ -325,15 +360,16 @@ struct ContentView: View {
 
     private func selectHost(_ host: HostViewState) {
         guard host.id != model.selectedHostID else { return }
+        noteHostSwitch(host.id)
         model.select(host)
     }
 
     private func focusFilter(_ host: HostViewState, _ scope: SessionScope, _ status: SessionFilter) {
         if host.id != model.selectedHostID {
-            skipHostFilterReset = true
             model.select(host)
         }
         HostFilterBridge.remember(HostFilterBridge.make(scope: scope, status: status), hostId: host.id)
+        restoredHosts.insert(host.id)
         filterRevision += 1
         flashFilters()
     }
@@ -581,6 +617,9 @@ struct ContentView: View {
         }
         #endif
         if let host = model.hosts.first(where: { $0.id == thread.hostId }) {
+            if model.selectedHostID != host.id {
+                noteHostSwitch(host.id)
+            }
             model.select(host)
         }
         model.uhpRegistry.markViewed(thread: thread)

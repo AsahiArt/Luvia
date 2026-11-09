@@ -19,7 +19,11 @@ public sealed class SessionScope {
 
 /**
  * Scheme ②: one scope and one status, remembered together for a host.
- * Cold start restores both. A host switch does not: see [applyHostSwitch].
+ *
+ * Cold start restores both from [HostFilterMemory]. [restoreHostSessionFilter]
+ * then drops a path that has no sessions on that host. A host switch does not
+ * restore the previous scope: see [applyHostSwitch]. While the user stays on a
+ * path, a count of zero does not change the scope.
  */
 public data class HostSessionFilter(
     val scope: SessionScope = SessionScope.AllOnline,
@@ -33,7 +37,7 @@ public data class HostSessionFilter(
  * It does not write. [put] replaces that host's scope and status together.
  * A machines-page path row or count block calls [put] with the chosen filter.
  * That entry is what cold start restores; it is not a one-shot overlay.
- * Platform stores (DataStore, UserDefaults) implement this later.
+ * Platform stores persist [encodeHostSessionFilter].
  * [InMemoryHostFilterMemory] is the test double.
  */
 public interface HostFilterMemory {
@@ -124,6 +128,164 @@ public fun openSessionPaths(threads: List<AgentThread>, hostId: String?): List<S
     return counts.keys
         .sortedWith(compareByDescending<String> { latest[it] ?: 0L }.thenBy { it })
         .map { cwd -> SessionPathOption(cwd, counts.getValue(cwd)) }
+}
+
+/** String form of a filter. Undecodable text is not a stored filter. */
+public fun encodeHostSessionFilter(filter: HostSessionFilter): String {
+    val kind = when (filter.scope) {
+        SessionScope.AllOnline -> "all"
+        SessionScope.CurrentHost -> "host"
+        is SessionScope.Path -> "path"
+    }
+    val cwd = (filter.scope as? SessionScope.Path)?.cwd.orEmpty()
+    return listOf(FILTER_ENCODING, kind, filter.status.name, cwd).joinToString(FILTER_SEPARATOR)
+}
+
+/** [HostSessionFilter] when [raw] is not a value [encodeHostSessionFilter] wrote. */
+public fun decodeHostSessionFilter(raw: String?): HostSessionFilter {
+    if (raw.isNullOrEmpty()) return HostSessionFilter()
+    val parts = raw.split(FILTER_SEPARATOR)
+    if (parts.size != 4 || parts[0] != FILTER_ENCODING) return HostSessionFilter()
+    val status = runCatching { SessionFilter.valueOf(parts[2]) }.getOrNull() ?: return HostSessionFilter()
+    val scope = when (parts[1]) {
+        "all" -> SessionScope.AllOnline
+        "host" -> SessionScope.CurrentHost
+        "path" -> {
+            if (parts[3].isEmpty()) return HostSessionFilter()
+            SessionScope.Path(parts[3])
+        }
+        else -> return HostSessionFilter()
+    }
+    return HostSessionFilter(scope, status)
+}
+
+/** [HostFilterMemory] over the string [encodeHostSessionFilter] writes. */
+public interface HostFilterEntries {
+    public fun read(hostId: String): String?
+
+    public fun write(hostId: String, encoded: String)
+}
+
+public class DecodingHostFilterMemory(
+    private val entries: HostFilterEntries,
+) : HostFilterMemory {
+    override fun get(hostId: String): HostSessionFilter = decodeHostSessionFilter(entries.read(hostId))
+
+    override fun put(hostId: String, filter: HostSessionFilter) {
+        entries.write(hostId, encodeHostSessionFilter(filter))
+    }
+}
+
+/**
+ * Cold start, or the next time this host is restored.
+ * A remembered path with no session on [threadsForHost] becomes [SessionScope.CurrentHost].
+ * Status stays. Other scopes stay. Does not write.
+ *
+ * Do not call this when the user is already sitting on that path and the last
+ * session closes. Call it only when the session list for the host is known.
+ */
+public fun restoreHostSessionFilter(
+    stored: HostSessionFilter,
+    threadsForHost: List<AgentThread>,
+): HostSessionFilter {
+    val path = stored.scope as? SessionScope.Path ?: return stored
+    val wanted = normalizeSessionCwd(path.cwd) ?: return stored.copy(scope = SessionScope.CurrentHost)
+    val live = threadsForHost.any { thread -> normalizeSessionCwd(thread.cwd) == wanted }
+    return if (live) stored else stored.copy(scope = SessionScope.CurrentHost)
+}
+
+/**
+ * Keep a selected path in the menu after its last session closes.
+ * The added row has count 0. A path that is already listed is unchanged.
+ */
+public fun withSelectedPath(
+    paths: List<SessionPathOption>,
+    scope: SessionScope,
+): List<SessionPathOption> {
+    val path = scope as? SessionScope.Path ?: return paths
+    val wanted = normalizeSessionCwd(path.cwd) ?: return paths
+    if (paths.any { normalizeSessionCwd(it.cwd) == wanted }) return paths
+    return paths + SessionPathOption(wanted, 0)
+}
+
+/**
+ * Home directory for [username] when one of [paths] is that home or a child of it.
+ * Checks `/Users/<name>` and `/home/<name>` only. A blank name, or a name that
+ * matches nothing, returns null. The caller passes the host's own username.
+ */
+public fun hostHomeDirectory(username: String?, paths: List<String>): String? {
+    val name = username?.trim()?.takeIf { candidate ->
+        candidate.isNotEmpty() && !candidate.contains('/') && candidate != "." && candidate != ".."
+    } ?: return null
+    return listOf("/Users/$name", "/home/$name").firstOrNull { home ->
+        paths.any { raw ->
+            val path = normalizeSessionCwd(raw) ?: return@any false
+            path == home || path.startsWith("$home/")
+        }
+    }
+}
+
+/** `~` when [cwd] is [homeDir] or a child of it. Otherwise the cwd unchanged. */
+public fun homeRelativePath(cwd: String, homeDir: String?): String {
+    val path = normalizeSessionCwd(cwd) ?: return cwd.trim()
+    val home = normalizeSessionCwd(homeDir) ?: return path
+    return when {
+        path == home -> "~"
+        path.startsWith("$home/") -> "~/" + path.removePrefix("$home/")
+        else -> path
+    }
+}
+
+/** Chip is the last path component. Colliding chips grow a parent prefix. */
+public data class SessionPathText(
+    val cwd: String,
+    val chip: String,
+    val relative: String,
+)
+
+public fun sessionPathTexts(paths: List<String>, homeDir: String?): List<SessionPathText> {
+    val relatives = paths.map { homeRelativePath(it, homeDir) }
+    val parts = relatives.map(::relativeParts)
+    val depth = IntArray(paths.size) { index -> if (parts[index].isEmpty()) 0 else 1 }
+    var grew = true
+    while (grew) {
+        grew = false
+        val groups = paths.indices.groupBy { index -> chipLabel(parts[index], depth[index]) }
+        for (indexes in groups.values) {
+            if (indexes.size < 2) continue
+            for (index in indexes) {
+                if (depth[index] < parts[index].size) {
+                    depth[index] += 1
+                    grew = true
+                }
+            }
+        }
+    }
+    return paths.indices.map { index ->
+        SessionPathText(
+            cwd = paths[index],
+            chip = chipLabel(parts[index], depth[index]),
+            relative = relatives[index],
+        )
+    }
+}
+
+private const val FILTER_ENCODING: String = "1"
+private const val FILTER_SEPARATOR: String = "\u001f"
+
+private fun relativeParts(relative: String): List<String> {
+    val body = when {
+        relative == "~" -> return emptyList()
+        relative.startsWith("~/") -> relative.removePrefix("~/")
+        relative.startsWith("/") -> relative.removePrefix("/")
+        else -> relative
+    }
+    return body.split('/').filter { it.isNotEmpty() }
+}
+
+private fun chipLabel(parts: List<String>, depth: Int): String {
+    if (parts.isEmpty() || depth <= 0) return "~"
+    return parts.takeLast(depth).joinToString("/")
 }
 
 private fun AgentThread.inScope(

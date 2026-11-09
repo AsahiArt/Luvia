@@ -22,6 +22,7 @@ struct SessionListView: View {
     var roster: SessionRoster
     var scopePaths: [SessionPathOption]
     var scopeSubtitle: String
+    var homeDir: String? = nil
     var filtersHighlighted: Bool
     var catalog: [AgentThread]
     var onlineHostIDs: Set<String>
@@ -91,11 +92,15 @@ struct SessionListView: View {
                     sessionChrome
                 }
                 if shown.isEmpty {
-                    ContentUnavailableView(
-                        emptyTitle,
-                        systemImage: "bubble.left.and.bubble.right",
-                        description: Text(emptyDetail)
-                    )
+                    if pathScopeCwd != nil, agentCount == 0, !model.hosts.isEmpty {
+                        pathEmpty
+                    } else {
+                        ContentUnavailableView(
+                            emptyTitle,
+                            systemImage: "bubble.left.and.bubble.right",
+                            description: Text(emptyDetail)
+                        )
+                    }
                 } else {
                     sessionScroll
                 }
@@ -145,17 +150,7 @@ struct SessionListView: View {
 
     private var sessionChrome: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(scopeSubtitle)
-                .font(HostFilterBridge.cwd(of: filter.scope) == nil ? .subheadline : .subheadline.monospaced())
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(filtersHighlighted ? Color.accentColor.opacity(0.18) : Color.clear)
-                )
+            summaryRow
             Picker("状态", selection: statusBinding) {
                 Text("全部 \(agentCount)").tag(SessionFilter.all)
                 Text("等你 \(waitingCount)").tag(SessionFilter.needsYou)
@@ -215,6 +210,61 @@ struct SessionListView: View {
 
     private var needsYouColor: Color {
         colorScheme == .dark ? Color(hex: "FFB340") : Color(hex: "FF9F0A")
+    }
+
+    private var summaryRow: some View {
+        HStack(alignment: .center, spacing: 8) {
+            HStack(spacing: 0) {
+                Text(scopeSubtitle)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .font(pathScopeCwd == nil ? .subheadline : .system(size: 14, design: .monospaced))
+                Text(" · \(agentCount) 会话")
+                    .lineLimit(1)
+                    .font(.subheadline)
+                    .layoutPriority(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            HStack(spacing: 12) {
+                summaryStat("\(runningCount) 运行", color: .green)
+                summaryStat("\(waitingCount) 等你", color: needsYouColor)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(filtersHighlighted ? Color.accentColor.opacity(0.18) : Color.clear)
+        )
+    }
+
+    private func summaryStat(_ label: String, color: Color) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(label).lineLimit(1).font(.subheadline)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var pathScopeCwd: String? {
+        HostFilterBridge.cwd(of: filter.scope)
+    }
+
+    private var pathEmpty: some View {
+        VStack(spacing: 12) {
+            if let cwd = pathScopeCwd {
+                Text("\(HostFilterBridge.relative(cwd, home: homeDir)) 下没有会话")
+                    .font(.system(size: 14, design: .monospaced))
+                    .multilineTextAlignment(.center)
+            }
+            Button("新建会话", action: onNewSession)
+            Button("看全部") { onScope(HostFilterBridge.allOnline()) }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(32)
     }
 
     private var emptyTitle: String {
@@ -292,13 +342,18 @@ struct SessionListView: View {
             } label: {
                 HStack {
                     Image(systemName: "folder")
-                    Text(MachinePath.display(option.cwd))
-                        .font(.body.monospaced())
+                    Text(HostFilterBridge.relative(option.cwd, home: homeDir))
+                        .font(.system(size: 14, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                     Spacer(minLength: 12)
+                    Text("\(option.count)")
+                        .foregroundStyle(.secondary)
                     if selected {
                         Image(systemName: "checkmark")
                     }
                 }
+                .accessibilityLabel(HostFilterBridge.relative(option.cwd, home: homeDir))
             }
         }
         if scopePaths.count > 3, !scopePathsExpanded {

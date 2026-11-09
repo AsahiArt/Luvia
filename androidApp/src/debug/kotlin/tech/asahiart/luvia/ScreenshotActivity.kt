@@ -74,7 +74,6 @@ class ScreenshotActivity : ComponentActivity() {
                         onNewSession = {},
                         onOpenTerminal = {},
                         trails = SampleShots.trails,
-                        latencyMs = 12,
                         nowEpochMs = SampleShots.shotNow,
                     )
                     "chat" -> SampleShots.Chat()

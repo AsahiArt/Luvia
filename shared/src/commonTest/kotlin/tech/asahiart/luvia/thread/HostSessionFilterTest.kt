@@ -4,6 +4,7 @@ import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.AgentStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class HostSessionFilterTest {
@@ -200,6 +201,119 @@ class HostSessionFilterTest {
         )
         assertEquals(listOf(SessionPathOption("/work/infra", 1)), openSessionPaths(threads, "box"))
         assertEquals(emptyList(), openSessionPaths(threads, null))
+    }
+
+    @Test
+    fun encodedFilterRoundTripsAndRejectsGarbage() {
+        val samples = listOf(
+            HostSessionFilter(),
+            HostSessionFilter(SessionScope.CurrentHost, SessionFilter.NeedsYou),
+            HostSessionFilter(SessionScope.Path("/work/luvia|notes"), SessionFilter.Idle),
+            HostSessionFilter(SessionScope.Path(" /work/luvia/ "), SessionFilter.Running),
+        )
+        for (filter in samples) {
+            assertEquals(filter, decodeHostSessionFilter(encodeHostSessionFilter(filter)))
+        }
+        assertEquals(HostSessionFilter(), decodeHostSessionFilter(null))
+        assertEquals(HostSessionFilter(), decodeHostSessionFilter(""))
+        assertEquals(HostSessionFilter(), decodeHostSessionFilter("nope"))
+        assertEquals(HostSessionFilter(), decodeHostSessionFilter("1\u001fall\u001fNotAStatus\u001f"))
+        assertEquals(HostSessionFilter(), decodeHostSessionFilter("1\u001fpath\u001fAll"))
+        assertEquals(HostSessionFilter(), decodeHostSessionFilter("1\u001fnope\u001fAll\u001f"))
+        assertEquals(HostSessionFilter(), decodeHostSessionFilter("1\u001fpath\u001fAll\u001f"))
+    }
+
+    @Test
+    fun decodingMemoryPersistsEachHost() {
+        val entries = MemoryEntries()
+        val memory = DecodingHostFilterMemory(entries)
+        val path = HostSessionFilter(SessionScope.Path("/work/luvia"), SessionFilter.Idle)
+        memory.put("box", path)
+        assertEquals(path, memory.get("box"))
+        assertEquals(HostSessionFilter(), memory.get("other"))
+        assertEquals(path, DecodingHostFilterMemory(entries).get("box"))
+    }
+
+    @Test
+    fun restoreDropsOnlyAPathWithNoSessions() {
+        val stored = HostSessionFilter(SessionScope.Path("/work/luvia/"), SessionFilter.NeedsYou)
+        val live = thread("a", "mbp", cwd = "/work/luvia", status = AgentStatus.Idle)
+        assertEquals(stored, restoreHostSessionFilter(stored, listOf(live)))
+        val other = thread("b", "mbp", cwd = "/other", status = AgentStatus.Idle)
+        assertEquals(
+            HostSessionFilter(SessionScope.CurrentHost, SessionFilter.NeedsYou),
+            restoreHostSessionFilter(stored, listOf(other)),
+        )
+        assertEquals(
+            HostSessionFilter(SessionScope.CurrentHost, SessionFilter.NeedsYou),
+            restoreHostSessionFilter(stored, emptyList()),
+        )
+        val online = HostSessionFilter(SessionScope.AllOnline, SessionFilter.Running)
+        assertEquals(online, restoreHostSessionFilter(online, emptyList()))
+        val blank = HostSessionFilter(SessionScope.Path("///"), SessionFilter.Idle)
+        assertEquals(
+            HostSessionFilter(SessionScope.CurrentHost, SessionFilter.Idle),
+            restoreHostSessionFilter(blank, listOf(live)),
+        )
+    }
+
+    @Test
+    fun selectedPathStaysListedAtZero() {
+        val paths = listOf(SessionPathOption("/work/luvia", 2))
+        assertEquals(paths, withSelectedPath(paths, SessionScope.Path("/work/luvia/")))
+        assertEquals(
+            listOf(SessionPathOption("/work/luvia", 2), SessionPathOption("/tmp/gone", 0)),
+            withSelectedPath(paths, SessionScope.Path("/tmp/gone")),
+        )
+        assertEquals(paths, withSelectedPath(paths, SessionScope.AllOnline))
+    }
+
+    @Test
+    fun homeRelativeUsesTheHostUsername() {
+        val home = hostHomeDirectory("ada", listOf("/Users/ada/luvia", "/work/notes"))
+        assertEquals("/Users/ada", home)
+        assertEquals("~/luvia", homeRelativePath("/Users/ada/luvia/", home))
+        assertEquals("~", homeRelativePath("/Users/ada", home))
+        assertEquals("/work/notes", homeRelativePath("/work/notes", home))
+        assertNull(hostHomeDirectory("ada", listOf("/work/notes")))
+        assertNull(hostHomeDirectory("", listOf("/Users/ada/luvia")))
+        assertNull(hostHomeDirectory("ada", emptyList()))
+        assertEquals("/home/ada", hostHomeDirectory("ada", listOf("/home/ada/proj")))
+    }
+
+    @Test
+    fun collidingPathChipsKeepAParent() {
+        val home = "/Users/ada"
+        val texts = sessionPathTexts(
+            listOf(
+                "/Users/ada/chezmoi",
+                "/Users/ada/Luvia/app",
+                "/Users/ada/Other/app",
+                "/Users/ada/Developer/Luvia/app",
+                "/Users/ada/src/Luvia/app",
+            ),
+            home,
+        )
+        assertEquals("chezmoi", texts[0].chip)
+        assertEquals("~/chezmoi", texts[0].relative)
+        assertEquals("Luvia/app", texts[1].chip)
+        assertEquals("~/Luvia/app", texts[1].relative)
+        assertEquals("Other/app", texts[2].chip)
+        assertEquals("Developer/Luvia/app", texts[3].chip)
+        assertEquals("src/Luvia/app", texts[4].chip)
+        val absolute = sessionPathTexts(listOf("/work/app"), null).single()
+        assertEquals("app", absolute.chip)
+        assertEquals("/work/app", absolute.relative)
+    }
+
+    private class MemoryEntries : HostFilterEntries {
+        val values = mutableMapOf<String, String>()
+
+        override fun read(hostId: String): String? = values[hostId]
+
+        override fun write(hostId: String, encoded: String) {
+            values[hostId] = encoded
+        }
     }
 
     private fun sample(): List<AgentThread> = listOf(

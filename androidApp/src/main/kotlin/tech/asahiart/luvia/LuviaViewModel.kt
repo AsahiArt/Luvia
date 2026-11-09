@@ -3,10 +3,13 @@ package tech.asahiart.luvia
 import tech.asahiart.luvia.HostUhpState
 import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.AskOption
+import tech.asahiart.luvia.thread.DecodingHostFilterMemory
+import tech.asahiart.luvia.thread.HostFilterEntries
 import tech.asahiart.luvia.thread.HostSessionFilter
-import tech.asahiart.luvia.thread.InMemoryHostFilterMemory
 import tech.asahiart.luvia.thread.NowState
 import tech.asahiart.luvia.thread.applyHostSwitch
+import tech.asahiart.luvia.thread.restoreHostSessionFilter
+import android.content.SharedPreferences
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -50,24 +53,44 @@ class LuviaViewModel(
     val now: StateFlow<NowState> = uhpRegistry.now
     val hostStates: StateFlow<Map<String, HostUhpState>> = uhpRegistry.states
 
-    private val hostFilterMemory = InMemoryHostFilterMemory()
-    private val _hostSessionFilters = MutableStateFlow<Map<String, HostSessionFilter>>(emptyMap())
+    private val hostFilterMemory = DecodingHostFilterMemory(
+        PrefsHostFilterEntries(
+            appContext.getSharedPreferences("host-session-filters", Context.MODE_PRIVATE),
+        ),
+    )
+    private val restoredHosts = mutableSetOf<String>()
+    private val _hostFilterEpoch = MutableStateFlow(0)
 
-    /** Last filter written for each host. Missing hosts still read as the default. */
-    val hostSessionFilters: StateFlow<Map<String, HostSessionFilter>> = _hostSessionFilters.asStateFlow()
+    /** Bumps when the one filter store changes, so the list rereads it. */
+    val hostFilterEpoch: StateFlow<Int> = _hostFilterEpoch.asStateFlow()
 
     fun hostSessionFilter(hostId: String): HostSessionFilter = hostFilterMemory.get(hostId)
 
     fun rememberHostSessionFilter(hostId: String, filter: HostSessionFilter) {
         hostFilterMemory.put(hostId, filter)
-        _hostSessionFilters.update { current -> current + (hostId to filter) }
+        _hostFilterEpoch.value += 1
     }
 
     /** Host change: scope returns to all online hosts, status stays remembered. */
     fun switchHostSessionFilter(hostId: String): HostSessionFilter {
         val next = hostFilterMemory.applyHostSwitch(hostId)
-        _hostSessionFilters.update { current -> current + (hostId to next) }
+        restoredHosts += hostId
+        _hostFilterEpoch.value += 1
         return next
+    }
+
+    /**
+     * Once per host, after that host's session list is known.
+     * A stale path becomes the current host and is written back. A path the
+     * user is already sitting on is left alone, even at count 0.
+     */
+    fun restoreHostFilter(hostId: String, threads: List<AgentThread>, listKnown: Boolean) {
+        if (!listKnown || !restoredHosts.add(hostId)) return
+        val stored = hostFilterMemory.get(hostId)
+        val next = restoreHostSessionFilter(stored, threads)
+        if (next == stored) return
+        hostFilterMemory.put(hostId, next)
+        _hostFilterEpoch.value += 1
     }
 
     fun answer(thread: AgentThread, option: AskOption) = uhpRegistry.answer(thread, option)
@@ -540,6 +563,18 @@ class LuviaViewModel(
             }
         }
     }
+}
+
+private class PrefsHostFilterEntries(
+    private val prefs: SharedPreferences,
+) : HostFilterEntries {
+    override fun read(hostId: String): String? = prefs.getString(key(hostId), null)
+
+    override fun write(hostId: String, encoded: String) {
+        prefs.edit().putString(key(hostId), encoded).apply()
+    }
+
+    private fun key(hostId: String) = "host-session-filter:$hostId"
 }
 
 internal fun HostRuntime.toUi(): HostUiModel {

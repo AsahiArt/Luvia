@@ -312,10 +312,11 @@ struct MachinesHome: View {
                 Image(systemName: "folder")
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
-                Text(MachinePath.display(cwd))
-                    .font(.subheadline.monospaced())
+                Text(relativePath(cwd, host: host))
+                    .font(.system(size: 14, design: .monospaced))
                     .foregroundStyle(.primary)
-                    .lineLimit(2)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                     .multilineTextAlignment(.leading)
                 Spacer(minLength: 8)
                 HStack(spacing: -8) {
@@ -349,7 +350,7 @@ struct MachinesHome: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .accessibilityLabel(pathLabel(cwd: cwd, total: total, waiting: waiting))
+        .accessibilityLabel(pathLabel(host: host, cwd: cwd, total: total, waiting: waiting))
         .accessibilityHint("轻点查看")
     }
 
@@ -451,8 +452,14 @@ struct MachinesHome: View {
         }
     }
 
-    private func pathLabel(cwd: String, total: Int, waiting: Int) -> String {
-        var label = "路径 \(MachinePath.display(cwd))，\(total) 个会话"
+    private func relativePath(_ cwd: String, host: HostViewState) -> String {
+        let paths = catalog.compactMap { $0.hostId == host.id ? $0.cwd : nil }
+        let home = HostFilterBridge.homeDirectory(username: host.username, paths: paths)
+        return HostFilterBridge.relative(cwd, home: home)
+    }
+
+    private func pathLabel(host: HostViewState, cwd: String, total: Int, waiting: Int) -> String {
+        var label = "路径 \(relativePath(cwd, host: host))，\(total) 个会话"
         if waiting > 0 { label += "，\(waiting) 个等你决定" }
         return label
     }
