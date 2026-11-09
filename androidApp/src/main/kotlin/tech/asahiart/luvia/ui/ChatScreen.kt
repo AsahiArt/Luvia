@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -831,10 +832,10 @@ private fun DecisionCard(
                 overflow = TextOverflow.Ellipsis,
             )
             if (ask.options.isEmpty()) {
-                Button(
+                FilledTonalButton(
                     onClick = onOpenTerminal,
                     enabled = enabled,
-                    modifier = Modifier.padding(top = 12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(48.dp),
                     shape = RoundedCornerShape(20.dp),
                 ) {
                     Text(stringResource(R.string.answer_in_terminal))

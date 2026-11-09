@@ -586,6 +586,7 @@ struct SessionListView: View {
                     Button("去终端回答", action: onTerminal)
                         .buttonStyle(.borderedProminent)
                         .tint(Self.decide)
+                        .disabled(!canAnswer(thread))
                 }
                 if let primary {
                     Button(primary.label) { onAnswer(thread, primary) }

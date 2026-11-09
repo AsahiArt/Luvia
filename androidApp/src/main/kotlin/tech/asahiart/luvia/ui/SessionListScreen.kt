@@ -800,10 +800,10 @@ private fun DecisionPreview(
                 overflow = TextOverflow.Ellipsis,
             )
             if (ask.options.isEmpty()) {
-                Button(
+                FilledTonalButton(
                     onClick = onOpenTerminal,
                     enabled = enabled,
-                    modifier = Modifier.padding(top = 12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(48.dp),
                 ) {
                     Text(stringResource(R.string.answer_in_terminal))
                 }
