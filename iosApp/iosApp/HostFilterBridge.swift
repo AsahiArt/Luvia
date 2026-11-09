@@ -50,10 +50,6 @@ enum HostFilterBridge {
         HostSessionFilterKt.applyHostSwitch(memory, hostId: hostId)
     }
 
-    static func restore(_ stored: HostSessionFilter, threads: [AgentThread]) -> HostSessionFilter {
-        HostSessionFilterKt.restoreHostSessionFilter(stored: stored, threadsForHost: threads)
-    }
-
     static func includingSelected(_ paths: [SessionPathOption], scope: SessionScope) -> [SessionPathOption] {
         HostSessionFilterKt.withSelectedPath(paths: paths, scope: scope)
     }

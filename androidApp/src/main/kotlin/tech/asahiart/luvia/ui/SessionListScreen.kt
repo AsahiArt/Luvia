@@ -627,6 +627,10 @@ private fun ScopeFilterChip(
                 if (!showAllPaths && choices.paths.size > VISIBLE_PATHS) {
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.scope_more)) },
+                        leadingIcon = {
+                            // Same 24.dp leading slot as ScopeMenuItem so 「更多」 aligns with item text.
+                            Box(Modifier.size(24.dp))
+                        },
                         onClick = { showAllPaths = true },
                     )
                 }

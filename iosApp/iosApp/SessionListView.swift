@@ -360,7 +360,15 @@ struct SessionListView: View {
             }
         }
         if scopePaths.count > 3, !scopePathsExpanded {
-            Button("更多") { scopePathsExpanded = true }
+            Button {
+                scopePathsExpanded = true
+            } label: {
+                HStack {
+                    Color.clear.frame(width: 24, height: 24)
+                    Text("更多")
+                    Spacer()
+                }
+            }
         }
     }
 
