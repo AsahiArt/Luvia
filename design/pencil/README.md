@@ -389,8 +389,8 @@ Luvia 定稿设计稿的 Pencil 版，按 Android（Material You）和 iOS（Liq
 
 | frame | 平台 | 源 HTML | 原稿 PNG |
 |---|---|---|---|
-| `lv-tok-terminal` · 终端底板 token（terminal-light-bg/SPEC.md） | 通用 | `luvia/terminal-light-bg/SPEC.md（本目录 src/terminal-tokens.html 排版）` | `（无单独 PNG，对照用源 HTML 重渲染）` |
-| `lv-brand-pi` · pi 官方 Logo（brand/logos） | 通用 | `luvia/brand/logos/*.svg（本目录 src/brand.html 排版）` | `（无单独 PNG，对照用源 HTML 重渲染）` |
+| `lv-tok-terminal` · 终端底板 token（terminal-light-bg/SPEC.md） | 通用 | `luvia/terminal-light-bg/SPEC.md` | `（无单独 PNG，对照用源 HTML 重渲染）` |
+| `lv-brand-pi` · pi 官方 Logo（brand/logos） | 通用 | `luvia/brand/logos/*.svg` | `（无单独 PNG，对照用源 HTML 重渲染）` |
 
 **图上看不出的 UX（原文摘录）**
 
@@ -430,7 +430,7 @@ Luvia 定稿设计稿的 Pencil 版，按 Android（Material You）和 iOS（Liq
 4. 未知 agent 仍可用字母圆；**不要**把 pi 当未知。
 5. `skills` / `quote0` 等会话名 ≠ kind 映射：若底层 agent 是 pi，头像跟 **agent kind** 用 pi Logo；会话名首字母规则另定，不挡本项。
 
-这两张原来没有单独的稿，是按 SPEC 表格和 `brand/logos/*.svg` 排出来的 token 板（源 HTML 在 `src/`），对照图是这份 HTML 在 Chrome 里的渲染。终端 token 也写进了 `.pen` 的 variables：`terminalBg` 和 `terminalFg` 分浅色和深色两套主题，`terminalDim`、`terminalFailBg`、`terminalFailStroke` 只有浅色值。深色失败描边在 SPEC 里只写了「现有红描边」，没有给色值，所以没有编值。
+这两张原来没有单独的稿，是按 SPEC 表格和 `brand/logos/*.svg` 排出来的 token 板，对照图是排版 HTML 在 Chrome 里的渲染（排版源不入库）。终端 token 也写进了 `.pen` 的 variables：`terminalBg` 和 `terminalFg` 分浅色和深色两套主题，`terminalDim`、`terminalFailBg`、`terminalFailStroke` 只有浅色值。深色失败描边在 SPEC 里只写了「现有红描边」，没有给色值，所以没有编值。
 
 ## 不在本文件（非定稿或未定）
 

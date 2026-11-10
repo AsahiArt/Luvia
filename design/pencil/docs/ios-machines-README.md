@@ -1,5 +1,8 @@
 # Luvia · iOS「机器」页美化 · 三个方向（2026-11-09）
 
+> **定稿：方向 A**（2026-11-09 Misaka 在需求对齐确认，会话筛选用方案 ②）。B、C 未选，下文只作记录；`luvia.pen` 只含 A。
+
+
 待 Misaka 选，未定稿，不进 HANDOFF。现稿：`../final-rev-2026-11-06/workspace/png/ios-machines@2x.png`。
 
 - 主帧（浅色，393×852pt @2x）：`png/ios-machines-A@2x.png`、`png/ios-machines-B@2x.png`、`png/ios-machines-C@2x.png`
