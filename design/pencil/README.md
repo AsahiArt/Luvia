@@ -389,8 +389,8 @@ Luvia 定稿设计稿的 Pencil 版，按 Android（Material You）和 iOS（Liq
 
 | frame | 平台 | 源 HTML | 原稿 PNG |
 |---|---|---|---|
-| `lv-tok-terminal` · 终端底板 token（terminal-light-bg/SPEC.md） | 通用 | `luvia/terminal-light-bg/SPEC.md（本目录 src/terminal-tokens.html 排版）` | `（无单独 PNG，对照用源 HTML 重渲染）` |
-| `lv-brand-pi` · pi 官方 Logo（brand/logos） | 通用 | `luvia/brand/logos/*.svg（本目录 src/brand.html 排版）` | `（无单独 PNG，对照用源 HTML 重渲染）` |
+| `lv-tok-terminal` · 终端底板 token（terminal-light-bg/SPEC.md） | 通用 | `luvia/terminal-light-bg/SPEC.md` | `（无单独 PNG，对照用源 HTML 重渲染）` |
+| `lv-brand-pi` · pi 官方 Logo（brand/logos） | 通用 | `luvia/brand/logos/*.svg` | `（无单独 PNG，对照用源 HTML 重渲染）` |
 
 **图上看不出的 UX（原文摘录）**
 
@@ -430,7 +430,7 @@ Luvia 定稿设计稿的 Pencil 版，按 Android（Material You）和 iOS（Liq
 4. 未知 agent 仍可用字母圆；**不要**把 pi 当未知。
 5. `skills` / `quote0` 等会话名 ≠ kind 映射：若底层 agent 是 pi，头像跟 **agent kind** 用 pi Logo；会话名首字母规则另定，不挡本项。
 
-这两张原来没有单独的稿，是按 SPEC 表格和 `brand/logos/*.svg` 排出来的 token 板（源 HTML 在 `src/`），对照图是这份 HTML 在 Chrome 里的渲染。终端 token 也写进了 `.pen` 的 variables：`terminalBg` 和 `terminalFg` 分浅色和深色两套主题，`terminalDim`、`terminalFailBg`、`terminalFailStroke` 只有浅色值。深色失败描边在 SPEC 里只写了「现有红描边」，没有给色值，所以没有编值。
+这两张原来没有单独的稿，是按 SPEC 表格和 `brand/logos/*.svg` 排出来的 token 板，对照图是排版 HTML 在 Chrome 里的渲染（排版源不入库）。终端 token 也写进了 `.pen` 的 variables：`terminalBg` 和 `terminalFg` 分浅色和深色两套主题，`terminalDim`、`terminalFailBg`、`terminalFailStroke` 只有浅色值。深色失败描边在 SPEC 里只写了「现有红描边」，没有给色值，所以没有编值。
 
 ## 不在本文件（非定稿或未定）
 
@@ -445,5 +445,7 @@ Luvia 定稿设计稿的 Pencil 版，按 Android（Material You）和 iOS（Liq
 ## 保真说明
 - 对照方法：同一份 HTML 在 Chrome 里截原稿，Pencil 导出同倍率 PNG，逐张并排目检，再算像素差（`_build.json` 里的 mean，0–255）。各帧 mean 在 1–8 之间。偏高的是 iOS 帧：原稿 PNG 圆角外露出了机身灰底，Pencil 导出是透明底，再加上深色底上的文字抗锯齿。
 - 栅格化的部分：iOS 转场帧里加了 `filter: blur/brightness/saturate` 的背景层，带 mask 的终端渐隐区，以及含 mask / filter / pattern 的 SVG。Pencil 没有对应属性，这些改成位图填充（在 `assets/`）。其他都是可编辑图层：agent 官方标、pi 标、图标都转成了 path。
+- 虚线边框、iOS 配对页的虚线进度环、翻卡帧的边缘斜纹（repeating-linear-gradient）：按 Chrome 的画法（虚线长度和间距的取法相同）算成填充 path，图层名 `border-dashed` / `bg-stripes`，不占位图。要改虚线粗细或间距，改 HTML 后重新生成。
+- `assets/` 里只剩转场帧的位图；按显示尺寸的 2 倍封顶，PNG 用 pngquant（仅视觉无损时）+ oxipng 压缩，由 `tool/slim_assets.py` 在生成时自动处理。
 - 已知差异：iOS 的 SF Pro 在 Pencil 里没有，用 Inter 代替，和原 HTML 在这台机器上的渲染一致，但和真机 SF 有字宽差别。另外「 · 」两侧的空格比原稿略宽 1–2px。
 - Liquid Glass 的背景模糊用 Pencil 的 `background_blur` 表达；`inset 0 0 0 Npx` 这类细线改成内描边；元素本来就有描边的，叠一个描边矩形。
