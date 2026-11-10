@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var userOpenedPairing = false
     #if DEBUG
     @State private var fixturePaneID = ""
+    @AppStorage("luvia.debug.noncursorFixture") private var showNoncursorFixture = false
     #endif
     @Environment(\.scenePhase) private var scenePhase
 
@@ -209,6 +210,9 @@ struct ContentView: View {
             )
             raw.append(contentsOf: samples)
             raw.append(contentsOf: listSamples)
+        }
+        if showNoncursorFixture {
+            raw.append(PlaytestChatKt.playtestNoncursorThread())
         }
         #endif
         if raw.isEmpty { return [] }
@@ -529,6 +533,9 @@ private struct SettingsForm: View {
     @State private var addresses = ""
     @State private var port = ""
     @State private var user = ""
+    #if DEBUG
+    @AppStorage("luvia.debug.noncursorFixture") private var showNoncursorFixture = false
+    #endif
 
     var body: some View {
         Form {
@@ -567,6 +574,13 @@ private struct SettingsForm: View {
                 Section {
                     Button("取消配对", role: .destructive, action: onUnpair)
                 }
+                #if DEBUG
+                Section {
+                    Toggle("显示「去终端回答」试玩卡", isOn: $showNoncursorFixture)
+                } footer: {
+                    Text("调试样本，不是这台电脑上的会话。编号列表没有光标，卡片只有去终端回答。")
+                }
+                #endif
             }
         }
         .navigationTitle(model.selectedHost?.name ?? "电脑")

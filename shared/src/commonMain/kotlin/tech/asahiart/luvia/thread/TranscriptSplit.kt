@@ -85,6 +85,63 @@ internal fun isKeyHintLine(line: String): Boolean {
 }
 
 /**
+ * Drops the trailing TUI selection block: radio or numbered rows, their wrapped
+ * descriptions, and keybinding chrome (`↑/↓ navigate`, `Enter:submit`, `Tab:next`).
+ * The agent's question above that block stays. Text with no such block is unchanged.
+ */
+public fun withoutAskSelectionBlock(text: String): String {
+    if (text.isEmpty()) return text
+    val lines = text.lines()
+    var cut = lines.size
+    var started = false
+    for (index in lines.indices.reversed()) {
+        val line = lines[index]
+        val core = selectionCore(line)
+        if (!started) {
+            if (line.isBlank() || core.isEmpty()) continue
+            if (isSelectionQuestion(core)) break
+            if (isOptionLine(core) || isKeyHintLine(core)) {
+                started = true
+                cut = index
+                continue
+            }
+            break
+        }
+        if (isSelectionQuestion(core)) break
+        if (
+            line.isBlank() ||
+            core.isEmpty() ||
+            isOptionLine(core) ||
+            isKeyHintLine(core) ||
+            isPaneFooterLine(core) ||
+            isHangingIndent(line)
+        ) {
+            cut = index
+            continue
+        }
+        break
+    }
+    if (!started) return text
+    return lines.take(cut).joinToString("\n").trim()
+}
+
+private fun selectionCore(line: String): String =
+    stripLeadingPromptMarkers(stripLeadingBox(line.trim()))
+
+private fun isSelectionQuestion(core: String): Boolean {
+    val qAscii = core.indexOf('?')
+    val qFull = core.indexOf('？')
+    val qIdx = when {
+        qAscii < 0 -> qFull
+        qFull < 0 -> qAscii
+        else -> minOf(qAscii, qFull)
+    }
+    if (qIdx < 0) return false
+    val before = core.take(qIdx).trim()
+    return before.any { it.isLetterOrDigit() || it.code in 0x4E00..0x9FFF }
+}
+
+/**
  * Radio row `N (○|●) rest`. [GrokChoice.filled] is true for `(●)`.
  * [stripAnsi] folds U+25CF to `*`, so `(*)` is the same filled radio.
  */

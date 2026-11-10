@@ -441,6 +441,55 @@ class ThreadTest {
     }
 
     @Test
+    fun askSelectionBlockLeavesTheQuestion() {
+        val raw = """
+            |先看沙箱。
+            |  ┃  是否允许在这个仅用于终端帧探测的 /tmp 沙箱里创建仅含一行 probe 的 term-
+            |  ┃  probe.txt，且不会影响系统其他位置？
+            |  ┃
+            |  ┃  1 (○) 允许 (Recommended)    允许创建
+            |  ┃                            probe.txt，不改动系统其他位置。
+            |  ┃  2 (○) 不允许                 不创建
+            |  ┃  z (○) Type your answer here
+            |  ┃  ↑/↓ navigate · y copy                                       Enter:submit
+            |  Tab:next answer  │  Esc:scrollback  │  Shift+x:dismiss
+            |""".trimMargin()
+        val kept = withoutAskSelectionBlock(raw)
+        assertTrue(kept.contains("先看沙箱。"))
+        assertTrue(kept.contains("是否允许"))
+        assertTrue(kept.contains("term-"))
+        assertTrue(kept.contains("probe.txt，且不会影响系统其他位置？"))
+        assertFalse(kept.contains("(○)"))
+        assertFalse(kept.contains("不允许"))
+        assertFalse(kept.contains("Type your answer"))
+        assertFalse(kept.contains("navigate"))
+        assertFalse(kept.contains("Enter:submit"))
+        assertFalse(kept.contains("Tab:next"))
+        assertFalse(kept.contains("Shift+x"))
+        assertEquals("Run the tests?", withoutAskSelectionBlock("Run the tests?\n1. Yes\n2. No\n").trim())
+        assertEquals("先看代码。\n准备开始。", withoutAskSelectionBlock("先看代码。\n准备开始。"))
+    }
+
+    @Test
+    fun parsedAskHidesSelectionBlockInTheStream() {
+        val raw = """
+            |Allow editing build.gradle.kts?
+            |❯ 1. Yes
+            |  2. No
+            |""".trimMargin()
+        val stored = PaneTimeline().ingestTranscript(raw)
+        assertTrue((stored.items.single() as TimelineItem.Output).text.contains("1. Yes"))
+        val shown = stored.render(Ask("Allow editing build.gradle.kts?", emptyList()))
+        val prose = shown.filterIsInstance<TimelineItem.Output>().joinToString("\n") { it.text }
+        assertTrue(prose.contains("Allow editing build.gradle.kts?"))
+        assertFalse(prose.contains("1. Yes"))
+        assertFalse(prose.contains("2. No"))
+        assertTrue(shown.any { it is TimelineItem.AskCard })
+        val untouched = stored.render(null).filterIsInstance<TimelineItem.Output>().single().text
+        assertTrue(untouched.contains("1. Yes"))
+    }
+
+    @Test
     fun transcriptSplitsProseToolsAndCost() {
         val raw =
             "Session title auto · grok\n" +
