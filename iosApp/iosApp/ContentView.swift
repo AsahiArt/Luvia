@@ -680,6 +680,9 @@ private struct SettingsForm: View {
     @State private var addresses = ""
     @State private var port = ""
     @State private var user = ""
+    #if DEBUG
+    @AppStorage(MachinesPageFixture.key) private var machinesFixture = MachinesPageFixture.off.rawValue
+    #endif
 
     var body: some View {
         Form {
@@ -718,6 +721,15 @@ private struct SettingsForm: View {
                 Section {
                     Button("取消配对", role: .destructive, action: onUnpair)
                 }
+                #if DEBUG
+                Section("调试") {
+                    Picker("机器页", selection: $machinesFixture) {
+                        Text("关").tag(MachinesPageFixture.off.rawValue)
+                        Text("未配对空态").tag(MachinesPageFixture.empty.rawValue)
+                        Text("当前主机离线").tag(MachinesPageFixture.currentOffline.rawValue)
+                    }
+                }
+                #endif
             }
         }
         .navigationTitle(model.selectedHost?.name ?? "电脑")

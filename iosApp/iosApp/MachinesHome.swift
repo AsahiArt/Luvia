@@ -1,6 +1,15 @@
 import LuviaShared
 import SwiftUI
 
+#if DEBUG
+enum MachinesPageFixture: String {
+    static let key = "debug.machines-page-fixture"
+    case off
+    case empty
+    case currentOffline
+}
+#endif
+
 struct MachinesHome: View {
     @Bindable var model: AppModel
     var catalog: [AgentThread]
@@ -14,6 +23,9 @@ struct MachinesHome: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    #if DEBUG
+    @AppStorage(MachinesPageFixture.key) private var machinesFixture = MachinesPageFixture.off.rawValue
+    #endif
     @State private var detailHostID: String?
     @State private var litPath: String?
     @State private var expandedHosts: Set<String> = []
@@ -21,7 +33,7 @@ struct MachinesHome: View {
     @State private var reconnectError: String?
 
     private var needsYouColor: Color {
-        colorScheme == .dark ? Color(hex: "FFB340") : Color(hex: "FF9F0A")
+        colorScheme == .dark ? Color(hex: "FFB340") : Color(hex: "C2410C")
     }
 
     private var currentHost: HostViewState? {
@@ -36,7 +48,7 @@ struct MachinesHome: View {
     var body: some View {
         NavigationStack {
             Group {
-                if model.hosts.isEmpty {
+                if showsEmpty {
                     empty
                 } else {
                     list
@@ -65,6 +77,14 @@ struct MachinesHome: View {
                 }
             }
         }
+    }
+
+    private var showsEmpty: Bool {
+        if model.hosts.isEmpty { return true }
+        #if DEBUG
+        if machinesFixture == MachinesPageFixture.empty.rawValue { return true }
+        #endif
+        return false
     }
 
     private var detailPresented: Binding<Bool> {
@@ -125,7 +145,7 @@ struct MachinesHome: View {
                 Section {
                     ForEach(otherHosts) { host in
                         otherCard(host)
-                            .opacity(host.connection == .live || host.connection == .connecting ? 1 : 0.55)
+                            .opacity(dimsOtherHost(host) ? 0.55 : 1)
                             .machineRow()
                             .machineActions(host: host, reconnect: { reconnect(host) }, model: model)
                     }
@@ -146,8 +166,8 @@ struct MachinesHome: View {
     private func mainCard(_ host: HostViewState) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             hostHeader(host)
-            counts(host)
-            if host.connection == .live {
+            if shownConnection(host) == .live {
+                counts(host)
                 pathList(host)
             } else {
                 reconnectRow(host)
@@ -175,12 +195,15 @@ struct MachinesHome: View {
     private func otherCard(_ host: HostViewState) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             hostHeader(host)
-            if host.connection == .live {
+            if shownConnection(host) == .live {
                 pathList(host)
             }
         }
         .padding(16)
-        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(
+            Color(.secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 28, style: .continuous)
+        )
     }
 
     private func hostHeader(_ host: HostViewState) -> some View {
@@ -188,26 +211,27 @@ struct MachinesHome: View {
             detailHostID = host.id
         } label: {
             HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.accentColor)
-                    .frame(width: 48, height: 48)
-                    .overlay {
-                        Image(systemName: "desktopcomputer")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(.white)
-                    }
-                    .accessibilityHidden(true)
+                hostIcon(host)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(host.name)
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
-                    Text(connectionLine(host))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Circle()
+                            .fill(statusDot(host))
+                            .frame(width: 8, height: 8)
+                            .alignmentGuide(.firstTextBaseline) { dimensions in
+                                dimensions.height * 0.8
+                            }
+                            .accessibilityHidden(true)
+                        Text(connectionLine(host))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
                 }
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right")
@@ -218,8 +242,8 @@ struct MachinesHome: View {
             .frame(minHeight: 60)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
-        .accessibilityLabel("\(host.name)，\(connectionLabel(host.connection))")
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(host.name)，\(connectionLine(host))")
         .accessibilityHint("打开这台电脑")
     }
 
@@ -231,15 +255,15 @@ struct MachinesHome: View {
         return Group {
             if stack {
                 VStack(spacing: 8) {
-                    countBlock("等你", waiting, needsYouColor) { focus(host, status: .needsYou) }
-                    countBlock("运行中", running, .primary) { focus(host, status: .running) }
-                    countBlock("会话", all, .primary) { focus(host, status: .all) }
+                    countBlock("等你", waiting, needsYouColor, sideBySide: true) { focus(host, status: .needsYou) }
+                    countBlock("运行中", running, Color.accentColor, sideBySide: true) { focus(host, status: .running) }
+                    countBlock("会话", all, .primary, sideBySide: true) { focus(host, status: .all) }
                 }
             } else {
                 HStack(spacing: 8) {
-                    countBlock("等你", waiting, needsYouColor) { focus(host, status: .needsYou) }
-                    countBlock("运行中", running, .primary) { focus(host, status: .running) }
-                    countBlock("会话", all, .primary) { focus(host, status: .all) }
+                    countBlock("等你", waiting, needsYouColor, sideBySide: false) { focus(host, status: .needsYou) }
+                    countBlock("运行中", running, Color.accentColor, sideBySide: false) { focus(host, status: .running) }
+                    countBlock("会话", all, .primary, sideBySide: false) { focus(host, status: .all) }
                 }
             }
         }
@@ -249,19 +273,23 @@ struct MachinesHome: View {
         _ title: String,
         _ value: Int,
         _ tint: Color,
+        sideBySide: Bool,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                Text("\(value)")
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(tint)
-                    .contentTransition(.numericText())
-                    .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: value)
+            Group {
+                if sideBySide {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        countNumber(value, tint)
+                        countLabel(title)
+                        Spacer(minLength: 0)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 2) {
+                        countNumber(value, tint)
+                        countLabel(title)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
@@ -284,7 +312,8 @@ struct MachinesHome: View {
             if paths.count > 3, !expanded {
                 Button("更多") { expandedHosts.insert(host.id) }
                     .font(.subheadline.weight(.semibold))
-                    .buttonStyle(.borderless)
+                    .foregroundStyle(Color.accentColor)
+                    .buttonStyle(.plain)
                     .frame(minHeight: 44)
                     .accessibilityLabel("更多路径")
             }
@@ -309,11 +338,11 @@ struct MachinesHome: View {
             openPath(host, cwd: cwd)
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "folder")
-                    .foregroundStyle(.secondary)
+                Image(systemName: "folder.fill")
+                    .foregroundStyle(Color.accentColor)
                     .accessibilityHidden(true)
                 Text(relativePath(cwd, host: host))
-                    .font(.system(size: 14, design: .monospaced))
+                    .font(.body.monospaced())
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -349,7 +378,7 @@ struct MachinesHome: View {
             .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: lit)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
         .accessibilityLabel(pathLabel(host: host, cwd: cwd, total: total, waiting: waiting))
         .accessibilityHint("轻点查看")
     }
@@ -360,16 +389,19 @@ struct MachinesHome: View {
                 reconnect(host)
             } label: {
                 HStack(spacing: 8) {
-                    if reconnecting || host.connection == .connecting {
+                    if showsReconnectProgress(host) {
                         ProgressView()
                             .controlSize(.small)
+                            .tint(.white)
                     }
                     Text("重新连接")
                         .font(.body.weight(.semibold))
                 }
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(Color.accentColor, in: Capsule())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .accessibilityLabel("重新连接")
             if let reconnectError {
                 Text(reconnectError)
@@ -388,9 +420,75 @@ struct MachinesHome: View {
     }
 
     private func reconnect(_ host: HostViewState) {
+        #if DEBUG
+        if machinesFixture == MachinesPageFixture.currentOffline.rawValue { return }
+        #endif
         reconnecting = true
         reconnectError = nil
         model.connect(host.id)
+    }
+
+    private func shownConnection(_ host: HostViewState) -> HostConnectionBadge {
+        #if DEBUG
+        if machinesFixture == MachinesPageFixture.currentOffline.rawValue, host.id == currentHost?.id {
+            return .offline
+        }
+        #endif
+        return host.connection
+    }
+
+    private func dimsOtherHost(_ host: HostViewState) -> Bool {
+        let connection = shownConnection(host)
+        return connection != .live && connection != .connecting
+    }
+
+    private func unavailable(_ host: HostViewState) -> Bool {
+        let connection = shownConnection(host)
+        return connection == .offline || connection == .stale
+    }
+
+    private func showsReconnectProgress(_ host: HostViewState) -> Bool {
+        if reconnecting { return true }
+        #if DEBUG
+        if machinesFixture == MachinesPageFixture.currentOffline.rawValue { return false }
+        #endif
+        return host.connection == .connecting
+    }
+
+    private func hostIcon(_ host: HostViewState) -> some View {
+        let quiet = unavailable(host)
+        return RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(quiet ? Color(.systemGray5) : Color.accentColor)
+            .frame(width: 48, height: 48)
+            .overlay {
+                Image(systemName: "desktopcomputer")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(quiet ? Color.secondary : Color.white)
+            }
+            .accessibilityHidden(true)
+    }
+
+    private func statusDot(_ host: HostViewState) -> Color {
+        switch shownConnection(host) {
+        case .live: Color(hex: "34C759")
+        case .connecting: Color.secondary
+        case .stale, .offline: Color(.systemGray)
+        }
+    }
+
+    private func countNumber(_ value: Int, _ tint: Color) -> some View {
+        Text("\(value)")
+            .font(.title2)
+            .foregroundStyle(tint)
+            .contentTransition(.numericText())
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.3), value: value)
+    }
+
+    private func countLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
     }
 
     private func focus(_ host: HostViewState, status: SessionFilter) {
@@ -436,20 +534,33 @@ struct MachinesHome: View {
     }
 
     private func connectionLine(_ host: HostViewState) -> String {
-        switch host.connection {
+        switch shownConnection(host) {
         case .live:
-            var line = host.address.isEmpty ? "已连接" : "已连接 · \(host.address)"
+            var parts = ["已连接"]
+            if !host.address.isEmpty { parts.append(host.address) }
             if host.id == currentHost?.id, let latencyMs {
-                line += " · \(latencyMs) ms"
+                parts.append("\(latencyMs) ms")
             }
-            return line
+            return parts.joined(separator: " · ")
         case .connecting:
             return "连接中"
-        case .stale:
-            return "需要重新连接"
-        case .offline:
-            return "离线"
+        case .stale, .offline:
+            guard let last = host.lastUpdated else { return "离线" }
+            return offlineLine(last)
         }
+    }
+
+    private func offlineLine(_ date: Date) -> String {
+        let seconds = max(0, Int(Date().timeIntervalSince(date)))
+        let amount: String
+        if seconds < 3600 {
+            amount = "\(max(1, seconds / 60)) 分钟"
+        } else if seconds < 86400 {
+            amount = "\(max(1, seconds / 3600)) 小时"
+        } else {
+            amount = "\(max(1, seconds / 86400)) 天"
+        }
+        return "离线 · 上次 \(amount)前"
     }
 
     private func relativePath(_ cwd: String, host: HostViewState) -> String {
