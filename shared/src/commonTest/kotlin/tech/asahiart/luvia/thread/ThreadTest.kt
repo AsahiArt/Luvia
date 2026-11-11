@@ -508,6 +508,30 @@ class ThreadTest {
     }
 
     @Test
+    fun parsedAskStripsOnlyTheLastOutput() {
+        val earlier = "下一步：\n1. 先看代码\n2. 再跑测试\n> 要继续吗？"
+        val last = """
+            |Allow editing build.gradle.kts?
+            |❯ 1. Yes
+            |  2. No
+            |""".trimMargin()
+        val stored = PaneTimeline(
+            items = listOf(
+                TimelineItem.Output("earlier", earlier),
+                TimelineItem.Output("last", last),
+            ),
+        )
+        val shown = stored.render(Ask("Allow editing build.gradle.kts?", emptyList()))
+        val earlierShown = shown.filterIsInstance<TimelineItem.Output>().single { it.id == "earlier" }
+        val lastShown = shown.filterIsInstance<TimelineItem.Output>().single { it.id == "last" }
+        assertEquals(earlier, earlierShown.text)
+        assertFalse(lastShown.text.contains("1. Yes"))
+        assertFalse(lastShown.text.contains("2. No"))
+        assertTrue(lastShown.text.contains("Allow editing build.gradle.kts?"))
+        assertTrue(shown.any { it is TimelineItem.AskCard })
+    }
+
+    @Test
     fun transcriptSplitsProseToolsAndCost() {
         val raw =
             "Session title auto · grok\n" +

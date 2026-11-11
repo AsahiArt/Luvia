@@ -106,8 +106,9 @@ public data class PaneTimeline(
         val shown = if (ask == null) {
             items
         } else {
-            items.mapNotNull { item ->
-                if (item !is TimelineItem.Output) return@mapNotNull item
+            val lastOutput = items.indexOfLast { it is TimelineItem.Output }
+            items.mapIndexedNotNull { index, item ->
+                if (index != lastOutput || item !is TimelineItem.Output) return@mapIndexedNotNull item
                 val stripped = withoutParsedAskPrompt(item.text)
                 if (stripped.isBlank()) null else item.copy(text = stripped)
             }
