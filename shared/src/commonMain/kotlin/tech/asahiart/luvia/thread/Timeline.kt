@@ -100,7 +100,7 @@ public data class PaneTimeline(
 
     /**
      * Items plus a trailing Ask card when the thread is waiting.
-     * A parsed card hides the raw TUI selection block in the stream. The question stays.
+     * A parsed card hides the TUI selection block and the prompt line that repeats the card title.
      */
     public fun render(ask: Ask?): List<TimelineItem> {
         val shown = if (ask == null) {
@@ -108,7 +108,7 @@ public data class PaneTimeline(
         } else {
             items.mapNotNull { item ->
                 if (item !is TimelineItem.Output) return@mapNotNull item
-                val stripped = withoutAskSelectionBlock(item.text)
+                val stripped = withoutParsedAskPrompt(item.text)
                 if (stripped.isBlank()) null else item.copy(text = stripped)
             }
         }

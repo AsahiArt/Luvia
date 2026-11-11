@@ -128,6 +128,54 @@ public fun withoutAskSelectionBlock(text: String): String {
 private fun selectionCore(line: String): String =
     stripLeadingPromptMarkers(stripLeadingBox(line.trim()))
 
+/**
+ * Once an Ask card is parsed, also drops the trailing TUI prompt that repeats
+ * the card title: a question marked with `>`, `›`, or `❯`, plus the cursor bars
+ * beside it. A plain question with no prompt marker stays, and
+ * [withoutAskSelectionBlock] is unchanged.
+ */
+public fun withoutParsedAskPrompt(text: String): String {
+    val base = withoutAskSelectionBlock(text)
+    if (base.isEmpty()) return base
+    val lines = base.lines()
+    var cut = lines.size
+    var started = false
+    for (index in lines.indices.reversed()) {
+        val line = lines[index]
+        if (!started) {
+            if (line.isBlank() || isCursorBarLine(line)) continue
+            if (isMarkedAskPrompt(line)) {
+                started = true
+                cut = index
+                continue
+            }
+            break
+        }
+        if (line.isBlank() || isCursorBarLine(line) || isMarkedAskPrompt(line)) {
+            cut = index
+            continue
+        }
+        break
+    }
+    if (!started) return base
+    return lines.take(cut).joinToString("\n").trim()
+}
+
+private fun isCursorBarLine(line: String): Boolean {
+    val trimmed = line.trim()
+    if (trimmed.isEmpty()) return false
+    return stripLeadingBox(trimmed).isEmpty()
+}
+
+private fun isMarkedAskPrompt(line: String): Boolean {
+    val afterBox = stripLeadingBox(line.trim())
+    if (afterBox.isEmpty()) return false
+    val marker = afterBox[0]
+    if (marker != '>' && marker != '›' && marker != '❯') return false
+    val rest = afterBox.drop(1).trimStart()
+    return isSelectionQuestion(rest)
+}
+
 private fun isSelectionQuestion(core: String): Boolean {
     val qAscii = core.indexOf('?')
     val qFull = core.indexOf('？')

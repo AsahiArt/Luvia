@@ -319,11 +319,19 @@ struct ChatView: View {
                     .lineLimit(2)
                     .truncationMode(.tail)
                 if options.isEmpty {
-                    Button("去终端回答", action: onTerminal)
-                        .buttonStyle(.borderedProminent)
-                        .buttonBorderShape(.capsule)
-                        .tint(.blue)
-                        .disabled(!canCompose)
+                    Button(action: onTerminal) {
+                        Text("去终端回答")
+                            .font(.headline)
+                            .foregroundStyle(Color.accentColor)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(
+                                Color.accentColor.opacity(colorScheme == .dark ? 0.20 : 0.15),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canCompose)
                 }
                 ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                     let picked = selectedOptionID == optionID(option)

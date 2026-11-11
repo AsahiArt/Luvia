@@ -490,6 +490,24 @@ class ThreadTest {
     }
 
     @Test
+    fun parsedAskHidesThePromptBubble() {
+        val raw = """
+            |Running Write `ask-probe-2.txt`
+            |│
+            |│  > Allow Edit to /tmp/ask-probe-2.txt?
+            |""".trimMargin()
+        val prompt = "> Allow Edit to /tmp/ask-probe-2.txt?"
+        assertTrue(withoutAskSelectionBlock(raw).contains(prompt))
+        val shown = PaneTimeline().ingestTranscript(raw).render(Ask(prompt, emptyList()))
+        val prose = shown.filterIsInstance<TimelineItem.Output>().joinToString("\n") { it.text }
+        assertTrue(prose.contains("Running Write"))
+        assertFalse(prose.contains("Allow Edit"))
+        assertFalse(prose.contains(">"))
+        assertFalse(prose.contains("│"))
+        assertTrue(shown.any { it is TimelineItem.AskCard })
+    }
+
+    @Test
     fun transcriptSplitsProseToolsAndCost() {
         val raw =
             "Session title auto · grok\n" +
