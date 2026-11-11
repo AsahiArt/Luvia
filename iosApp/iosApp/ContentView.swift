@@ -728,6 +728,7 @@ private struct SettingsForm: View {
                         Text("未配对空态").tag(MachinesPageFixture.empty.rawValue)
                         Text("当前主机离线").tag(MachinesPageFixture.currentOffline.rawValue)
                     }
+                    .pickerStyle(.inline)
                 }
                 #endif
             }

@@ -95,34 +95,49 @@ struct MachinesHome: View {
     }
 
     private var empty: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "laptopcomputer")
-                .font(.system(size: 36, weight: .semibold))
-                .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.accentColor.opacity(colorScheme == .dark ? 0.20 : 0.15))
+                .frame(width: 96, height: 96)
+                .overlay {
+                    Image(systemName: "laptopcomputer")
+                        .font(.system(size: 44))
+                        .foregroundStyle(Color.accentColor)
+                }
                 .accessibilityHidden(true)
-            Text("还没有电脑")
-                .font(.title2.weight(.semibold))
-            Text("在电脑上运行")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Text("luvia-host pair")
-                .font(.body.monospaced())
-                .textSelection(.enabled)
-                .accessibilityLabel("luvia-host pair")
-            Button("配对新电脑", action: onPair)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            Text("还没有配对的电脑")
+                .font(.title3.weight(.semibold))
+                .padding(.top, 24)
+            (
+                Text("在电脑终端运行 ")
+                    .font(.subheadline)
+                + Text("luvia-host pair")
+                    .font(.subheadline.monospaced())
+            )
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
+            .accessibilityLabel("在电脑终端运行 luvia-host pair")
+            .padding(.top, 8)
+            Button(action: onPair) {
+                Text("+ 配对新电脑")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .frame(width: 240, height: 50)
+                    .background(Color.accentColor, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 24)
             if let pairError {
                 Text(pairError)
                     .font(.footnote)
                     .foregroundStyle(.red)
                     .multilineTextAlignment(.center)
+                    .padding(.top, 12)
             }
-            Spacer()
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .offset(y: -40)
     }
 
     private var list: some View {
@@ -215,7 +230,7 @@ struct MachinesHome: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(host.name)
                         .font(.title3.weight(.semibold))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(currentHostNameColor(host))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -445,6 +460,10 @@ struct MachinesHome: View {
     private func unavailable(_ host: HostViewState) -> Bool {
         let connection = shownConnection(host)
         return connection == .offline || connection == .stale
+    }
+
+    private func currentHostNameColor(_ host: HostViewState) -> Color {
+        host.id == currentHost?.id && unavailable(host) ? .secondary : .primary
     }
 
     private func showsReconnectProgress(_ host: HostViewState) -> Bool {
