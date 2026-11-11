@@ -64,8 +64,8 @@ class ScreenshotActivity : ComponentActivity() {
                         hosts = SampleShots.hosts,
                         selected = SampleShots.hosts.first(),
                         threads = SampleShots.threads,
-                        filter = tech.asahiart.luvia.thread.SessionFilter.All,
-                        onFilter = {},
+                        filter = tech.asahiart.luvia.thread.HostSessionFilter(),
+                        onFilter = { _ -> },
                         onSelectHost = {},
                         onPair = {},
                         onOpenSettings = {},
@@ -74,7 +74,6 @@ class ScreenshotActivity : ComponentActivity() {
                         onNewSession = {},
                         onOpenTerminal = {},
                         trails = SampleShots.trails,
-                        latencyMs = 12,
                         nowEpochMs = SampleShots.shotNow,
                     )
                     "chat" -> SampleShots.Chat()

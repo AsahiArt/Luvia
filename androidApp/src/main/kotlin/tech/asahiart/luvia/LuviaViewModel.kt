@@ -3,7 +3,14 @@ package tech.asahiart.luvia
 import tech.asahiart.luvia.HostUhpState
 import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.AskOption
+import tech.asahiart.luvia.thread.DecodingHostFilterMemory
+import tech.asahiart.luvia.thread.HostFilterEntries
+import tech.asahiart.luvia.thread.HostSessionFilter
 import tech.asahiart.luvia.thread.NowState
+import tech.asahiart.luvia.thread.SessionScope
+import tech.asahiart.luvia.thread.applyHostSwitch
+import tech.asahiart.luvia.thread.shouldPinStoredPath
+import android.content.SharedPreferences
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -47,6 +54,42 @@ class LuviaViewModel(
     val catalogReady: StateFlow<Boolean> = manager.catalogReady
     val now: StateFlow<NowState> = uhpRegistry.now
     val hostStates: StateFlow<Map<String, HostUhpState>> = uhpRegistry.states
+
+    private val hostFilterMemory = DecodingHostFilterMemory(
+        PrefsHostFilterEntries(
+            appContext.getSharedPreferences("host-session-filters", Context.MODE_PRIVATE),
+        ),
+    )
+    private val pinnedHosts = mutableSetOf<String>()
+    private val _hostFilterEpoch = MutableStateFlow(0)
+
+    /** Bumps when the one filter store changes, so the list rereads it. */
+    val hostFilterEpoch: StateFlow<Int> = _hostFilterEpoch.asStateFlow()
+
+    fun hostSessionFilter(hostId: String): HostSessionFilter = hostFilterMemory.get(hostId)
+
+    fun hostSessionPinned(hostId: String): Boolean = hostId in pinnedHosts
+
+    fun rememberHostSessionFilter(hostId: String, filter: HostSessionFilter) {
+        hostFilterMemory.put(hostId, filter)
+        if (filter.scope is SessionScope.Path) pinnedHosts += hostId
+        _hostFilterEpoch.value += 1
+    }
+
+    /** Host change: scope returns to all online hosts, status stays remembered. */
+    fun switchHostSessionFilter(hostId: String): HostSessionFilter {
+        val next = hostFilterMemory.applyHostSwitch(hostId)
+        _hostFilterEpoch.value += 1
+        return next
+    }
+
+    /** In memory only. Does not write the stored filter. */
+    fun noteArrivedSessions(hostId: String, threads: List<AgentThread>) {
+        if (hostId in pinnedHosts) return
+        if (!shouldPinStoredPath(hostFilterMemory.get(hostId), threads)) return
+        pinnedHosts += hostId
+        _hostFilterEpoch.value += 1
+    }
 
     fun answer(thread: AgentThread, option: AskOption) = uhpRegistry.answer(thread, option)
 
@@ -520,6 +563,18 @@ class LuviaViewModel(
             }
         }
     }
+}
+
+private class PrefsHostFilterEntries(
+    private val prefs: SharedPreferences,
+) : HostFilterEntries {
+    override fun read(hostId: String): String? = prefs.getString(key(hostId), null)
+
+    override fun write(hostId: String, encoded: String) {
+        prefs.edit().putString(key(hostId), encoded).apply()
+    }
+
+    private fun key(hostId: String) = "host-session-filter:$hostId"
 }
 
 internal fun HostRuntime.toUi(): HostUiModel {
