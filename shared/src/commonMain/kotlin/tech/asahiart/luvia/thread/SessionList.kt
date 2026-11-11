@@ -3,6 +3,7 @@ package tech.asahiart.luvia.thread
 import tech.asahiart.luvia.AcpToolCall
 import tech.asahiart.luvia.AcpToolStatus
 import tech.asahiart.luvia.AcpTranscriptItem
+import tech.asahiart.luvia.AgentKey
 import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.AgentSummary
@@ -194,9 +195,43 @@ public fun diffLines(summary: String?): List<String>? {
     return if (diffish > 0) lines else null
 }
 
-/** Explicit recommendation, otherwise the first primary option. */
+/** Explicit recommendation, otherwise the first primary option. Not a UI selection. */
 public fun recommendedOption(ask: Ask): AskOption? =
     ask.options.firstOrNull { it.recommended } ?: ask.options.firstOrNull { it.tone == AskTone.Primary }
+
+/** Continue is allowed after an explicit choice or a non-blank note. */
+public fun canSubmitAsk(selected: AskOption?, note: String): Boolean =
+    selected != null || note.trim().isNotEmpty()
+
+/** True when this Ask has a free-text row the note can be typed into. */
+public fun askHasFreeText(ask: Ask): Boolean = ask.freeTextNav != null
+
+/**
+ * What Continue should send. A non-blank note on an Ask with a free-text row sends
+ * that row's keys (Grok: `z`), types the note, and presses Enter.
+ * Otherwise the selected option is sent; a Prompt may include the note.
+ */
+public fun askSubmission(ask: Ask, selected: AskOption?, note: String): AskOption? {
+    val trimmed = note.trim()
+    val nav = ask.freeTextNav
+    if (trimmed.isNotEmpty() && nav != null) {
+        val keys = ArrayList<AgentKey>(nav.size + trimmed.length + 1)
+        keys.addAll(nav)
+        trimmed.forEach { keys.add(AgentKey.Char(it)) }
+        keys.add(AgentKey.ENTER)
+        return AskOption(
+            label = selected?.label ?: "",
+            tone = selected?.tone ?: AskTone.Neutral,
+            action = AskAction.Keys(keys),
+        )
+    }
+    if (trimmed.isNotEmpty() && selected != null && selected.action is AskAction.Prompt) {
+        val base = selected.action.text.trim()
+        val text = if (base.isEmpty()) trimmed else "$base\n$trimmed"
+        return selected.copy(action = AskAction.Prompt(text))
+    }
+    return selected
+}
 
 /** Counts for the session chips and the large-title stats row. */
 public data class SessionRoster(

@@ -34,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
 import tech.asahiart.luvia.R
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -72,10 +74,8 @@ import tech.asahiart.luvia.AcpToolCall
 import tech.asahiart.luvia.stripAnsi
 import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.Ask
-import tech.asahiart.luvia.thread.AskAction
 import tech.asahiart.luvia.thread.outputRuns
 import tech.asahiart.luvia.thread.AskOption
-import tech.asahiart.luvia.thread.AskTone
 import tech.asahiart.luvia.thread.CodeTokenKind
 import tech.asahiart.luvia.thread.DiffFileView
 import tech.asahiart.luvia.thread.DiffLineView
@@ -88,7 +88,9 @@ import tech.asahiart.luvia.thread.diffModulePath
 import tech.asahiart.luvia.thread.highlightCode
 import tech.asahiart.luvia.thread.proseSpans
 import tech.asahiart.luvia.thread.proseWithoutTrail
-import tech.asahiart.luvia.thread.recommendedOption
+import tech.asahiart.luvia.thread.askHasFreeText
+import tech.asahiart.luvia.thread.askSubmission
+import tech.asahiart.luvia.thread.canSubmitAsk
 import tech.asahiart.luvia.thread.structuredDiffFiles
 import tech.asahiart.luvia.thread.testBarCells
 import tech.asahiart.luvia.thread.toolTrailView
@@ -203,6 +205,7 @@ fun ChatScreen(
                 total = queueTotal,
                 enabled = !isObserver && !sending && !offline,
                 onAnswer = onAnswer,
+                onOpenTerminal = onOpenTerminal,
             )
         }
         val canType = !isObserver && !sending && !offline
@@ -782,11 +785,13 @@ private fun DecisionCard(
     total: Int,
     enabled: Boolean,
     onAnswer: (AskOption) -> Unit,
+    onOpenTerminal: () -> Unit,
 ) {
     val agentName = agentType?.takeIf { it.isNotBlank() } ?: sessionTitle
-    val recommended = recommendedOption(ask)
-    var selected by remember(ask.question, ask.options) { mutableStateOf(recommended ?: ask.options.firstOrNull()) }
+    var selected by remember(ask.question, ask.options) { mutableStateOf<AskOption?>(null) }
     var note by remember(ask.question, ask.options) { mutableStateOf("") }
+    val liveNote = if (askHasFreeText(ask)) note else ""
+    val submitEnabled = enabled && canSubmitAsk(selected, liveNote)
     val onCard = MaterialTheme.colorScheme.onTertiaryContainer
     Surface(
         color = MaterialTheme.colorScheme.tertiaryContainer,
@@ -823,7 +828,19 @@ private fun DecisionCard(
                 modifier = Modifier.padding(top = 10.dp),
                 style = MaterialTheme.typography.headlineSmall,
                 color = onCard,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
+            if (ask.options.isEmpty()) {
+                FilledTonalButton(
+                    onClick = onOpenTerminal,
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(48.dp),
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Text(stringResource(R.string.answer_in_terminal))
+                }
+            }
             ask.options.forEach { option ->
                 val picked = option == selected
                 Row(
@@ -862,7 +879,7 @@ private fun DecisionCard(
                     Column(Modifier.padding(start = 10.dp).weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(option.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                        if (option.recommended || option == recommended) {
+                        if (option.recommended) {
                             Surface(
                                 color = MaterialTheme.colorScheme.tertiary,
                                 shape = RoundedCornerShape(10.dp),
@@ -877,57 +894,55 @@ private fun DecisionCard(
                         }
                     }
                     option.consequence?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    if (option.tone == AskTone.Destructive) {
-                        Text(stringResource(R.string.option_rejects), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     }
                 }
             }
-            BasicTextField(
-                value = note,
-                onValueChange = { note = it },
-                enabled = enabled,
-                modifier = Modifier
-                    .padding(top = 10.dp)
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                decorationBox = { inner ->
-                    Box {
-                        if (note.isEmpty()) {
-                            Text(
-                                if (enabled) stringResource(R.string.note_hint) else stringResource(R.string.observer_cannot_answer),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+            if (ask.options.isNotEmpty() && askHasFreeText(ask)) {
+                BasicTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    enabled = enabled,
+                    modifier = Modifier
+                        .padding(top = 10.dp)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                    decorationBox = { inner ->
+                        Box {
+                            if (note.isEmpty()) {
+                                Text(
+                                    if (enabled) stringResource(R.string.note_hint) else stringResource(R.string.observer_cannot_answer),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            inner()
                         }
-                        inner()
-                    }
-                },
-            )
-            Row(
+                    },
+                )
+            }
+            if (ask.options.isNotEmpty()) Row(
                 Modifier.fillMaxWidth().padding(top = 12.dp),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Button(
                     onClick = {
-                        val choice = selected ?: return@Button
-                        val extra = note.trim()
-                        val action = choice.action
-                        val delivered = if (extra.isNotEmpty() && action is AskAction.Prompt) {
-                            val base = action.text.trim()
-                            choice.copy(action = AskAction.Prompt(if (base.isEmpty()) extra else "$base\n$extra"))
-                        } else {
-                            choice
-                        }
+                        val delivered = askSubmission(ask, selected, liveNote) ?: return@Button
                         onAnswer(delivered)
                         note = ""
+                        selected = null
                     },
-                    enabled = enabled && selected != null,
+                    enabled = submitEnabled,
+                    modifier = Modifier.alpha(if (submitEnabled) 1f else 0.38f),
                     shape = RoundedCornerShape(20.dp),
                 ) {
                     Text(stringResource(R.string.select_and_continue))

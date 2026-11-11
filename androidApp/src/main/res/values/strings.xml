@@ -138,6 +138,7 @@
     <string name="needs_you_section">等你决定 · %1$d</string>
     <string name="all_sessions">全部</string>
     <string name="open_terminal">打开终端</string>
+    <string name="answer_in_terminal">去终端回答</string>
     <string name="settings_placeholder">连接、唤醒和取消配对。</string>
     <string name="machines_placeholder">已配对的电脑。点一台查看它的会话。</string>
 </resources>

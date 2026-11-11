@@ -41,6 +41,7 @@ import tech.asahiart.luvia.ui.theme.LuviaTheme
  *
  * List light/dark: `screen=sessions-light` or `screen=sessions-dark`.
  * `screen=sessions` still follows the `night` extra.
+ * Empty-option card: `screen=sessions-noncursor-light` or `screen=chat-noncursor-light`.
  */
 class ScreenshotActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,11 +51,12 @@ class ScreenshotActivity : ComponentActivity() {
         val night = intent.getBooleanExtra("night", false)
         val nightMode = when (screen) {
             "sessions-dark" -> true
-            "sessions-light" -> false
+            "sessions-light", "sessions-noncursor-light", "chat-noncursor-light" -> false
             else -> night
         }
         val page = when (screen) {
-            "sessions-light", "sessions-dark" -> "sessions"
+            "sessions-light", "sessions-dark", "sessions-noncursor-light" -> "sessions"
+            "chat-noncursor-light" -> "chat-noncursor"
             else -> screen
         }
         setContent {
@@ -63,7 +65,11 @@ class ScreenshotActivity : ComponentActivity() {
                     "sessions" -> SessionListScreen(
                         hosts = SampleShots.hosts,
                         selected = SampleShots.hosts.first(),
-                        threads = SampleShots.threads,
+                        threads = if (screen == "sessions-noncursor-light") {
+                            SampleShots.noncursorThreads
+                        } else {
+                            SampleShots.threads
+                        },
                         filter = tech.asahiart.luvia.thread.SessionFilter.All,
                         onFilter = {},
                         onSelectHost = {},
@@ -78,6 +84,7 @@ class ScreenshotActivity : ComponentActivity() {
                         nowEpochMs = SampleShots.shotNow,
                     )
                     "chat" -> SampleShots.Chat()
+                    "chat-noncursor" -> SampleShots.ChatNoncursor()
                     "terminal" -> TerminalScreen(
                         model = SampleShots.terminal,
                         unreadCount = 1,
@@ -183,6 +190,11 @@ private object SampleShots {
         total = 2,
     )
 
+    private val noncursorAsk = tech.asahiart.luvia.thread.Ask(
+        question = "是否把 TokenStore 拆成两个 actual，并且这次只改共享层、不动 Android 和 iOS 的配对入口，等你在终端里确认后再继续？",
+        options = emptyList(),
+    )
+
     val threads = listOf(
         tech.asahiart.luvia.thread.AgentThread(
             id = "a",
@@ -240,6 +252,16 @@ private object SampleShots {
             paneId = "d",
         ),
     )
+
+    val noncursorThreads = listOf(
+        threads.first().copy(
+            id = "nc",
+            title = "拆分 TokenStore",
+            ask = noncursorAsk,
+            summary = "编号列表没有光标，去终端回答",
+            paneId = "nc",
+        ),
+    ) + threads.drop(1)
 
     val trails = mapOf(
         "a" to trailThumb(
@@ -377,6 +399,24 @@ private object SampleShots {
             items = items,
             queueIndex = 1,
             queueTotal = 2,
+            initialDraft = "",
+            onSend = {},
+            onAnswer = {},
+            onBack = {},
+            onOpenTerminal = {},
+            terminalPreview = "luvia-host pair\nwaiting for the phone",
+            sending = false,
+            isObserver = false,
+        )
+    }
+
+    @Composable
+    fun ChatNoncursor() {
+        ChatScreen(
+            thread = noncursorThreads.first(),
+            items = items,
+            queueIndex = 1,
+            queueTotal = 1,
             initialDraft = "",
             onSend = {},
             onAnswer = {},

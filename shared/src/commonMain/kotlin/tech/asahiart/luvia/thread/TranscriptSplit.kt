@@ -39,6 +39,271 @@ internal fun isCostStatusLine(line: String): Boolean {
     return money.containsMatchIn(trimmed) && tokens.containsMatchIn(trimmed)
 }
 
+private val footerPwd =
+    Regex("""^(?:~|/|[.][.]?/)[^ ?？]+(?: +[(][^)]+[)])?(?: +[•·] +[^ ]+.*)?$""")
+private val footerStats = Regex("""(?:↑|↓) *[0-9]""")
+private val footerCache = Regex("""(?:^|[^A-Za-z0-9_])(?:CH|R|W)[0-9]""")
+private val footerContext = Regex("""[0-9]+(?:[.][0-9]+)?%""")
+
+/** Pi's cwd row and token/cost bar. Not an agent question. */
+internal fun isPaneFooterLine(line: String): Boolean {
+    val trimmed = line.trim()
+    if (trimmed.isEmpty() || trimmed.length > 200) return false
+    if (isCostStatusLine(trimmed) || clock.matches(trimmed)) return true
+    if (footerPwd.matches(trimmed)) return true
+    return footerStats.containsMatchIn(trimmed) &&
+        (footerCache.containsMatchIn(trimmed) ||
+            footerContext.containsMatchIn(trimmed) ||
+            money.containsMatchIn(trimmed))
+}
+
+private val leadingBox = Regex("""^[│┃|▌▎]+\s*""")
+private val promptMarker = Regex("""^(?:[›❯>]\s+|[?？]\s+)""")
+private val optionLine = Regex("""^(?:[❯›>•·●]\s*)?\d+[.)、]\s+\S""")
+private val grokChoiceLine = Regex(
+    """^(?:[•·●*]\s*)?(\d+|[zZ])\s*\(\s*([○●*])\s*\)\s*(.+)$""",
+)
+private val keyHintLine = Regex(
+    """(?i)(?:(?:^|[\s│┃|])(?:tab|esc|enter)\s*:)|shift\s*\+\s*x|↑\s*/\s*↓|↑↓""",
+)
+
+/**
+ * Claude/Codex `1. Yes` rows and Grok `1 (○) label` / `z (○) Type your answer` rows.
+ * Skip these when scanning for the question.
+ */
+internal fun isOptionLine(line: String): Boolean {
+    val trimmed = stripLeadingPromptMarkers(line.trim())
+    if (trimmed.isEmpty()) return false
+    return optionLine.containsMatchIn(trimmed) || grokChoiceLine.containsMatchIn(trimmed)
+}
+
+/** Keybinding chrome (`Tab:`, `Esc:`, `Enter:submit`, `Shift+x`, `↑/↓ navigate`). Not a question or an option. */
+internal fun isKeyHintLine(line: String): Boolean {
+    val trimmed = stripLeadingPromptMarkers(line.trim())
+    if (trimmed.isEmpty() || trimmed.length > 200) return false
+    return keyHintLine.containsMatchIn(trimmed)
+}
+
+/**
+ * Drops the trailing TUI selection block: radio or numbered rows, their wrapped
+ * descriptions, and keybinding chrome (`↑/↓ navigate`, `Enter:submit`, `Tab:next`).
+ * The agent's question above that block stays. Text with no such block is unchanged.
+ */
+public fun withoutAskSelectionBlock(text: String): String {
+    if (text.isEmpty()) return text
+    val lines = text.lines()
+    var cut = lines.size
+    var started = false
+    for (index in lines.indices.reversed()) {
+        val line = lines[index]
+        val core = selectionCore(line)
+        if (!started) {
+            if (line.isBlank() || core.isEmpty()) continue
+            if (isSelectionQuestion(core)) break
+            if (isOptionLine(core) || isKeyHintLine(core)) {
+                started = true
+                cut = index
+                continue
+            }
+            break
+        }
+        if (isSelectionQuestion(core)) break
+        if (
+            line.isBlank() ||
+            core.isEmpty() ||
+            isOptionLine(core) ||
+            isKeyHintLine(core) ||
+            isPaneFooterLine(core) ||
+            isHangingIndent(line)
+        ) {
+            cut = index
+            continue
+        }
+        break
+    }
+    if (!started) return text
+    return lines.take(cut).joinToString("\n").trim()
+}
+
+private fun selectionCore(line: String): String =
+    stripLeadingPromptMarkers(stripLeadingBox(line.trim()))
+
+/**
+ * Once an Ask card is parsed, also drops the trailing TUI prompt that repeats
+ * the card title: a question marked with `>`, `›`, or `❯`, plus the cursor bars
+ * beside it. A plain question with no prompt marker stays, and
+ * [withoutAskSelectionBlock] is unchanged.
+ */
+public fun withoutParsedAskPrompt(text: String): String {
+    val base = withoutAskSelectionBlock(text)
+    if (base.isEmpty()) return base
+    val lines = base.lines()
+    var cut = lines.size
+    var started = false
+    for (index in lines.indices.reversed()) {
+        val line = lines[index]
+        if (!started) {
+            if (line.isBlank() || isCursorBarLine(line)) continue
+            if (isMarkedAskPrompt(line)) {
+                started = true
+                cut = index
+                continue
+            }
+            break
+        }
+        if (line.isBlank() || isCursorBarLine(line) || isMarkedAskPrompt(line)) {
+            cut = index
+            continue
+        }
+        break
+    }
+    if (!started) return base
+    return lines.take(cut).joinToString("\n").trim()
+}
+
+private fun isCursorBarLine(line: String): Boolean {
+    val trimmed = line.trim()
+    if (trimmed.isEmpty()) return false
+    return stripLeadingBox(trimmed).isEmpty()
+}
+
+private fun isMarkedAskPrompt(line: String): Boolean {
+    val afterBox = stripLeadingBox(line.trim())
+    if (afterBox.isEmpty()) return false
+    val marker = afterBox[0]
+    if (marker != '>' && marker != '›' && marker != '❯') return false
+    val rest = afterBox.drop(1).trimStart()
+    return isSelectionQuestion(rest)
+}
+
+private fun isSelectionQuestion(core: String): Boolean {
+    val qAscii = core.indexOf('?')
+    val qFull = core.indexOf('？')
+    val qIdx = when {
+        qAscii < 0 -> qFull
+        qFull < 0 -> qAscii
+        else -> minOf(qAscii, qFull)
+    }
+    if (qIdx < 0) return false
+    val before = core.take(qIdx).trim()
+    return before.any { it.isLetterOrDigit() || it.code in 0x4E00..0x9FFF }
+}
+
+/**
+ * Radio row `N (○|●) rest`. [GrokChoice.filled] is true for `(●)`.
+ * [stripAnsi] folds U+25CF to `*`, so `(*)` is the same filled radio.
+ */
+internal data class GrokChoice(val key: String, val rest: String, val filled: Boolean)
+
+/** Radio row `N (○|●) rest`, or null when the line is not one. The key keeps its original case. */
+internal fun matchGrokChoice(line: String): GrokChoice? {
+    val trimmed = stripLeadingPromptMarkers(line.trim())
+    val match = grokChoiceLine.find(trimmed) ?: return null
+    val mark = match.groupValues[2]
+    return GrokChoice(
+        key = match.groupValues[1],
+        rest = match.groupValues[3],
+        filled = mark == "●" || mark == "*",
+    )
+}
+
+/** Claude/Codex cursor, detected before prompt glyphs are stripped. `>` alone is not a cursor. */
+internal fun hasClaudeCursor(raw: String): Boolean {
+    val stripped = stripLeadingBox(raw.trim())
+    return stripped.startsWith("❯") || stripped.startsWith("›")
+}
+
+private val numberedChoiceLine = Regex("""^(?:[❯›>•·●]\s*)?(\d+)[.)、]\s+(.+)""")
+
+/** Claude/Codex row `1. Yes` / `2. No`, or null. */
+internal fun matchNumberedChoice(line: String): Pair<String, String>? {
+    val trimmed = stripLeadingPromptMarkers(line.trim())
+    val match = numberedChoiceLine.find(trimmed) ?: return null
+    return match.groupValues[1] to match.groupValues[2]
+}
+
+/** Frame columns (`│┃|\▌▎`) and the padding that follows them. Prompt glyphs stay. */
+internal fun stripLeadingBox(line: String): String {
+    var s = line.trimStart()
+    while (true) {
+        val next = leadingBox.replaceFirst(s, "").trimStart()
+        if (next == s) return s
+        s = next
+    }
+}
+
+/**
+ * True when a following line is indented under a radio row (the description wrap),
+ * not the two-space frame padding on the question itself.
+ */
+internal fun isHangingIndent(raw: String): Boolean {
+    val afterBar = raw.trimStart().dropWhile { it == '│' || it == '┃' || it == '|' || it == '▌' || it == '▎' }
+    return afterBar.takeWhile { it == ' ' || it == '\t' }.length >= 4
+}
+
+/**
+ * Drop leading box bars and › / ❯ / > / ? prompt glyphs so the card shows the real question.
+ * Bars are stripped again after a prompt glyph, and the other way around.
+ */
+internal fun stripLeadingPromptMarkers(line: String): String {
+    var s = line.trimStart()
+    while (true) {
+        val noBox = leadingBox.replaceFirst(s, "")
+        val noPrompt = promptMarker.replaceFirst(noBox, "").trimStart()
+        val next = leadingBox.replaceFirst(noPrompt, "").trimStart()
+        if (next == s) return s
+        s = next
+    }
+}
+
+/**
+ * Leading box/bar chrome only (`|`, U+2500–U+257F, U+2580–U+259F), plus block elements
+ * U+2580–U+259F anywhere (scrollbar █). A pipe inside the text, as in `a | b`, stays.
+ * CJK punctuation is outside these ranges and stays.
+ */
+internal fun stripTuiChrome(text: String): String {
+    var start = 0
+    while (start < text.length && isLeadingBarChrome(text[start])) start++
+    if (start >= text.length) return ""
+    if (start == 0 && text.none { it.code in 0x2580..0x259F }) return text
+    val sb = StringBuilder(text.length - start)
+    for (index in start until text.length) {
+        val ch = text[index]
+        if (ch.code in 0x2580..0x259F) continue
+        sb.append(ch)
+    }
+    return sb.toString()
+}
+
+private fun isLeadingBarChrome(ch: Char): Boolean {
+    val code = ch.code
+    return ch == '|' || code in 0x2500..0x257F || code in 0x2580..0x259F
+}
+
+private fun isLatinAlnum(ch: Char): Boolean =
+    ch in 'A'..'Z' || ch in 'a'..'z' || ch in '0'..'9'
+
+/**
+ * Join hard-wrapped pane lines. Spaces already in a fragment stay.
+ * One space is inserted only when both sides are Latin letters or digits and the
+ * previous fragment does not end in `-` or `_`. CJK seams and `term-` + `probe.txt` stay tight.
+ * Block elements are removed from each fragment so a scrollbar █ does not survive the join.
+ */
+internal fun joinHardWrapped(parts: List<String>): String {
+    val sb = StringBuilder()
+    for (part in parts) {
+        val clean = stripTuiChrome(part)
+        if (clean.isEmpty()) continue
+        if (sb.isNotEmpty()) {
+            val left = sb[sb.length - 1]
+            val right = clean[0]
+            if (left != '-' && left != '_' && isLatinAlnum(left) && isLatinAlnum(right)) sb.append(' ')
+        }
+        sb.append(clean)
+    }
+    return sb.toString()
+}
+
 internal fun isToolCallLine(line: String): Boolean {
     val trimmed = line.trim()
     if (percentShell.containsMatchIn(trimmed)) return true

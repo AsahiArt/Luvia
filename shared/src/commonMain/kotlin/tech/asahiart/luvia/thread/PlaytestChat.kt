@@ -15,17 +15,24 @@ public const val PLAYTEST_DECIDE_ID: String = "playtest-decide"
 
 public const val PLAYTEST_NEXT_ID: String = "playtest-next"
 
+/** Sample card with a question and no options. Not a live pane. */
+public const val PLAYTEST_NONCURSOR_ID: String = "playtest-noncursor"
+
 public fun isPlaytestThread(id: String): Boolean =
     id == PLAYTEST_DIFF_ID || id == PLAYTEST_DECIDE_ID || id == PLAYTEST_NEXT_ID ||
+        id == PLAYTEST_NONCURSOR_ID ||
         isPlaytestListThread(id)
 
 public fun playtestThreads(): List<AgentThread> = listOf(diffThread, decideThread, nextThread)
+
+public fun playtestNoncursorThread(): AgentThread = noncursorThread
 
 public fun playtestTimeline(id: String): List<TimelineItem>? =
     when (id) {
         PLAYTEST_DIFF_ID -> diffTimeline
         PLAYTEST_DECIDE_ID -> decideTimeline
         PLAYTEST_NEXT_ID -> nextTimeline
+        PLAYTEST_NONCURSOR_ID -> noncursorTimeline
         else -> null
     }
 
@@ -193,3 +200,34 @@ private val decideTimeline: List<TimelineItem> =
 
 private val nextTimeline: List<TimelineItem> =
     listOf(TimelineItem.Output("n1", "下一条决定在这张卡后面露出一截。"))
+
+private val noncursorAsk =
+    Ask(
+        question = "是否把 TokenStore 拆成两个 actual，并且这次只改共享层、不动 Android 和 iOS 的配对入口，等你在终端里确认后再继续？",
+        options = emptyList(),
+    )
+
+private val noncursorThread =
+    AgentThread(
+        id = PLAYTEST_NONCURSOR_ID,
+        kind = AgentKind.Pane,
+        hostId = PLAYTEST_HOST,
+        projectKey = null,
+        projectLabel = "试玩",
+        title = "试玩 · 去终端回答",
+        agentType = "claude-code",
+        status = AgentStatus.Blocked,
+        ask = noncursorAsk,
+        summary = "编号列表没有光标",
+        updatedEpochMs = 1_700_000_000_050L,
+        paneId = null,
+        acpSessionId = null,
+    )
+
+private val noncursorTimeline: List<TimelineItem> =
+    listOf(
+        TimelineItem.Output(
+            "nc1",
+            "编号行没有光标，所以这张卡没有选项。问题留在对话里，选择块不重复。",
+        ),
+    )
