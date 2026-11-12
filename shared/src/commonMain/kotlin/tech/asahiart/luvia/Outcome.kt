@@ -27,6 +27,15 @@ public sealed class Failure {
 
     public class Transport(public val reason: String) : Failure()
 
+    /**
+     * The SSH server key was not in the pinned set. Every in-flight candidate
+     * must stop; do not fall back to another address.
+     */
+    public class HostKeyMismatch(
+        public val expected: String,
+        public val actual: String,
+    ) : Failure()
+
     public class Closed : Failure()
 
     /**

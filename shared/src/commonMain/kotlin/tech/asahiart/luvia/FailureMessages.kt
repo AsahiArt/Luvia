@@ -14,6 +14,8 @@ public fun Failure.userMessage(): String {
             is Failure.Forbidden -> message
             is Failure.NotFound -> message
             is Failure.Transport -> reason
+            is Failure.HostKeyMismatch ->
+                "host key mismatch: expected $expected, actual $actual"
             is Failure.Bridge -> reason
             is Failure.Remote -> message
             is Failure.Frame -> reason
@@ -69,6 +71,9 @@ public fun Failure.pairingMessage(): String {
 }
 
 public fun Failure.connectMessage(): String {
+    if (this is Failure.HostKeyMismatch) {
+        return "Host key changed. Re-pair this Host."
+    }
     val raw =
         when (this) {
             is Failure.Transport -> reason

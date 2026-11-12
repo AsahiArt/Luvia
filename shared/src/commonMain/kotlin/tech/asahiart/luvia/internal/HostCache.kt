@@ -189,6 +189,7 @@ internal class DataStoreHostStore(
                         val rest = host.addresses.filterNot { it == working }
                         host.copy(
                             lastConnectedAddress = working,
+                            lastGood = working,
                             addresses = listOf(working) + rest,
                         )
                     }

@@ -753,6 +753,8 @@ enum FailureText {
             return value.reason
         case .transport(let value):
             return value.reason
+        case .hostKeyMismatch(_):
+            return "\u{4e3b}\u{673a}\u{5bc6}\u{94a5}\u{53d8}\u{4e86}\u{3002}\u{8bf7}\u{91cd}\u{65b0}\u{914d}\u{5bf9}\u{3002}"
         case .closed(_):
             return "连接已断开"
         case .revisionConflict(let value):

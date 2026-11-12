@@ -32,12 +32,31 @@ pub fn runtime() -> &'static Runtime {
     &RUNTIME
 }
 
+struct AbortOnDrop<T> {
+    handle: Option<tokio::task::JoinHandle<T>>,
+}
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
+    }
+}
+
+/// Run `fut` on the SSH runtime. Dropping the returned future aborts the task
+/// so a cancelled candidate cannot leave a live session behind.
 pub async fn spawn_on_runtime<F, T>(fut: F) -> Result<T, TransportError>
 where
     F: Future<Output = T> + Send + 'static,
     T: Send + 'static,
 {
-    runtime().spawn(fut).await.map_err(|join| {
+    let mut guard = AbortOnDrop {
+        handle: Some(runtime().spawn(fut)),
+    };
+    let joined = guard.handle.as_mut().expect("ssh task").await;
+    guard.handle.take();
+    joined.map_err(|join| {
         if join.is_cancelled() {
             TransportError::disconnected("cancelled")
         } else {

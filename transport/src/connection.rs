@@ -14,7 +14,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use russh::keys::ssh_key::private::KeypairData;
@@ -34,8 +34,9 @@ use crate::keys::parse_private_key;
 use crate::runtime::{spawn_background, spawn_on_runtime};
 use crate::BRIDGE_COMMAND;
 
-const DNS_TIMEOUT: Duration = Duration::from_secs(2);
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const DNS_TIMEOUT: Duration = Duration::from_millis(1_500);
+const TCP_TIMEOUT: Duration = Duration::from_secs(3);
+const PROVE_BUDGET: Duration = Duration::from_secs(10);
 
 struct PinnedHostKey {
     accepted: Vec<[u8; 32]>,
@@ -82,6 +83,8 @@ pub struct SshConnection {
     expected_host_id: String,
     device_id: String,
     signing_seed: [u8; 32],
+    /// TCP connect start plus [`PROVE_BUDGET`]. Prove must finish by then.
+    prove_deadline: Instant,
 }
 
 impl std::fmt::Debug for SshConnection {
@@ -138,6 +141,7 @@ impl SshConnection {
         let expected_host_id = self.expected_host_id.clone();
         let device_id = self.device_id.clone();
         let signing_seed = self.signing_seed;
+        let prove_deadline = self.prove_deadline;
         let slots = Arc::clone(&self.handle);
         spawn_on_runtime(async move {
             let guard = slots.lock().await;
@@ -150,6 +154,7 @@ impl SshConnection {
                 &expected_host_id,
                 &device_id,
                 &signing_seed,
+                prove_deadline,
             )
             .await
         })
@@ -198,6 +203,35 @@ struct ConnectIdentity {
     signing_seed: [u8; 32],
 }
 
+fn remaining_until(deadline: Instant) -> Duration {
+    deadline.saturating_duration_since(Instant::now())
+}
+
+fn map_handshake_error(err: TransportError) -> TransportError {
+    match err {
+        TransportError::Disconnected { .. } => TransportError::io("connect timeout"),
+        other => other,
+    }
+}
+
+async fn lookup_host(host: &str, port: u16) -> Result<std::net::SocketAddr, TransportError> {
+    match tokio::time::timeout(DNS_TIMEOUT, tokio::net::lookup_host((host, port))).await {
+        Ok(Ok(mut addrs)) => addrs.next().ok_or_else(|| TransportError::io("dns failed")),
+        Ok(Err(_)) => Err(TransportError::io("dns failed")),
+        Err(_) => Err(TransportError::io("dns timeout")),
+    }
+}
+
+/// Resolve one candidate. The Kotlin racer bounds this call at 1.5s as well.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn resolve_candidate(address: String, port: u16) -> Result<String, TransportError> {
+    spawn_on_runtime(async move {
+        let resolved = lookup_host(&address, port).await?;
+        Ok(resolved.ip().to_string())
+    })
+    .await?
+}
+
 fn ed25519_seed(key: &PrivateKey) -> Result<[u8; 32], TransportError> {
     match key.key_data() {
         KeypairData::Ed25519(pair) => Ok(pair.private.to_bytes()),
@@ -217,18 +251,12 @@ async fn connect_inner(
         return Err(TransportError::io("host and user are required"));
     }
 
-    let resolved =
-        match tokio::time::timeout(DNS_TIMEOUT, tokio::net::lookup_host((host.as_str(), port)))
-            .await
-        {
-            Ok(Ok(mut addrs)) => addrs
-                .next()
-                .ok_or_else(|| TransportError::io("dns failed"))?,
-            Ok(Err(_)) => return Err(TransportError::io("dns failed")),
-            Err(_) => return Err(TransportError::io("dns timeout")),
-        };
+    let resolved = lookup_host(&host, port).await?;
 
-    let stream = match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(resolved)).await {
+    // 10s runs from TCP start through Prove, not from DNS.
+    let tcp_started = Instant::now();
+    let prove_deadline = tcp_started + PROVE_BUDGET;
+    let stream = match tokio::time::timeout(TCP_TIMEOUT, TcpStream::connect(resolved)).await {
         Ok(Ok(stream)) => stream,
         Ok(Err(err)) => return Err(TransportError::from_connect_io(err)),
         Err(_) => return Err(TransportError::io("connect timeout")),
@@ -243,8 +271,12 @@ async fn connect_inner(
     };
 
     let host_key_verified = Arc::new(AtomicBool::new(false));
+    let handshake_budget = remaining_until(prove_deadline);
+    if handshake_budget.is_zero() {
+        return Err(TransportError::io("candidate timeout"));
+    }
     let mut session = match tokio::time::timeout(
-        CONNECT_TIMEOUT,
+        handshake_budget,
         client::connect_stream(
             Arc::new(config),
             stream,
@@ -257,16 +289,33 @@ async fn connect_inner(
     .await
     {
         Ok(Ok(session)) => session,
-        Ok(Err(err)) => return Err(err),
-        Err(_) => return Err(TransportError::io("connect timeout")),
+        // A peer that accepts TCP and then FINs with no banner is a failed
+        // connect. russh surfaces that as Disconnect; do not report it as a
+        // session that was already up.
+        Ok(Err(err)) => return Err(map_handshake_error(err)),
+        Err(_) => return Err(TransportError::io("candidate timeout")),
     };
 
+    let auth_budget = remaining_until(prove_deadline);
+    if auth_budget.is_zero() {
+        let _ = session.disconnect(Disconnect::ByApplication, "", "").await;
+        return Err(TransportError::io("candidate timeout"));
+    }
     let hash_alg = session.best_supported_rsa_hash().await?.flatten();
     // CLIENT_SSH_AUTH is publickey only. Do not call none or password.
     debug_assert_eq!(CLIENT_SSH_AUTH, ["publickey"]);
-    let auth = session
-        .authenticate_publickey(user, PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg))
-        .await?;
+    let auth = match tokio::time::timeout(
+        auth_budget,
+        session.authenticate_publickey(user, PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg)),
+    )
+    .await
+    {
+        Ok(result) => result?,
+        Err(_) => {
+            let _ = session.disconnect(Disconnect::ByApplication, "", "").await;
+            return Err(TransportError::io("candidate timeout"));
+        }
+    };
     if !auth.success() {
         let _ = session.disconnect(Disconnect::ByApplication, "", "").await;
         return Err(TransportError::AuthenticationFailed);
@@ -278,6 +327,7 @@ async fn connect_inner(
         expected_host_id: identity.expected_host_id,
         device_id: identity.device_id,
         signing_seed: identity.signing_seed,
+        prove_deadline,
     }))
 }
 
@@ -340,20 +390,22 @@ async fn open_authenticated_inner(
     expected_host_id: &str,
     device_id: &str,
     signing_seed: &[u8; 32],
+    prove_deadline: Instant,
 ) -> Result<Arc<BridgeChannel>, TransportError> {
     if !host_key_verified {
         return Err(TransportError::HostKeyUnverified);
     }
     let (mut channel, mut initial) = exec_bridge(handle).await?;
-    let frame = match tokio::time::timeout(
-        Duration::from_secs(4),
-        read_lf_frame(&mut channel, &mut initial),
-    )
-    .await
-    {
-        Ok(frame) => frame?,
-        Err(_) => return Err(TransportError::io("connect timeout")),
-    };
+    let prove_budget = remaining_until(prove_deadline);
+    if prove_budget.is_zero() {
+        let _ = channel.close().await;
+        return Err(TransportError::io("candidate timeout"));
+    }
+    let frame =
+        match tokio::time::timeout(prove_budget, read_lf_frame(&mut channel, &mut initial)).await {
+            Ok(frame) => frame?,
+            Err(_) => return Err(TransportError::io("candidate timeout")),
+        };
     let prove = auth::client_prove(true, expected_host_id, device_id, &frame, |message| {
         Ok(auth::sign_message(signing_seed, message))
     })?;
@@ -368,6 +420,25 @@ async fn open_authenticated_inner(
 mod tests {
     use super::*;
     use crate::keys::generate_device_key;
+
+    #[test]
+    fn candidate_timeouts_are_dns_1_5s_tcp_3s_prove_10s() {
+        assert_eq!(DNS_TIMEOUT, Duration::from_millis(1_500));
+        assert_eq!(TCP_TIMEOUT, Duration::from_secs(3));
+        assert_eq!(PROVE_BUDGET, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn handshake_disconnect_is_connect_timeout_but_mismatch_is_not() {
+        let dropped = map_handshake_error(TransportError::disconnected("disconnected"));
+        let shown = format!("{dropped:?}");
+        assert!(shown.contains("connect timeout"), "{shown}");
+        let mismatch = map_handshake_error(TransportError::HostKeyMismatch {
+            expected: "SHA256:aaa".into(),
+            actual: "SHA256:bbb".into(),
+        });
+        assert!(matches!(mismatch, TransportError::HostKeyMismatch { .. }));
+    }
 
     #[test]
     fn connect_rejects_bad_fingerprint_before_io() {

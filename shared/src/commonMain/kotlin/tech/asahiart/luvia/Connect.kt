@@ -1,7 +1,11 @@
 package tech.asahiart.luvia
 
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import tech.asahiart.luvia.internal.SshChannelFactory
 import tech.asahiart.luvia.transport.SshConnection
+import tech.asahiart.luvia.transport.TransportException
 import tech.asahiart.luvia.transport.generateDeviceKey
 import tech.asahiart.luvia.transport.importDeviceKey
 
@@ -93,25 +97,94 @@ public suspend fun connectToHost(
             is DeviceCredential.SoftwareKey -> credential.privateKeyOpenssh
         }
     return try {
-        val connection = SshConnection.connect(
-            endpoint.address,
-            endpoint.port.toUShort(),
-            endpoint.username,
-            endpoint.hostKeyFingerprints,
-            privateKeyOpenssh,
-            endpoint.hostId,
-            endpoint.deviceId,
-        )
+        val connection = openSession(endpoint, privateKeyOpenssh)
         ok(ConnectedHost(LuviaClient(SshChannelFactory(connection)), connection))
+    } catch (error: CancellationException) {
+        throw error
     } catch (error: Exception) {
-        fail(Failure.Transport(error.message ?: "ssh connection failed"))
+        fail(mapTransport(error))
+    }
+}
+
+/**
+ * SSH publickey auth plus the bridge signature proof. The returned host keeps
+ * the session; the probe channel is closed after Prove so a loser can drop it.
+ */
+internal suspend fun connectAndProve(
+    endpoint: HostEndpoint,
+    credential: DeviceCredential,
+): Outcome<ConnectedHost> {
+    if (endpoint.port !in 1..65535) {
+        return fail(Failure.Transport("invalid SSH port"))
+    }
+    if (endpoint.username.isBlank() ||
+        endpoint.address.isBlank() ||
+        endpoint.hostKeyFingerprints.isEmpty()
+    ) {
+        return fail(Failure.Transport("incomplete host endpoint"))
+    }
+    val privateKeyOpenssh =
+        when (credential) {
+            is DeviceCredential.SoftwareKey -> credential.privateKeyOpenssh
+        }
+    var connection: SshConnection? = null
+    return try {
+        connection = openSession(endpoint, privateKeyOpenssh)
+        val channel = connection.openAuthenticatedBridge()
+        try {
+            channel.shutdown()
+        } catch (_: Exception) {
+        }
+        val host = ConnectedHost(LuviaClient(SshChannelFactory(connection)), connection)
+        connection = null
+        ok(host)
+    } catch (error: CancellationException) {
+        connection?.let { closeQuietly(it) }
+        throw error
+    } catch (error: Exception) {
+        connection?.let { closeQuietly(it) }
+        fail(mapTransport(error))
     }
 }
 
 public suspend fun connectToProfile(
     profile: HostProfile,
     credential: DeviceCredential,
-): ProfileConnectResult = connectToProfile(profile, credential, ::connectToHost)
+): ProfileConnectResult = raceConnect(profile, credential)
+
+private suspend fun openSession(
+    endpoint: HostEndpoint,
+    privateKeyOpenssh: String,
+): SshConnection =
+    SshConnection.connect(
+        endpoint.address,
+        endpoint.port.toUShort(),
+        endpoint.username,
+        endpoint.hostKeyFingerprints,
+        privateKeyOpenssh,
+        endpoint.hostId,
+        endpoint.deviceId,
+    )
+
+internal fun mapTransport(error: Throwable): Failure {
+    var current: Throwable? = error
+    while (current != null) {
+        if (current is TransportException.HostKeyMismatch) {
+            return Failure.HostKeyMismatch(current.expected, current.actual)
+        }
+        current = current.cause
+    }
+    return Failure.Transport(error.message ?: "ssh connection failed")
+}
+
+private suspend fun closeQuietly(connection: SshConnection) {
+    withContext(NonCancellable) {
+        try {
+            connection.shutdown()
+        } catch (_: Exception) {
+        }
+    }
+}
 
 internal suspend fun connectToProfile(
     profile: HostProfile,
