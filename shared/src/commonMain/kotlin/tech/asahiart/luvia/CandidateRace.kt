@@ -111,6 +111,7 @@ internal suspend fun <T> raceCandidates(
         val loserLines = ArrayList<String>()
         var lastFailure: Failure = Failure.Transport("incomplete host endpoint")
         var refused: Failure? = null
+        var authRejected: Failure? = null
 
         suspend fun addLoser(address: String, reason: String) {
             state.withLock { loserLines += "loser $address: $reason" }
@@ -118,6 +119,7 @@ internal suspend fun <T> raceCandidates(
 
         suspend fun noteFailure(failure: Failure) {
             state.withLock {
+                if (authRejected == null && failure is Failure.AuthRejected) authRejected = failure
                 if (refused == null && failure.isClosedBeforeBanner()) refused = failure
                 lastFailure = failure
             }
@@ -136,6 +138,8 @@ internal suspend fun <T> raceCandidates(
                         }
                         is Outcome.Err -> {
                             val failure = outcome.failure
+                            // Mismatch and Prove are about this device, not one address.
+                            // AuthRejected is one sshd; another candidate may still win.
                             if (failure is Failure.HostKeyMismatch || failure is Failure.ProveRejected) {
                                 addLoser(address, failure.raceReason())
                                 abort.complete(failure)
@@ -178,7 +182,9 @@ internal suspend fun <T> raceCandidates(
             state.withLock { loserLines.toList() }.forEach(log)
             return@coroutineScope ok(address to value)
         }
-        val failure = state.withLock { refused ?: lastFailure }
+        // AuthRejected outranks timeouts and network errors, including a timeout
+        // that is recorded later. It does not cancel a candidate that can still win.
+        val failure = state.withLock { authRejected ?: refused ?: lastFailure }
         state.withLock { loserLines.toList() }.forEach(log)
         fail(failure)
     }
@@ -246,6 +252,10 @@ internal fun Failure.raceReason(): String =
         is Failure.HostKeyMismatch -> "host key mismatch: expected $expected, actual $actual"
         is Failure.ClosedBeforeBanner -> "closed before banner"
         is Failure.ProveRejected -> userMessage()
+        is Failure.AuthRejected -> {
+            val detail = reason.trim()
+            if (detail.isEmpty()) "AuthRejected" else "AuthRejected: $detail"
+        }
         is Failure.Transport -> reason
         else -> userMessage()
     }

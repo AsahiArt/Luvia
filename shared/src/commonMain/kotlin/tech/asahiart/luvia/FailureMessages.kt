@@ -19,6 +19,7 @@ public fun Failure.userMessage(): String {
             is Failure.ClosedBeforeBanner -> "closed before banner"
             is Failure.HandshakeFailed -> HANDSHAKE_FAILED_EN
             is Failure.ProveRejected -> PROVE_REJECTED_EN
+            is Failure.AuthRejected -> PROVE_REJECTED_EN
             is Failure.Bridge -> reason
             is Failure.Remote -> message
             is Failure.Frame -> reason
@@ -79,7 +80,7 @@ public fun Failure.refusedOutcomeZh(): String =
     when {
         isClosedBeforeBanner() -> "主机拒绝了连接"
         this is Failure.HandshakeFailed -> HANDSHAKE_FAILED_ZH
-        this is Failure.ProveRejected -> PROVE_REJECTED_ZH
+        this is Failure.ProveRejected || this is Failure.AuthRejected -> PROVE_REJECTED_ZH
         else -> connectMessage()
     }
 
@@ -93,7 +94,7 @@ public fun Failure.connectMessage(): String {
     if (this is Failure.HandshakeFailed) {
         return HANDSHAKE_FAILED_EN
     }
-    if (this is Failure.ProveRejected) {
+    if (this is Failure.ProveRejected || this is Failure.AuthRejected) {
         return PROVE_REJECTED_EN
     }
     val raw =
@@ -136,6 +137,10 @@ public fun Failure.ControlConflict.conflictMessage(): String {
         "$base Observe still works."
     }
 }
+
+/** Same pairing-invalid UI as [Failure.ProveRejected], including sshd publickey rejection. */
+public fun Failure.isPairingRevoked(): Boolean =
+    this is Failure.ProveRejected || this is Failure.AuthRejected
 
 public fun Failure.isLostMutation(): Boolean =
     this is Failure.IndeterminateMutation ||

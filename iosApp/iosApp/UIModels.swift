@@ -634,7 +634,10 @@ struct HostViewState: Identifiable, Hashable, Sendable {
             )
         case .failed(let failed):
             let revoked: Bool
-            if case .proveRejected(_) = onEnum(of: failed.failure) {
+            let failureKind = onEnum(of: failed.failure)
+            if case .proveRejected(_) = failureKind {
+                revoked = true
+            } else if case .authRejected(_) = failureKind {
                 revoked = true
             } else {
                 revoked = false
@@ -776,6 +779,8 @@ enum FailureText {
             return FailureMessagesKt.HANDSHAKE_FAILED_ZH
         case .proveRejected(_):
             return FailureMessagesKt.PROVE_REJECTED_ZH
+        case .authRejected(_):
+            return FailureMessagesKt.PROVE_REJECTED_ZH
         case .closed(_):
             return "连接已断开"
         case .revisionConflict(let value):
@@ -850,7 +855,7 @@ enum FailureText {
 
     static func connectActionable(_ failure: Failure) -> String {
         switch onEnum(of: failure) {
-        case .proveRejected(_):
+        case .proveRejected(_), .authRejected(_):
             return FailureMessagesKt.PROVE_REJECTED_ZH
         case .handshakeFailed(_):
             return FailureMessagesKt.HANDSHAKE_FAILED_ZH

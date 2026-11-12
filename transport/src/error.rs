@@ -26,6 +26,11 @@ pub enum TransportError {
     HostKeyMismatch { expected: String, actual: String },
     #[error("public-key authentication failed")]
     AuthenticationFailed,
+    /// SSH host key matched, then the server rejected publickey.
+    /// Not a bridge [`TransportError::ProveRejected`] and not a timeout.
+    /// [reason] is non-empty so logs can tell sshd rejection from Prove.
+    #[error("AuthRejected: {reason}")]
+    AuthRejected { reason: String },
     #[error("host id mismatch")]
     HostIdMismatch,
     #[error("refusing to sign before host-key verification")]

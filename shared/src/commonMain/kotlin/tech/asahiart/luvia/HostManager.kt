@@ -843,6 +843,7 @@ private fun isRetryable(failure: Failure): Boolean {
         is Failure.NotFound -> false
         is Failure.HostKeyMismatch -> false
         is Failure.ProveRejected -> false
+        is Failure.AuthRejected -> false
         is Failure.ProtocolError -> !failure.reason.contains("Re-pair")
         is Failure.Transport -> !failure.reason.contains("host key mismatch")
         else -> true

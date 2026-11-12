@@ -87,7 +87,7 @@ fn pin_auth_bounds_and_concurrent_bridges() {
         )
         .await
         .unwrap_err();
-        assert!(matches!(auth, TransportError::AuthenticationFailed));
+        assert_auth_rejected(auth);
 
         let conn = SshConnection::connect(
             "127.0.0.1".into(),
@@ -127,6 +127,7 @@ struct AuthServer {
     client_key: PublicKey,
     host_id: String,
     reject_device: Option<String>,
+    reject_publickey: bool,
     pending: HashMap<ChannelId, Vec<u8>>,
     proved: HashSet<ChannelId>,
 }
@@ -139,6 +140,9 @@ impl Handler for AuthServer {
         _user: &str,
         public_key: &PublicKey,
     ) -> Result<Auth, Self::Error> {
+        if self.reject_publickey {
+            return Ok(Auth::reject());
+        }
         if public_key.fingerprint(HashAlg::Sha256) == self.client_key.fingerprint(HashAlg::Sha256) {
             Ok(Auth::Accept)
         } else {
@@ -230,11 +234,36 @@ fn json_string_field(frame: &str, key: &str) -> Option<String> {
     Some(frame[start..end].to_string())
 }
 
+fn assert_auth_rejected(err: TransportError) {
+    let shown = format!("{err}{err:?}");
+    match &err {
+        TransportError::AuthRejected { reason } => {
+            assert!(
+                !reason.is_empty(),
+                "AuthRejected reason must show up in logs"
+            );
+            assert!(shown.contains("AuthRejected"), "{shown}");
+            assert!(!shown.to_lowercase().contains("timeout"), "{shown}");
+        }
+        other => panic!("expected AuthRejected, got {other:?}"),
+    }
+}
+
 async fn start_auth(
     host_key: PrivateKey,
     client_key: PublicKey,
     host_id: &str,
     reject_device: Option<String>,
+) -> u16 {
+    start_auth_with(host_key, client_key, host_id, reject_device, false).await
+}
+
+async fn start_auth_with(
+    host_key: PrivateKey,
+    client_key: PublicKey,
+    host_id: &str,
+    reject_device: Option<String>,
+    reject_publickey: bool,
 ) -> u16 {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -258,6 +287,7 @@ async fn start_auth(
                 client_key: client_key.clone(),
                 host_id: host_id.clone(),
                 reject_device: reject_device.clone(),
+                reject_publickey,
                 pending: HashMap::new(),
                 proved: HashSet::new(),
             };
@@ -354,5 +384,51 @@ fn deleted_grant_bridge_fails_with_the_host_reason() {
             other => panic!("deleted grant must not win: {other:?}"),
         }
         conn.shutdown().await.unwrap();
+    });
+}
+
+#[test]
+fn verified_host_key_then_publickey_reject_is_auth_rejected() {
+    block_on(async {
+        let host = generate_device_key().unwrap();
+        let host_key = PrivateKey::from_openssh(&host.private_key_openssh).unwrap();
+        let device = generate_device_key().unwrap();
+        let client_pub = PublicKey::from_openssh(&device.public_key.authorized_keys).unwrap();
+        let real_fp = fingerprint(&host_key);
+        let wrong_host = generate_device_key().unwrap();
+        let wrong_fp =
+            fingerprint(&PrivateKey::from_openssh(&wrong_host.private_key_openssh).unwrap());
+        let host_id = "host".to_string();
+        let port = start_auth_with(host_key, client_pub, &host_id, None, true).await;
+
+        let mismatch = SshConnection::connect(
+            "127.0.0.1".into(),
+            port,
+            "luvia".into(),
+            vec![wrong_fp],
+            device.private_key_openssh.clone(),
+            host_id.clone(),
+            "device".into(),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(mismatch, TransportError::HostKeyMismatch { .. }));
+        assert!(!matches!(mismatch, TransportError::AuthRejected { .. }));
+        let shown = format!("{mismatch:?}{mismatch}");
+        assert!(shown.contains("HostKeyMismatch"), "{shown}");
+        assert!(!shown.to_lowercase().contains("timeout"), "{shown}");
+
+        let auth = SshConnection::connect(
+            "127.0.0.1".into(),
+            port,
+            "luvia".into(),
+            vec![real_fp],
+            device.private_key_openssh,
+            host_id,
+            "device".into(),
+        )
+        .await
+        .unwrap_err();
+        assert_auth_rejected(auth);
     });
 }

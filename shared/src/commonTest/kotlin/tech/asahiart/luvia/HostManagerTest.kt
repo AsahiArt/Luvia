@@ -271,6 +271,70 @@ class HostManagerTest {
     }
 
     @Test
+    fun publicKeyRejectIsNotRetriedAndDoesNotWriteLastGood() = runTest {
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-hm-auth-${Random.nextLong()}.json"
+        val store = HostStore(path.toString(), backgroundScope)
+        val vault = MemoryVault()
+        val profile =
+            sampleProfile().copy(
+                name = "localhost",
+                lastGood = "192.168.1.9",
+                hints = emptyList(),
+            )
+        assertEquals(listOf("192.168.1.9"), candidateAddresses(profile))
+        vault.save(profile.id, "not-a-real-key")
+        var attempts = 0
+        val manager =
+            HostManager(store, vault, backgroundScope) { current, credential ->
+                attempts += 1
+                raceConnect(
+                    current,
+                    credential,
+                    object : CandidateDial<ConnectedHost> {
+                        override suspend fun dns(address: String): Outcome<Unit> = ok(Unit)
+
+                        override suspend fun tcp(address: String): Outcome<Unit> = ok(Unit)
+
+                        override suspend fun prove(address: String): Outcome<ConnectedHost> =
+                            fail(Failure.AuthRejected("ssh publickey authentication rejected"))
+
+                        override suspend fun close(value: ConnectedHost) {
+                            value.close()
+                        }
+                    },
+                )
+            }
+        store.upsert(profile)
+        advanceUntilIdle()
+        manager.connect(profile.id)
+        val reached = manager.awaitCurrentConnect(profile.id)
+        advanceUntilIdle()
+        val err = assertIs<Outcome.Err<Unit>>(reached)
+        val failure = assertIs<Failure.AuthRejected>(err.failure)
+        assertEquals("ssh publickey authentication rejected", failure.reason)
+        assertTrue(failure.isPairingRevoked())
+        assertEquals(PROVE_REJECTED_EN, failure.connectMessage())
+        assertEquals(PROVE_REJECTED_EN, failure.userMessage())
+        assertEquals(PROVE_REJECTED_ZH, failure.refusedOutcomeZh())
+        val prove = Failure.ProveRejected("unknown_device", "no pairing grant for ${profile.id}")
+        assertEquals(prove.connectMessage(), failure.connectMessage())
+        assertTrue(failure.raceReason() != prove.raceReason())
+        assertTrue(failure.raceReason().startsWith("AuthRejected"))
+        assertFalse(failure.connectMessage().contains("publickey"))
+        assertFalse(failure.userMessage().contains(failure.reason))
+        assertEquals("192.168.1.9", store.current().hosts.single().lastGood)
+        val link = assertIs<HostLink.Failed>(manager.hosts.value.single().link)
+        assertIs<Failure.AuthRejected>(link.failure)
+        advanceTimeBy(60_000)
+        advanceUntilIdle()
+        assertEquals(1, attempts)
+        val stayed = assertIs<HostLink.Failed>(manager.hosts.value.single().link)
+        assertIs<Failure.AuthRejected>(stayed.failure)
+        assertEquals("192.168.1.9", store.current().hosts.single().lastGood)
+        manager.close()
+    }
+
+    @Test
     fun parseConnectionAddressesSplitsHostList() {
         assertEquals(
             listOf("192.168.1.8", "studio.local"),

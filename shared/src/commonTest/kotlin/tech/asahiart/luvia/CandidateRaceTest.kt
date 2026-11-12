@@ -250,6 +250,92 @@ class CandidateRaceTest {
     }
 
     @Test
+    fun singlePublicKeyRejectIsAuthRejected() = runTest {
+        val result =
+            raceCandidates(
+                listOf("192.168.1.9"),
+                scriptDial(
+                    prove = {
+                        fail(Failure.AuthRejected("ssh publickey authentication rejected"))
+                    },
+                ),
+            )
+        advanceUntilIdle()
+        val err = assertIs<Outcome.Err<Pair<String, String>>>(result)
+        val rejected = assertIs<Failure.AuthRejected>(err.failure)
+        assertEquals("ssh publickey authentication rejected", rejected.reason)
+        assertTrue(rejected.raceReason().startsWith("AuthRejected"))
+        assertFalse(rejected.raceReason().contains("candidate timeout"))
+        assertFalse(rejected.raceReason().isBlank())
+    }
+
+    @Test
+    fun authRejectedLetsAnotherCandidateWin() = runTest {
+        val result =
+            raceCandidates(
+                listOf("192.168.1.9", "100.89.1.2"),
+                scriptDial(
+                    prove = { address ->
+                        if (address == "192.168.1.9") {
+                            fail(Failure.AuthRejected("ssh publickey authentication rejected"))
+                        } else {
+                            ok(address)
+                        }
+                    },
+                ),
+            )
+        advanceUntilIdle()
+        val won = assertIs<Outcome.Ok<Pair<String, String>>>(result)
+        assertEquals("100.89.1.2", won.value.first)
+        assertTrue(currentTime >= CANDIDATE_STAGGER_MS, "rejected candidate must not abort the race")
+        assertTrue(currentTime < PROVE_BUDGET_MS)
+    }
+
+    @Test
+    fun authRejectedIsNotOverwrittenByALaterTimeout() = runTest {
+        val laterTimeout =
+            raceCandidates(
+                listOf("192.168.1.9", "100.89.1.2"),
+                scriptDial(
+                    prove = { address ->
+                        if (address == "192.168.1.9") {
+                            fail(Failure.AuthRejected("ssh publickey authentication rejected"))
+                        } else {
+                            delay(PROVE_BUDGET_MS)
+                            fail(Failure.Transport("candidate timeout"))
+                        }
+                    },
+                ),
+            )
+        advanceUntilIdle()
+        assertTrue(currentTime >= PROVE_BUDGET_MS, "race returned early at ${currentTime}ms")
+        val err = assertIs<Outcome.Err<Pair<String, String>>>(laterTimeout)
+        val rejected = assertIs<Failure.AuthRejected>(err.failure)
+        assertEquals("ssh publickey authentication rejected", rejected.reason)
+        assertTrue(rejected.raceReason().startsWith("AuthRejected"))
+        assertFalse(rejected.raceReason().contains("candidate timeout"))
+        assertFalse(rejected.raceReason().contains("closed before banner"))
+
+        val earlierTimeout =
+            raceCandidates(
+                listOf("192.168.1.8", "10.0.0.4"),
+                scriptDial(
+                    prove = { address ->
+                        if (address == "192.168.1.8") {
+                            fail(Failure.Transport("candidate timeout"))
+                        } else {
+                            fail(Failure.AuthRejected("ssh publickey authentication rejected"))
+                        }
+                    },
+                ),
+            )
+        advanceUntilIdle()
+        val second = assertIs<Outcome.Err<Pair<String, String>>>(earlierTimeout)
+        assertIs<Failure.AuthRejected>(second.failure)
+        assertFalse(second.failure.raceReason().contains("candidate timeout"))
+    }
+
+    @Test
     fun winnerIsRememberedAndTriedFirstNextTime() = runTest {
         val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-race-${Random.nextLong()}.json"
         val store = HostStore(path.toString(), backgroundScope)

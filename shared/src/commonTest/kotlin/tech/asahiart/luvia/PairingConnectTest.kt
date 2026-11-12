@@ -3,7 +3,9 @@ package tech.asahiart.luvia
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import tech.asahiart.luvia.transport.TransportException
 
 class PairingConnectTest {
     @Test
@@ -77,6 +79,26 @@ class PairingConnectTest {
         assertFalse(rejected.connectMessage().contains("no pairing grant"))
         assertFalse(rejected.userMessage().contains("unknown_device"))
         assertFalse(rejected.userMessage().contains("host-1"))
+    }
+
+    @Test
+    fun authRejectedMapsToThePairingInvalidState() {
+        val mapped = mapTransport(TransportException.AuthRejected("ssh publickey authentication rejected"))
+        val rejected = assertIs<Failure.AuthRejected>(mapped)
+        assertEquals("ssh publickey authentication rejected", rejected.reason)
+        assertTrue(rejected.isPairingRevoked())
+        assertFalse(Failure.Transport("candidate timeout").isPairingRevoked())
+        assertEquals(PROVE_REJECTED_EN, rejected.connectMessage())
+        assertEquals(PROVE_REJECTED_EN, rejected.userMessage())
+        assertEquals(PROVE_REJECTED_ZH, rejected.refusedOutcomeZh())
+        val prove = Failure.ProveRejected("unknown_device", "no pairing grant for host-1")
+        assertEquals(prove.connectMessage(), rejected.connectMessage())
+        assertEquals(prove.userMessage(), rejected.userMessage())
+        assertTrue(rejected.raceReason().startsWith("AuthRejected"))
+        assertTrue(rejected.raceReason() != prove.raceReason())
+        assertFalse(rejected.connectMessage().contains("timeout"))
+        assertFalse(rejected.connectMessage().contains("publickey"))
+        assertFalse(rejected.userMessage().contains(rejected.reason))
     }
 
     @Test

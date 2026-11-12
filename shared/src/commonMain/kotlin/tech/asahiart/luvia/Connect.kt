@@ -178,6 +178,8 @@ internal fun mapTransport(error: Throwable): Failure {
                 return Failure.HandshakeFailed(current.reason)
             is TransportException.ProveRejected ->
                 return Failure.ProveRejected(current.code, current.reason)
+            is TransportException.AuthRejected ->
+                return Failure.AuthRejected(current.reason)
         }
         current = current.cause
     }
