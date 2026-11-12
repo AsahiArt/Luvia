@@ -46,6 +46,7 @@ internal data class HostCatalogFile(
 @Serializable
 internal data class HostFile(
     val id: String,
+    val hostId: String = "",
     val alias: String,
     val addresses: List<String> = emptyList(),
     val address: String? = null,
@@ -252,6 +253,7 @@ internal object HostCatalogOkioSerializer : OkioSerializer<HostCatalogFile> {
 internal fun HostProfile.sanitized(): HostProfile =
     copy(
         id = id,
+        hostId = hostId,
         alias = alias,
         addresses = addresses,
         sshPort = sshPort,
@@ -301,6 +303,7 @@ private fun HostFile.toPublic(): HostProfile {
     val migrated = migrated()
     return HostProfile(
         id = migrated.id,
+        hostId = migrated.hostId,
         alias = migrated.alias,
         addresses = migrated.addresses,
         sshPort = migrated.sshPort,
@@ -317,6 +320,7 @@ private fun HostFile.toPublic(): HostProfile {
 private fun HostProfile.toFile(): HostFile =
     HostFile(
         id = id,
+        hostId = hostId,
         alias = alias,
         addresses = addresses,
         sshPort = sshPort,

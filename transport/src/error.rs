@@ -26,6 +26,10 @@ pub enum TransportError {
     HostKeyMismatch { expected: String, actual: String },
     #[error("public-key authentication failed")]
     AuthenticationFailed,
+    #[error("host id mismatch")]
+    HostIdMismatch,
+    #[error("refusing to sign before host-key verification")]
+    HostKeyUnverified,
     #[error("disconnected: {reason}")]
     Disconnected { reason: String },
     #[error("channel closed")]

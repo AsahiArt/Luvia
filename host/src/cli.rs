@@ -16,7 +16,7 @@ use crate::sshkey::parse_openssh_public_key;
 /// Owner-local companion for Luvia on macOS and Linux.
 ///
 /// Pair devices with one OpenSSH public key. sshd then runs
-/// `luvia-host bridge --device <id>` through a `restrict` forced command.
+/// `luvia-host bridge` through a `restrict` forced command.
 /// The bridge discovers running Luvus sessions and proxies one UHP connection
 /// after minting a short-lived delegated token for the device's role.
 ///
@@ -105,11 +105,8 @@ pub enum Command {
         id: String,
     },
     /// Forced-command UHP bridge. Invoked by sshd, not by the device client directly.
-    Bridge {
-        /// Paired device id supplied by the authorized_keys forced command
-        #[arg(long)]
-        device: String,
-    },
+    /// The device id is proven inside the bridge; this command takes no `--device`.
+    Bridge,
     /// Subscribe to Luvus (or poll Herdr) and post content-free push wakes
     Watch {
         /// Herdr poll interval in seconds when Luvus is not running
@@ -184,7 +181,7 @@ pub fn run() -> Result<()> {
             println!("revoked {} {}", grant.id, grant.name);
             Ok(())
         }
-        Command::Bridge { device } => crate::bridge::run(&paths, &device),
+        Command::Bridge => crate::bridge::run(&paths),
         Command::Watch { interval_secs } => crate::watch::run(&paths, interval_secs),
     }
 }
@@ -385,6 +382,12 @@ mod tests {
             Command::Watch { interval_secs } => assert_eq!(interval_secs, 5),
             other => panic!("expected watch, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn bridge_does_not_accept_a_device_argument() {
+        Cli::try_parse_from(["luvia-host", "bridge"]).expect("bridge takes no device id");
+        assert!(Cli::try_parse_from(["luvia-host", "bridge", "--device", "abcd"]).is_err());
     }
 
     #[test]

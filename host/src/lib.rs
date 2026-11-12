@@ -16,6 +16,7 @@ compile_error!("luvia-host supports macOS and Linux only; Windows is not support
 
 pub mod acp;
 pub mod audit;
+pub mod auth;
 pub mod authkeys;
 pub mod bridge;
 pub mod capabilities;

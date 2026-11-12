@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -7,7 +6,7 @@ use crate::authkeys::{self, ManagedKeyLine};
 use crate::error::{Error, Result};
 use crate::paths::{self, LockFile, Paths};
 use crate::role::Role;
-use crate::sshkey::PublicKey;
+use crate::sshkey::{self, PublicKey};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Grant {
@@ -60,6 +59,61 @@ impl Grant {
             comment: self.comment.clone(),
         }
     }
+
+    pub fn pubkey_line(&self) -> String {
+        if self.comment.is_empty() {
+            format!("{} {}", self.key_type, self.key)
+        } else {
+            format!("{} {} {}", self.key_type, self.key, self.comment)
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct GrantsFile {
+    #[serde(default)]
+    devices: Vec<WireGrant>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct WireGrant {
+    device_id: String,
+    name: String,
+    pubkey: String,
+    role: Role,
+    created: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    push: Option<PushRegistration>,
+}
+
+impl Grant {
+    fn to_wire(&self) -> WireGrant {
+        WireGrant {
+            device_id: self.id.clone(),
+            name: self.name.clone(),
+            pubkey: self.pubkey_line(),
+            role: self.role,
+            created: self.created_at,
+            push: self.push.clone(),
+        }
+    }
+
+    fn from_wire(wire: WireGrant) -> Result<Self> {
+        validate_device_id(&wire.device_id)?;
+        let key = sshkey::parse_openssh_public_key(&wire.pubkey)?;
+        let fingerprint = key.fingerprint()?;
+        Ok(Self {
+            id: wire.device_id,
+            name: wire.name,
+            role: wire.role,
+            fingerprint,
+            key_type: key.key_type,
+            key: key.blob,
+            comment: key.comment,
+            created_at: wire.created,
+            push: wire.push,
+        })
+    }
 }
 
 pub fn validate_device_name(name: &str) -> Result<()> {
@@ -106,47 +160,41 @@ fn new_device_id() -> Result<String> {
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-fn grant_path(paths: &Paths, id: &str) -> PathBuf {
-    paths.devices_dir.join(format!("{id}.json"))
+fn grants_path(paths: &Paths) -> PathBuf {
+    paths.config_dir.join("grants.json")
+}
+
+fn read_grants(paths: &Paths) -> Result<Vec<Grant>> {
+    let path = grants_path(paths);
+    paths::reject_symlink(&path, "grants")?;
+    let text = paths::read_nofollow_to_string(&path)?;
+    if text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let file: GrantsFile = serde_json::from_str(&text)?;
+    file.devices.into_iter().map(Grant::from_wire).collect()
+}
+
+fn write_grants(paths: &Paths, grants: &[Grant]) -> Result<()> {
+    paths.ensure_host_dirs()?;
+    let file = GrantsFile {
+        devices: grants.iter().map(Grant::to_wire).collect(),
+    };
+    let encoded = serde_json::to_vec_pretty(&file)?;
+    paths::write_atomic(&grants_path(paths), &encoded)
 }
 
 pub fn load_grant(paths: &Paths, id: &str) -> Result<Grant> {
     validate_device_id(id)?;
-    paths::reject_symlink(&grant_path(paths, id), "grant")?;
-    let text = paths::read_nofollow_to_string(&grant_path(paths, id))?;
-    if text.is_empty() {
-        return Err(Error::new(
-            "unknown_device",
-            format!("no pairing grant for {id}"),
-        ));
-    }
-    Ok(serde_json::from_str(&text)?)
+    read_grants(paths)?
+        .into_iter()
+        .find(|grant| grant.id == id)
+        .ok_or_else(|| Error::new("unknown_device", format!("no pairing grant for {id}")))
 }
 
 pub fn list_grants(paths: &Paths) -> Result<Vec<Grant>> {
     paths.ensure_host_dirs()?;
-    let mut grants = Vec::new();
-    let entries = match fs::read_dir(&paths.devices_dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(grants),
-        Err(error) => return Err(error.into()),
-    };
-    for entry in entries {
-        let entry = entry?;
-        paths::reject_symlink(&entry.path(), "grant")?;
-        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
-            continue;
-        };
-        let Some(id) = name.strip_suffix(".json") else {
-            continue;
-        };
-        if validate_device_id(id).is_err() {
-            continue;
-        }
-        if let Ok(grant) = load_grant(paths, id) {
-            grants.push(grant);
-        }
-    }
+    let mut grants = read_grants(paths)?;
     grants.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
     Ok(grants)
 }
@@ -161,8 +209,10 @@ pub fn pair_device(
     validate_device_name(name)?;
     paths.ensure_host_dirs()?;
     let _lock = LockFile::exclusive(&paths.lock_path)?;
+    crate::auth::require_ed25519(key)?;
     let fingerprint = key.fingerprint()?;
-    for grant in list_grants(paths)? {
+    let mut grants = list_grants(paths)?;
+    for grant in &grants {
         if grant.fingerprint == fingerprint {
             return Err(Error::new(
                 "duplicate_key",
@@ -201,10 +251,11 @@ pub fn pair_device(
     };
     let line = ManagedKeyLine::from_grant(&grant, exe)?;
     authkeys::assert_key_not_present(paths, &line)?;
-    let encoded = serde_json::to_vec_pretty(&grant)?;
-    paths::write_atomic(&grant_path(paths, &id), &encoded)?;
+    grants.push(grant.clone());
+    write_grants(paths, &grants)?;
     if let Err(error) = authkeys::install_line(paths, &line) {
-        let _ = fs::remove_file(grant_path(paths, &id));
+        grants.pop();
+        let _ = write_grants(paths, &grants);
         return Err(error);
     }
     Ok(grant)
@@ -214,19 +265,36 @@ pub fn save_grant(paths: &Paths, grant: &Grant) -> Result<()> {
     validate_device_id(&grant.id)?;
     paths.ensure_host_dirs()?;
     let _lock = LockFile::exclusive(&paths.lock_path)?;
-    let path = grant_path(paths, &grant.id);
-    paths::reject_symlink(&path, "grant")?;
-    let encoded = serde_json::to_vec_pretty(grant)?;
-    paths::write_atomic(&path, &encoded)
+    let mut grants = read_grants(paths)?;
+    if let Some(slot) = grants.iter_mut().find(|item| item.id == grant.id) {
+        *slot = grant.clone();
+    } else {
+        grants.push(grant.clone());
+    }
+    write_grants(paths, &grants)
 }
 
-pub fn revoke_device(paths: &Paths, id: &str) -> Result<Grant> {
+/// Drop a grant record and leave `authorized_keys` untouched.
+/// The bridge rejects the device as soon as the record is gone.
+pub fn remove_grant(paths: &Paths, id: &str) -> Result<Grant> {
     validate_device_id(id)?;
     paths.ensure_host_dirs()?;
     let _lock = LockFile::exclusive(&paths.lock_path)?;
-    let grant = load_grant(paths, id)?;
+    let mut grants = read_grants(paths)?;
+    let Some(index) = grants.iter().position(|grant| grant.id == id) else {
+        return Err(Error::new(
+            "unknown_device",
+            format!("no pairing grant for {id}"),
+        ));
+    };
+    let grant = grants.remove(index);
+    write_grants(paths, &grants)?;
+    Ok(grant)
+}
+
+pub fn revoke_device(paths: &Paths, id: &str) -> Result<Grant> {
+    let grant = remove_grant(paths, id)?;
     authkeys::remove_device(paths, id)?;
-    fs::remove_file(grant_path(paths, id))?;
     Ok(grant)
 }
 
@@ -236,6 +304,7 @@ mod tests {
     use crate::sshkey::parse_openssh_public_key;
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
+    use std::fs;
 
     fn sample_key(comment: &str) -> PublicKey {
         sample_key_fill(comment, 7)
@@ -311,8 +380,9 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, grant.id);
         let keys = paths::read_nofollow_to_string(&paths.authorized_keys).unwrap();
-        assert!(keys.contains(&format!("luvia-host:{}", grant.id)));
+        assert!(keys.contains(&format!("luvia:{}", grant.id)));
         assert!(keys.contains("restrict,command="));
+        assert!(!keys.contains("--device"));
         revoke_device(&paths, &grant.id).unwrap();
         assert!(list_grants(&paths).unwrap().is_empty());
         let keys = paths::read_nofollow_to_string(&paths.authorized_keys).unwrap();
@@ -347,18 +417,16 @@ mod tests {
         let paths = test_paths(dir.path());
         paths.ensure_host_dirs().unwrap();
         let id = "ab".repeat(16);
-        let path = paths.devices_dir.join(format!("{id}.json"));
         fs::write(
-            &path,
+            paths.config_dir.join("grants.json"),
             r#"{
-                "id": "abababababababababababababababab",
-                "name": "phone",
-                "role": "observer",
-                "fingerprint": "SHA256:test",
-                "key_type": "ssh-ed25519",
-                "key": "AAAA",
-                "comment": "",
-                "created_at": 1
+                "devices": [{
+                    "device_id": "abababababababababababababababab",
+                    "name": "phone",
+                    "pubkey": "ssh-ed25519 AAAA",
+                    "role": "observer",
+                    "created": 1
+                }]
             }"#,
         )
         .unwrap();

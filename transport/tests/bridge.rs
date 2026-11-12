@@ -150,6 +150,8 @@ fn pin_auth_bounds_and_concurrent_bridges() {
             "luvia".into(),
             vec![wrong_fp.clone()],
             device.private_key_openssh.clone(),
+            "host".into(),
+            "device".into(),
         )
         .await
         .unwrap_err();
@@ -161,6 +163,8 @@ fn pin_auth_bounds_and_concurrent_bridges() {
             "luvia".into(),
             vec![real_fp.clone()],
             stranger.private_key_openssh,
+            "host".into(),
+            "device".into(),
         )
         .await
         .unwrap_err();
@@ -172,6 +176,8 @@ fn pin_auth_bounds_and_concurrent_bridges() {
             "luvia".into(),
             vec![wrong_fp, real_fp],
             device.private_key_openssh,
+            "host".into(),
+            "device".into(),
         )
         .await
         .unwrap();

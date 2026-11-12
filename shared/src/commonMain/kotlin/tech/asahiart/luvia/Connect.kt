@@ -10,6 +10,8 @@ public data class HostEndpoint(
     public val port: Int,
     public val username: String,
     public val hostKeyFingerprints: List<String>,
+    public val hostId: String = "",
+    public val deviceId: String = "",
 )
 
 public data class DevicePublicIdentity(
@@ -97,6 +99,8 @@ public suspend fun connectToHost(
             endpoint.username,
             endpoint.hostKeyFingerprints,
             privateKeyOpenssh,
+            endpoint.hostId,
+            endpoint.deviceId,
         )
         ok(ConnectedHost(LuviaClient(SshChannelFactory(connection)), connection))
     } catch (error: Exception) {
@@ -136,6 +140,8 @@ internal suspend fun connectToProfile(
                         port = profile.sshPort,
                         username = profile.username,
                         hostKeyFingerprints = profile.hostKeyFingerprints,
+                        hostId = profile.hostId,
+                        deviceId = profile.id,
                     ),
                     credential,
                 )

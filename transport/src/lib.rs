@@ -16,6 +16,7 @@
 
 uniffi::setup_scaffolding!("luvia_transport");
 
+mod auth;
 mod channel;
 mod connection;
 mod error;

@@ -12,14 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use bytes::Bytes;
+use russh::keys::ssh_key::private::KeypairData;
 use russh::keys::{PrivateKey, PrivateKeyWithHashAlg, PublicKeyOrCertificate};
 use russh::{client, ChannelMsg, Disconnect};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
+use crate::auth::{self, CLIENT_SSH_AUTH};
 use crate::channel::BridgeChannel;
 use crate::error::TransportError;
 use crate::fingerprint::{
@@ -35,6 +39,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct PinnedHostKey {
     accepted: Vec<[u8; 32]>,
+    verified: Arc<AtomicBool>,
 }
 
 impl client::Handler for PinnedHostKey {
@@ -53,6 +58,7 @@ impl client::Handler for PinnedHostKey {
             }
         }
         if matched {
+            self.verified.store(true, Ordering::SeqCst);
             Ok(true)
         } else {
             Err(TransportError::HostKeyMismatch {
@@ -72,6 +78,10 @@ impl client::Handler for PinnedHostKey {
 #[derive(uniffi::Object)]
 pub struct SshConnection {
     handle: Arc<Mutex<Option<client::Handle<PinnedHostKey>>>>,
+    host_key_verified: Arc<AtomicBool>,
+    expected_host_id: String,
+    device_id: String,
+    signing_seed: [u8; 32],
 }
 
 impl std::fmt::Debug for SshConnection {
@@ -89,6 +99,8 @@ impl SshConnection {
         username: String,
         accepted_host_key_fingerprints: Vec<String>,
         private_key_openssh: String,
+        expected_host_id: String,
+        device_id: String,
     ) -> Result<Arc<Self>, TransportError> {
         if accepted_host_key_fingerprints.is_empty() {
             return Err(TransportError::invalid_fingerprint(
@@ -100,8 +112,48 @@ impl SshConnection {
             accepted.push(parse_sha256_fingerprint(fingerprint)?);
         }
         let key = parse_private_key(private_key_openssh)?;
-        spawn_on_runtime(async move { connect_inner(address, port, username, accepted, key).await })
-            .await?
+        let signing_seed = ed25519_seed(&key)?;
+        spawn_on_runtime(async move {
+            connect_inner(
+                address,
+                port,
+                username,
+                accepted,
+                key,
+                ConnectIdentity {
+                    expected_host_id,
+                    device_id,
+                    signing_seed,
+                },
+            )
+            .await
+        })
+        .await?
+    }
+
+    /// Exec `luvia-host bridge`, then sign Hello only if the SSH host key matched
+    /// the pairing record's host id.
+    pub async fn open_authenticated_bridge(&self) -> Result<Arc<BridgeChannel>, TransportError> {
+        let verified = self.host_key_verified.load(Ordering::SeqCst);
+        let expected_host_id = self.expected_host_id.clone();
+        let device_id = self.device_id.clone();
+        let signing_seed = self.signing_seed;
+        let slots = Arc::clone(&self.handle);
+        spawn_on_runtime(async move {
+            let guard = slots.lock().await;
+            let handle = guard
+                .as_ref()
+                .ok_or_else(|| TransportError::disconnected("closed"))?;
+            open_authenticated_inner(
+                handle,
+                verified,
+                &expected_host_id,
+                &device_id,
+                &signing_seed,
+            )
+            .await
+        })
+        .await?
     }
 
     pub async fn open_bridge(&self) -> Result<Arc<BridgeChannel>, TransportError> {
@@ -140,12 +192,26 @@ impl Drop for SshConnection {
     }
 }
 
+struct ConnectIdentity {
+    expected_host_id: String,
+    device_id: String,
+    signing_seed: [u8; 32],
+}
+
+fn ed25519_seed(key: &PrivateKey) -> Result<[u8; 32], TransportError> {
+    match key.key_data() {
+        KeypairData::Ed25519(pair) => Ok(pair.private.to_bytes()),
+        _ => Err(TransportError::invalid_key()),
+    }
+}
+
 async fn connect_inner(
     host: String,
     port: u16,
     user: String,
     accepted: Vec<[u8; 32]>,
     key: PrivateKey,
+    identity: ConnectIdentity,
 ) -> Result<Arc<SshConnection>, TransportError> {
     if host.is_empty() || user.is_empty() {
         return Err(TransportError::io("host and user are required"));
@@ -176,9 +242,17 @@ async fn connect_inner(
         ..Default::default()
     };
 
+    let host_key_verified = Arc::new(AtomicBool::new(false));
     let mut session = match tokio::time::timeout(
         CONNECT_TIMEOUT,
-        client::connect_stream(Arc::new(config), stream, PinnedHostKey { accepted }),
+        client::connect_stream(
+            Arc::new(config),
+            stream,
+            PinnedHostKey {
+                accepted,
+                verified: Arc::clone(&host_key_verified),
+            },
+        ),
     )
     .await
     {
@@ -188,6 +262,8 @@ async fn connect_inner(
     };
 
     let hash_alg = session.best_supported_rsa_hash().await?.flatten();
+    // CLIENT_SSH_AUTH is publickey only. Do not call none or password.
+    debug_assert_eq!(CLIENT_SSH_AUTH, ["publickey"]);
     let auth = session
         .authenticate_publickey(user, PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg))
         .await?;
@@ -198,12 +274,16 @@ async fn connect_inner(
 
     Ok(Arc::new(SshConnection {
         handle: Arc::new(Mutex::new(Some(session))),
+        host_key_verified,
+        expected_host_id: identity.expected_host_id,
+        device_id: identity.device_id,
+        signing_seed: identity.signing_seed,
     }))
 }
 
-async fn open_bridge_inner(
+async fn exec_bridge(
     handle: &client::Handle<PinnedHostKey>,
-) -> Result<Arc<BridgeChannel>, TransportError> {
+) -> Result<(russh::Channel<client::Msg>, Vec<u8>), TransportError> {
     let mut channel = handle.channel_open_session().await?;
     channel.exec(true, BRIDGE_COMMAND).await?;
 
@@ -224,7 +304,63 @@ async fn open_bridge_inner(
             _ => {}
         }
     }
+    Ok((channel, initial))
+}
 
+async fn read_lf_frame(
+    channel: &mut russh::Channel<client::Msg>,
+    buffered: &mut Vec<u8>,
+) -> Result<Vec<u8>, TransportError> {
+    loop {
+        if let Some(pos) = buffered.iter().position(|byte| *byte == b'\n') {
+            let frame = buffered[..=pos].to_vec();
+            buffered.drain(..=pos);
+            return Ok(frame);
+        }
+        match channel.wait().await {
+            Some(ChannelMsg::Data { ref data }) => buffered.extend(data.iter().copied()),
+            Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
+                return Err(TransportError::ChannelClosed);
+            }
+            _ => {}
+        }
+    }
+}
+
+async fn open_bridge_inner(
+    handle: &client::Handle<PinnedHostKey>,
+) -> Result<Arc<BridgeChannel>, TransportError> {
+    let (channel, initial) = exec_bridge(handle).await?;
+    Ok(BridgeChannel::spawn(channel, initial))
+}
+
+async fn open_authenticated_inner(
+    handle: &client::Handle<PinnedHostKey>,
+    host_key_verified: bool,
+    expected_host_id: &str,
+    device_id: &str,
+    signing_seed: &[u8; 32],
+) -> Result<Arc<BridgeChannel>, TransportError> {
+    if !host_key_verified {
+        return Err(TransportError::HostKeyUnverified);
+    }
+    let (mut channel, mut initial) = exec_bridge(handle).await?;
+    let frame = match tokio::time::timeout(
+        Duration::from_secs(4),
+        read_lf_frame(&mut channel, &mut initial),
+    )
+    .await
+    {
+        Ok(frame) => frame?,
+        Err(_) => return Err(TransportError::io("connect timeout")),
+    };
+    let prove = auth::client_prove(true, expected_host_id, device_id, &frame, |message| {
+        Ok(auth::sign_message(signing_seed, message))
+    })?;
+    channel
+        .data_bytes(Bytes::from(prove))
+        .await
+        .map_err(TransportError::from)?;
     Ok(BridgeChannel::spawn(channel, initial))
 }
 
@@ -242,6 +378,8 @@ mod tests {
             "luvia".into(),
             vec!["md5:aa:bb".into()],
             key.private_key_openssh,
+            "host".into(),
+            "device".into(),
         ));
         assert!(matches!(
             err,
@@ -258,6 +396,8 @@ mod tests {
             "luvia".into(),
             Vec::new(),
             key.private_key_openssh,
+            "host".into(),
+            "device".into(),
         ));
         assert!(matches!(
             err,
@@ -291,6 +431,8 @@ mod tests {
             "luvia".into(),
             vec![dummy_fingerprint()],
             key.private_key_openssh,
+            "host".into(),
+            "device".into(),
         ));
         assert!(started.elapsed() < Duration::from_secs(4));
         let shown = format!("{err:?}");
@@ -310,6 +452,8 @@ mod tests {
             "luvia".into(),
             vec![dummy_fingerprint()],
             key.private_key_openssh,
+            "host".into(),
+            "device".into(),
         ));
         assert!(started.elapsed() < Duration::from_secs(8));
         let shown = format!("{err:?}");

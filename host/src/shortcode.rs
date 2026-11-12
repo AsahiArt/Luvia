@@ -756,6 +756,10 @@ fn is_redeem_listen_ip(ip: IpAddr, advertised: &[String]) -> bool {
 }
 
 fn is_redeem_peer(ip: IpAddr, advertised: &[String], allow_loopback: bool) -> bool {
+    // sing-box userspace mode delivers tailnet connections to 8741 as
+    // 127.0.0.1. Keep allowing loopback; do not add source filters.
+    // Tailscale ACL, the 90s code lifetime, and the 5-wrong-tries void
+    // are what keep that path safe.
     if allow_loopback && ip.is_loopback() {
         return true;
     }

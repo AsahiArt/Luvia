@@ -84,6 +84,7 @@ public enum class TerminalKey {
 
 public data class HostProfile(
     public val id: String,
+    public val hostId: String = "",
     public val alias: String,
     public val addresses: List<String>,
     public val sshPort: Int,
