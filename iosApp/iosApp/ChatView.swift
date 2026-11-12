@@ -399,7 +399,7 @@ struct ChatView: View {
                     .buttonStyle(.plain)
                 }
                 HStack(alignment: .center, spacing: 10) {
-                    TextField("补充说明（可选）", text: $decisionNote, axis: .vertical)
+                    TextField(decisionNotePlaceholder, text: $decisionNote, axis: .vertical)
                         .lineLimit(1...3)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
@@ -521,23 +521,61 @@ struct ChatView: View {
         decisionNote = ""
     }
 
+    private var decisionNotePlaceholder: String {
+        if pairingRevoked { return "重新配对后才能作答" }
+        if canCompose { return "补充说明（可选）" }
+        return "观察者不能代答"
+    }
+
     private var composer: some View {
         HStack {
-            TextField(composerPlaceholder, text: $draft, axis: .vertical)
+            composerField
                 .focused($composerFocused)
                 .disabled(!canCompose)
+            composerSendButton
+        }
+        .padding(12)
+        .luviaGlass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .opacity(pairingRevoked || canCompose ? 1 : 0.45)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    @ViewBuilder
+    private var composerField: some View {
+        if pairingRevoked {
+            TextField(
+                composerPlaceholder,
+                text: $draft,
+                prompt: Text(composerPlaceholder).foregroundStyle(Color.primary.opacity(0.38)),
+                axis: .vertical
+            )
+        } else {
+            TextField(composerPlaceholder, text: $draft, axis: .vertical)
+        }
+    }
+
+    @ViewBuilder
+    private var composerSendButton: some View {
+        let cannotSend = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !canCompose
+        if pairingRevoked {
+            Button {
+                send(draft)
+            } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(Color.primary.opacity(0.38))
+            }
+            .buttonStyle(RevokedComposerSendStyle())
+            .disabled(cannotSend)
+        } else {
             Button {
                 send(draft)
             } label: {
                 Image(systemName: "arrow.up.circle.fill").font(.title2)
             }
-            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !canCompose)
+            .disabled(cannotSend)
         }
-        .padding(12)
-        .luviaGlass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .opacity(canCompose ? 1 : 0.45)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
     }
 
     private var composerPlaceholder: String {
@@ -979,6 +1017,15 @@ private struct TestBar: View {
                     .foregroundStyle(.red)
             }
         }
+    }
+}
+
+/// Keeps the revoked send icon at onSurface 38% without the default disabled fade.
+private struct RevokedComposerSendStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(Color.primary.opacity(0.38))
+            .environment(\.isEnabled, true)
     }
 }
 

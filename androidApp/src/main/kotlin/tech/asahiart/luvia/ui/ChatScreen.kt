@@ -244,6 +244,11 @@ fun ChatScreen(
                     index = queueIndex,
                     total = queueTotal,
                     enabled = chrome.decisionEnabled,
+                    noteHint = when (chrome.decisionNoteHint) {
+                        DecisionNoteHint.PairAgain -> stringResource(R.string.pair_again_to_answer)
+                        DecisionNoteHint.Observer -> stringResource(R.string.observer_cannot_answer)
+                        DecisionNoteHint.Note -> stringResource(R.string.note_hint)
+                    },
                     onAnswer = onAnswer,
                 )
             }
@@ -260,6 +265,7 @@ fun ChatScreen(
             },
             canSend = chrome.sendEnabled,
             editable = chrome.inputEnabled,
+            onSurface38 = chrome.composerOnSurface38,
             hint = when (chrome.hint) {
                 ChatComposerHint.PairingRevoked -> stringResource(R.string.pairing_revoked)
                 ChatComposerHint.Offline -> stringResource(R.string.offline_cannot_send)
@@ -824,6 +830,7 @@ private fun DecisionCard(
     index: Int,
     total: Int,
     enabled: Boolean,
+    noteHint: String,
     onAnswer: (AskOption) -> Unit,
 ) {
     val agentName = agentType?.takeIf { it.isNotBlank() } ?: sessionTitle
@@ -943,7 +950,7 @@ private fun DecisionCard(
                     Box {
                         if (note.isEmpty()) {
                             Text(
-                                if (enabled) stringResource(R.string.note_hint) else stringResource(R.string.observer_cannot_answer),
+                                noteHint,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -988,8 +995,10 @@ private fun Composer(
     canSend: Boolean,
     editable: Boolean,
     hint: String,
+    onSurface38: Boolean,
 ) {
     val ink = if (editable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    val revokedInk = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
     Row(
         Modifier
             .fillMaxWidth()
@@ -1016,7 +1025,10 @@ private fun Composer(
             decorationBox = { inner ->
                 Box {
                     if (draft.isEmpty()) {
-                        Text(hint, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            hint,
+                            color = if (onSurface38) revokedInk else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     inner()
                 }
@@ -1026,7 +1038,11 @@ private fun Composer(
             Icon(
                 Icons.Filled.Send,
                 contentDescription = stringResource(R.string.send),
-                tint = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                tint = when {
+                    canSend -> MaterialTheme.colorScheme.primary
+                    onSurface38 -> revokedInk
+                    else -> MaterialTheme.colorScheme.outline
+                },
             )
         }
     }
