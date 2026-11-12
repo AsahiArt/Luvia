@@ -363,7 +363,7 @@ class CandidateRaceTest {
             )
         advanceUntilIdle()
         val winner = (first as Outcome.Ok).value.first
-        store.setLastConnectedAddress(profile.id, winner)
+        store.setLastConnectedAddress(profile.hostId, winner)
         val stored = store.current().hosts.single()
         assertEquals(winner, stored.lastGood)
         assertEquals(winner, candidateAddresses(stored).first())

@@ -553,7 +553,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         }
 
         self.init(
-            id: profile.id,
+            id: profile.hostId,
             name: profile.name,
             address: link.address,
             addresses: KotlinLists.array(profile.hints as Any),

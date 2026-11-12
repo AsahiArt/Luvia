@@ -68,7 +68,7 @@ fun LuviaApp(launchIntent: Intent? = null) {
             ?: "session"
         notifications.show(
             AmbientStatus(
-                hostId = online.profile.id,
+                hostId = online.profile.hostId,
                 hostName = online.profile.name,
                 sessionName = sessionName,
                 connection = online.freshness.name,

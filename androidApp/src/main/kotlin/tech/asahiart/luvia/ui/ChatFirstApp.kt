@@ -100,7 +100,12 @@ fun ChatFirstApp(
     var seenChatIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val filter = runCatching { SessionFilter.valueOf(filterName) }.getOrDefault(SessionFilter.All)
     val profiles = runtimes.map { it.profile }
-    val resolvedId = if (startupApplied) hostId else resolveStartupHost(profiles, hostId)?.id ?: hostId
+    val resolved = if (startupApplied) {
+        profiles.firstOrNull { it.hostId == hostId || it.id == hostId }
+    } else {
+        resolveStartupHost(profiles, hostId)
+    }
+    val resolvedId = resolved?.hostId ?: hostId
     val selected = hosts.firstOrNull { it.id == resolvedId } ?: hosts.firstOrNull()
     val state = selected?.let { hostStates[it.id] }
     val allThreads = sortSessions(state?.threads(selected.id).orEmpty())
@@ -109,9 +114,9 @@ fun ChatFirstApp(
     val openBlocked = launchIntent?.getBooleanExtra(StatusNotificationController.EXTRA_OPEN_BLOCKED, false) == true
     var consumedLaunch by rememberSaveable { mutableStateOf(false) }
 
-    LaunchedEffect(profiles.map { it.id }) {
+    LaunchedEffect(profiles.map { it.hostId }) {
         if (startupApplied || profiles.isEmpty()) return@LaunchedEffect
-        hostId = resolveStartupHost(profiles, hostId)?.id
+        hostId = resolveStartupHost(profiles, hostId)?.hostId
         startupApplied = true
     }
     val pairingInProgress = pairing.draft != null
