@@ -421,7 +421,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
     var address: String
     var addresses: [String]
     var port: Int32
-    var username: String
+    var user: String
     var sessionName: String?
     var connection: HostConnectionBadge
     var workingAgents: Int
@@ -445,7 +445,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         address: String,
         addresses: [String] = [],
         port: Int32 = 22,
-        username: String = "",
+        user: String = "",
         sessionName: String? = nil,
         connection: HostConnectionBadge = .offline,
         workingAgents: Int = 0,
@@ -468,7 +468,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         self.address = address
         self.addresses = addresses
         self.port = port
-        self.username = username
+        self.user = user
         self.sessionName = sessionName
         self.connection = connection
         self.workingAgents = workingAgents
@@ -551,11 +551,11 @@ struct HostViewState: Identifiable, Hashable, Sendable {
 
         self.init(
             id: profile.id,
-            name: profile.alias,
+            name: profile.name,
             address: link.address,
             addresses: KotlinLists.array(profile.hints as Any),
             port: profile.port,
-            username: profile.username,
+            user: profile.user,
             sessionName: link.sessionName,
             connection: link.badge,
             workingAgents: agentSummaries.filter { isStatus($0.status, .working) }.count,

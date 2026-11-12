@@ -69,7 +69,7 @@ fun LuviaApp(launchIntent: Intent? = null) {
         notifications.show(
             AmbientStatus(
                 hostId = online.profile.id,
-                hostName = online.profile.alias,
+                hostName = online.profile.name,
                 sessionName = sessionName,
                 connection = online.freshness.name,
                 workingAgents = agents.count { it.status == AgentStatus.Working },

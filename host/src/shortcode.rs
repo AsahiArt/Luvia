@@ -101,7 +101,7 @@ struct ShortTicket {
     code: String,
     grant_id: String,
     dk: String,
-    luvia1: String,
+    pairing_code: String,
     exp_ms: u64,
     attempts_left: u8,
 }
@@ -120,14 +120,14 @@ impl TicketTable {
         now_ms: u64,
     ) -> Result<Minted> {
         let payload = PairingPayload::from_grant(grant, facts)?;
-        let luvia1 = payload.encode()?;
-        self.insert(grant, luvia1, ttl, now_ms)
+        let pairing_code = payload.encode()?;
+        self.insert(grant, pairing_code, ttl, now_ms)
     }
 
     fn insert(
         &mut self,
         grant: &Grant,
-        luvia1: String,
+        pairing_code: String,
         ttl: Duration,
         now_ms: u64,
     ) -> Result<Minted> {
@@ -140,14 +140,14 @@ impl TicketTable {
             code: code.clone(),
             grant_id: grant.id.clone(),
             dk,
-            luvia1: luvia1.clone(),
+            pairing_code: pairing_code.clone(),
             exp_ms,
             attempts_left: MAX_ATTEMPTS,
         });
         if self.end.is_some() && !self.tickets.is_empty() {
             self.end = None;
         }
-        Ok(Minted { code, luvia1 })
+        Ok(Minted { code, pairing_code })
     }
 
     fn draw_unique_code(&self) -> Result<String> {
@@ -186,9 +186,9 @@ impl TicketTable {
                 if self.tickets[index].dk != dk.trim() {
                     return Err(self.consume_attempt(index, RedeemError::DkMismatch));
                 }
-                let luvia1 = self.tickets.remove(index).luvia1;
+                let pairing_code = self.tickets.remove(index).pairing_code;
                 self.note_empty(ShortEnd::Redeemed);
-                return Ok(luvia1);
+                return Ok(pairing_code);
             }
         }
         let before = self.tickets.len();
@@ -248,7 +248,7 @@ impl TicketTable {
 struct Minted {
     code: String,
     #[allow(dead_code)]
-    luvia1: String,
+    pairing_code: String,
 }
 
 pub fn validate_ttl_secs(secs: u64) -> Result<Duration> {
@@ -348,7 +348,7 @@ pub fn start_short(
         end: None,
     };
     let minted = table.mint(grant, facts, ttl, unix_ms())?;
-    debug_assert!(minted.luvia1.starts_with("luvia2:"));
+    debug_assert!(minted.pairing_code.starts_with("luvia2:"));
     let shared = Arc::new(Mutex::new(table));
     // One wildcard listener. Binding each interface address misses same-host
     // connections to a LAN IP: macOS routes that destination out lo0, and an
@@ -553,7 +553,7 @@ fn handle_client(mut stream: TcpStream, table: &Mutex<TicketTable>, policy: &Pee
         }
     };
     match result {
-        Ok(luvia1) => write_json(&mut stream, 200, "OK", &ok_body(&luvia1)),
+        Ok(pairing_code) => write_json(&mut stream, 200, "OK", &ok_body(&pairing_code)),
         Err(error) => {
             let (status, reason) = error.status();
             write_json(&mut stream, status, reason, &error_body(error.code()));
@@ -1063,14 +1063,14 @@ mod tests {
     }
 
     #[test]
-    fn mint_returns_the_same_luvia1_encode_and_success_burns_the_ticket() {
+    fn mint_returns_the_same_pairing_code_encode_and_success_burns_the_ticket() {
         let now = 1_000_000_u64;
         let (mut table, minted) = table_with(now);
         let expected = PairingPayload::from_grant(&grant(), &facts())
             .unwrap()
             .encode()
             .unwrap();
-        assert_eq!(minted.luvia1, expected);
+        assert_eq!(minted.pairing_code, expected);
         assert_eq!(minted.code.len(), 6);
         assert!(minted.code.bytes().all(|byte| byte.is_ascii_digit()));
         let got = table
@@ -1280,7 +1280,7 @@ mod tests {
             table
                 .redeem(&second.code, "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw", lan(), now, &policy)
                 .unwrap(),
-            second.luvia1
+            second.pairing_code
         );
     }
 
@@ -1545,7 +1545,7 @@ mod tests {
     }
 
     #[test]
-    fn http_redeem_returns_luvia1_once() {
+    fn http_redeem_returns_pairing_code_once() {
         let table = Arc::new(Mutex::new(TicketTable {
             tickets: Vec::new(),
             end: None,
@@ -1567,7 +1567,7 @@ mod tests {
         let (status, text) = post(port, &body);
         assert_eq!(status, 200, "{text}");
         let value: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(value["luvia2"].as_str().unwrap(), minted.luvia1);
+        assert_eq!(value["luvia2"].as_str().unwrap(), minted.pairing_code);
         let (status, text) = post(port, &body);
         assert_eq!(status, 404, "{text}");
         assert!(text.contains("invalid_code"));

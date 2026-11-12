@@ -67,3 +67,9 @@ RFC1918, ULA, link-local, or an advertised Tailscale address returns the same
 `luvia1:` payload, and the phone still calls `completePairing`. Pasting or
 scanning `luvia1:` stays the fallback. `shortFingerprint` is still only a UI
 summary of the device key.
+
+## Note (2026-11-12)
+
+Superseded for pairing and identity by tailnet v3. Pairing codes are `luvia2:`
+(`luvia1:` is rejected), and device identity is a signature proof inside
+`luvia-host bridge`, not a `--device` argument. The history above is unchanged.

@@ -85,9 +85,6 @@ public enum class TerminalKey {
 public data class HostProfile(
     public val id: String,
     public val hostId: String = "",
-    public val alias: String,
-    public val username: String,
-    public val hostKeyFingerprints: List<String>,
     public val role: HostRole,
     public val lastStatus: HostStatus,
     public val lastUpdatedEpochMs: Long,

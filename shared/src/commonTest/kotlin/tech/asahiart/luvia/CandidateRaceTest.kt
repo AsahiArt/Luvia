@@ -281,9 +281,6 @@ private fun raceProfile(
     HostProfile(
         id = "host-1",
         hostId = "ab".repeat(16),
-        alias = name,
-        username = "misaka",
-        hostKeyFingerprints = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
         role = HostRole.Controller,
         lastStatus = HostStatus.Unknown,
         lastUpdatedEpochMs = 1,

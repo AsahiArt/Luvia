@@ -227,19 +227,15 @@ internal class SshCandidateDial(
     }
 }
 
-internal fun HostProfile.raceEndpoint(address: String): HostEndpoint {
-    val resolvedPort = port
-    val resolvedUser = user.trim().ifEmpty { username.trim() }
-    val keys = hostKeys.ifEmpty { hostKeyFingerprints }
-    return HostEndpoint(
+internal fun HostProfile.raceEndpoint(address: String): HostEndpoint =
+    HostEndpoint(
         address = address,
-        port = resolvedPort,
-        username = resolvedUser,
-        hostKeyFingerprints = keys,
+        port = port,
+        username = user.trim(),
+        hostKeyFingerprints = hostKeys,
         hostId = hostId,
         deviceId = id,
     )
-}
 
 internal fun Failure.raceReason(): String =
     when (this) {
@@ -249,7 +245,7 @@ internal fun Failure.raceReason(): String =
     }
 
 private fun mdnsCandidate(profile: HostProfile): String? {
-    val raw = profile.name.trim().ifEmpty { profile.alias.trim() }
+    val raw = profile.name.trim()
     if (raw.isEmpty() || raw.equals("localhost", ignoreCase = true)) return null
     if (isLiteralIp(raw)) return null
     if (raw.endsWith(".local", ignoreCase = true)) return raw

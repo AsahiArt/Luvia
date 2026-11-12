@@ -172,7 +172,7 @@ final class AppModel {
                 rawCode: material,
                 addresses: [],
                 port: nil,
-                username: nil
+                user: nil
             )
             switch onEnum(of: outcome) {
             case .ok(let ok):
@@ -191,10 +191,10 @@ final class AppModel {
                 {
                     _ = await updateConnection(
                         hostID: profile.id,
-                        alias: profile.alias,
+                        name: profile.name,
                         hosts: host,
                         port: port,
-                        username: user
+                        user: user
                     )
                 }
                 return .success(profile)
@@ -208,20 +208,20 @@ final class AppModel {
 
     func updateConnection(
         hostID: String,
-        alias: String,
+        name: String,
         hosts: String,
         port: String,
-        username: String
+        user: String
     ) async -> Result<Void, UserFacingError> {
         let addresses = parseConnectionAddresses(raw: hosts)
         let parsedPort = Int32(port.trimmingCharacters(in: .whitespacesAndNewlines))
         do {
             let outcome = try await manager.updateConnection(
                 hostId: hostID,
-                alias: alias,
+                name: name,
                 addresses: addresses,
                 port: parsedPort ?? 0,
-                username: username
+                user: user
             )
             switch onEnum(of: outcome) {
             case .ok:

@@ -73,9 +73,9 @@ class TerminalPaneChoicesTest {
         HostRuntime(
             profile = HostProfile(
                 id = "h",
-                alias = "host",
-                username = "u",
-                hostKeyFingerprints = emptyList(),
+                name = "host",
+                user = "u",
+                hostKeys = emptyList(),
                 role = HostRole.Controller,
                 lastStatus = HostStatus.Reachable,
                 lastUpdatedEpochMs = 0,

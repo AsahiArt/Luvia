@@ -526,7 +526,7 @@ public class HostUhpRegistry(
             val hosts = runtimes.map { runtime ->
                 NowHost(
                     hostId = runtime.profile.id,
-                    name = runtime.profile.alias,
+                    name = runtime.profile.name,
                     freshness = runtime.freshness,
                     isObserver = runtime.profile.role == HostRole.Observer,
                     state = slices[runtime.profile.id],

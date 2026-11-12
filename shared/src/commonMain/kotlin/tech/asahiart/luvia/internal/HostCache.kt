@@ -46,10 +46,6 @@ internal data class HostCatalogFile(
 internal data class HostFile(
     val id: String,
     val hostId: String = "",
-    val alias: String,
-    val username: String? = null,
-    val hostKeyFingerprints: List<String> = emptyList(),
-    val hostKeySha256: String? = null,
     val role: String? = null,
     val lastStatus: String = HostStatus.Unknown.name,
     val lastUpdatedEpochMs: Long = 0,
@@ -229,9 +225,6 @@ internal fun HostProfile.sanitized(): HostProfile =
     copy(
         id = id,
         hostId = hostId,
-        alias = alias,
-        username = username,
-        hostKeyFingerprints = hostKeyFingerprints,
         role = role,
         lastStatus = lastStatus,
         lastUpdatedEpochMs = lastUpdatedEpochMs,
@@ -252,16 +245,11 @@ internal fun HostCatalogFile.migrated(): HostCatalogFile =
         hosts = hosts.map { it.migrated() },
     )
 
-internal fun HostFile.migrated(): HostFile {
-    val migratedFingerprints = hostKeyFingerprints.ifEmpty { listOfNotNull(hostKeySha256) }
-    return copy(
-        username = username ?: "",
-        hostKeyFingerprints = migratedFingerprints,
-        hostKeySha256 = null,
+internal fun HostFile.migrated(): HostFile =
+    copy(
         role = hostRole(role).name,
         port = if (port == 0) 22 else port,
     )
-}
 
 private fun HostCatalogFile.toPublic(): HostCatalog =
     HostCatalog(
@@ -274,19 +262,16 @@ private fun HostFile.toPublic(): HostProfile {
     return HostProfile(
         id = migrated.id,
         hostId = migrated.hostId,
-        alias = migrated.alias,
-        username = migrated.username ?: "",
-        hostKeyFingerprints = migrated.hostKeyFingerprints,
         role = hostRole(migrated.role),
         lastStatus = hostStatus(migrated.lastStatus),
         lastUpdatedEpochMs = migrated.lastUpdatedEpochMs,
         topology = migrated.topology?.toPublic(),
-        name = migrated.name.ifEmpty { migrated.alias },
+        name = migrated.name,
         tailnetFqdn = migrated.tailnetFqdn,
-        user = migrated.user.ifEmpty { migrated.username.orEmpty() },
+        user = migrated.user,
         port = migrated.port,
         bridgePath = migrated.bridgePath,
-        hostKeys = migrated.hostKeys.ifEmpty { migrated.hostKeyFingerprints },
+        hostKeys = migrated.hostKeys,
         hints = migrated.hints,
         lastGood = migrated.lastGood,
     )
@@ -296,19 +281,16 @@ private fun HostProfile.toFile(): HostFile =
     HostFile(
         id = id,
         hostId = hostId,
-        alias = alias,
-        username = username,
-        hostKeyFingerprints = hostKeyFingerprints,
         role = role.name,
         lastStatus = lastStatus.name,
         lastUpdatedEpochMs = lastUpdatedEpochMs,
         topology = topology?.toFile(),
-        name = name.ifEmpty { alias },
+        name = name,
         tailnetFqdn = tailnetFqdn,
-        user = user.ifEmpty { username },
+        user = user,
         port = port,
         bridgePath = bridgePath,
-        hostKeys = hostKeys.ifEmpty { hostKeyFingerprints },
+        hostKeys = hostKeys,
         hints = hints,
         lastGood = lastGood,
     )

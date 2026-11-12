@@ -149,7 +149,7 @@ def open_session(bridge: Bridge, session: str = "default") -> dict | None:
 
 def decode_pairing_code(code: str) -> dict:
     prefix, _, body = code.partition(":")
-    assert prefix.lower() == "luvia1", f"unexpected prefix {prefix!r}"
+    assert prefix.lower() == "luvia2", f"unexpected prefix {prefix!r}"
     padded = body + "=" * (-len(body) % 4)
     return json.loads(base64.urlsafe_b64decode(padded).decode())
 
@@ -206,23 +206,40 @@ def main() -> int:
         check(bool(device_id), "pair returned a device id")
 
         code = paired.get("code", "")
-        check(code.lower().startswith("luvia1:"), "pair returned a luvia1 pairing code")
+        check(code.lower().startswith("luvia2:"), "pair returned a luvia2 pairing code")
+        check(not code.lower().startswith("luvia1:"), "pair did not return a luvia1 code")
         payload = decode_pairing_code(code)
-        check(payload.get("v") == 1, "payload version is 1")
-        check(bool(payload.get("addrs")), "payload carries at least one address")
+        hints = payload.get("hints") or []
+        check(bool(hints) or bool(payload.get("fqdn")),
+              "payload carries hints or a tailnet name")
         check(bool(payload.get("hk")), "payload carries host key fingerprints")
         check(all(fp.startswith("SHA256:") for fp in payload.get("hk", [])),
               "host key fingerprints use the OpenSSH SHA256 form")
-        check(payload.get("user") == user, "payload username matches the login user",
+        check(payload.get("user") == user, "payload user matches the login user",
               f"payload={payload.get('user')!r} expected={user!r}")
         check(1 <= int(payload.get("port", 0)) <= 65535, "payload port is in range")
         check(payload.get("role") == "controller", "payload role matches the grant")
+        check(payload.get("device_id") == device_id, "payload device_id matches the grant")
+        check(str(payload.get("bridge", "")).startswith("/"), "payload bridge path is absolute")
+        host_id = str(payload.get("host_id") or "")
+        check(len(host_id) == 32 and all(ch in "0123456789abcdef" for ch in host_id),
+              "payload host_id is 32 lowercase hex characters")
+
+        keys_text = AUTHORIZED_KEYS.read_text() if AUTHORIZED_KEYS.exists() else ""
+        managed = next((line for line in keys_text.splitlines() if f"luvia:{device_id}" in line), "")
+        check(bool(managed), "authorized_keys has a managed line for the device")
+        check(managed.startswith('restrict,command="') and f' bridge" ' in managed,
+              "authorized_keys forced command is an absolute luvia-host bridge",
+              managed)
+        check("--device" not in managed, "authorized_keys line has no --device", managed)
+        check(managed.rstrip().endswith(f"luvia:{device_id}"),
+              "authorized_keys line ends with luvia:<device_id>", managed)
 
         recode = run([str(host_bin), "pair-code", device_id, "--json"])
         if check(recode.returncode == 0, "pair-code reprints for an existing device",
                  recode.stderr):
             again = json.loads(recode.stdout)
-            check(decode_pairing_code(again["code"]).get("id") == payload.get("id"),
+            check(decode_pairing_code(again["code"]).get("device_id") == payload.get("device_id"),
                   "pair-code payload matches the original grant")
 
         phase("Happy path over real SSH")

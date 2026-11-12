@@ -620,9 +620,9 @@ private fun sampleRuntime(
         profile =
             HostProfile(
                 id = "host-1",
-                alias = "studio",
-                username = "misaka",
-                hostKeyFingerprints = listOf("SHA256:abc"),
+                name = "studio",
+                user = "misaka",
+                hostKeys = listOf("SHA256:abc"),
                 role = role,
                 lastStatus = HostStatus.Unknown,
                 lastUpdatedEpochMs = 0L,

@@ -48,13 +48,13 @@ cargo build --release -p luvia-host
    luvia-host pair --name Android --role controller --key 'ssh-ed25519 AAAA…'
    ```
 
-2. Run that command on the host. `luvia-host` writes a grant, installs a `restrict,command="luvia-host bridge --device <id>"` line in `authorized_keys`, and prints a `luvia1:…` pairing code plus a QR.
+2. Run that command on the host. `luvia-host` writes a grant, installs a `restrict,command="<abs>/luvia-host bridge" <pubkey> luvia:<device_id>` line in `authorized_keys` (no `--device`), and prints a `luvia2:…` pairing code plus a QR. Device identity is a signature proof inside the bridge, not an argument on that line.
 
-3. Scan the QR (or paste the code) on the phone. The payload pins every SSH host-key fingerprint (`hk`), lists reachable addresses in preference order (`addrs`), and includes `dk` so the phone can confirm the code belongs to the key it just generated.
+3. Scan the QR (or paste the code) on the phone. The `luvia2:` payload pins every SSH host-key fingerprint (`hk`), carries LAN and tailnet IP hints (`hints`) plus an optional tailnet name (`fqdn`), and includes `device_key` so the phone can confirm the code belongs to the key it just generated. `luvia1:` codes are rejected.
 
-The command the phone copies includes `--short`. That also prints a six-digit code and listens on the LAN (default port 8741, 90 seconds, five failures, then the ticket is gone) for `POST /pair/redeem` with the phone's `dk`. The phone turns that into the same `luvia1:` payload and continues through the existing pairing path. Paste or scan still works if the short code expires. `pair` without `--short` only prints the `luvia1:` code.
+The command the phone copies includes `--short`. That also prints a six-digit code and listens on the LAN (default port 8741, 90 seconds, five failures, then the ticket is gone) for `POST /pair/redeem` with the phone's device-key fingerprint. The response body's `luvia2` field is the same pairing code, and the phone continues through the existing pairing path. Paste or scan still works if the short code expires. `pair` without `--short` only prints the `luvia2:` code.
 
-**Tailscale.** If the `tailscale` CLI is installed and the node is running, `luvia-host pair` places the node's tailnet IPs (`100.x`, `fd7a:115c:a1e0::`) and MagicDNS name ahead of LAN addresses in `addrs`, so the phone reaches the host from any network without port forwarding. The phone still pins the SSH host key; Tailscale only changes routing. Set `LUVIA_NO_TAILSCALE=1` to skip detection, or pass `--address` to override the list entirely. The host row shows a Tailnet badge when the active address is a tailnet address.
+**Tailscale.** If the `tailscale` CLI is installed and the node is running, `luvia-host pair` puts the node's tailnet IPs (`100.x`, `fd7a:115c:a1e0::`) in `hints` with the LAN addresses. MagicDNS is not inferred; pass `--tailnet-name` for the FQDN. The phone still pins the SSH host key; Tailscale only changes routing. Set `LUVIA_NO_TAILSCALE=1` to skip detection, or pass `--address` to override the hint list entirely. The host row shows a Tailnet badge when the active address is a tailnet address.
 
 Roles: `observer` (read) or `controller` (read plus workspace / agent / terminal / orchestration). Revoke with `luvia-host revoke <id>`.
 
@@ -180,7 +180,7 @@ Self-host `luvia-relay` (same binary as hosted) with `LUVIA_RELAY_KEYS` and opti
 **Pinned**
 
 - SSH host public keys (`SHA256:` + unpadded standard base64 of the SHA-256 of the key blob, OpenSSH form).
-- The device public key fingerprint in `dk`, so a scanned code cannot be swapped onto a different phone key.
+- The device public key fingerprint in `device_key`, so a scanned code cannot be swapped onto a different phone key.
 
 **Where private keys live**
 

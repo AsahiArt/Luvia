@@ -121,16 +121,16 @@ class HostManagerTest {
         val result =
             manager.updateConnection(
                 hostId = "host-1",
-                alias = "studio-lan",
+                name = "studio-lan",
                 addresses = listOf("192.168.1.20", "studio.local"),
                 port = 2222,
-                username = "deploy",
+                user = "deploy",
             )
         val updated = (result as Outcome.Ok).value
-        assertEquals("studio-lan", updated.alias)
+        assertEquals("studio-lan", updated.name)
         assertEquals(listOf("192.168.1.20", "studio.local"), updated.hints)
         assertEquals(2222, updated.port)
-        assertEquals("deploy", updated.username)
+        assertEquals("deploy", updated.user)
         val stored = store.current().hosts.single()
         assertEquals(listOf("192.168.1.20", "studio.local"), stored.hints)
         assertEquals(2222, stored.port)
@@ -231,9 +231,9 @@ private class MemoryVault : DeviceKeyVault {
 private fun sampleProfile(): HostProfile =
     HostProfile(
         id = "host-1",
-        alias = "studio",
-        username = "misaka",
-        hostKeyFingerprints = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+        name = "studio",
+        user = "misaka",
+        hostKeys = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
         role = HostRole.Controller,
         lastStatus = HostStatus.Unknown,
         lastUpdatedEpochMs = 1,

@@ -149,7 +149,7 @@ public class HostManager(
         rawCode: String,
         addresses: List<String> = emptyList(),
         port: Int? = null,
-        username: String? = null,
+        user: String? = null,
     ): Outcome<HostProfile> {
         val code =
             when (val decoded = PairingCodes.decode(rawCode)) {
@@ -165,7 +165,7 @@ public class HostManager(
             if (!fqdn.isNullOrBlank() && fqdn !in this) add(fqdn)
         }
         val reachability =
-            when (val parsed = parseReachability(addresses, port, username, fallbackAddresses, code.port, code.user)) {
+            when (val parsed = parseReachability(addresses, port, user, fallbackAddresses, code.port, code.user)) {
                 is Outcome.Err -> return fail(parsed.failure)
                 is Outcome.Ok -> parsed.value
             }
@@ -179,16 +179,13 @@ public class HostManager(
             HostProfile(
                 id = code.deviceId,
                 hostId = code.hostId,
-                alias = code.name,
-                username = reachability.username,
-                hostKeyFingerprints = code.hostKeys,
                 role = code.role,
                 lastStatus = HostStatus.Unknown,
                 lastUpdatedEpochMs = nowEpochMs(),
                 topology = null,
                 name = code.name,
                 tailnetFqdn = code.tailnetFqdn,
-                user = reachability.username,
+                user = reachability.user,
                 port = reachability.port,
                 bridgePath = code.bridgePath,
                 hostKeys = code.hostKeys,
@@ -208,28 +205,26 @@ public class HostManager(
 
     public suspend fun updateConnection(
         hostId: String,
-        alias: String,
+        name: String,
         addresses: List<String>,
         port: Int,
-        username: String,
+        user: String,
     ): Outcome<HostProfile> {
         val current =
             store.current().hosts.firstOrNull { it.id == hostId }
                 ?: return fail(Failure.NotFound("host not found"))
         val reachability =
-            when (val parsed = parseReachability(addresses, port, username, current.hints, current.port, current.user.ifEmpty { current.username })) {
+            when (val parsed = parseReachability(addresses, port, user, current.hints, current.port, current.user)) {
                 is Outcome.Err -> return fail(parsed.failure)
                 is Outcome.Ok -> parsed.value
             }
-        val name = alias.trim().ifEmpty { current.name.ifEmpty { current.alias } }
+        val resolvedName = name.trim().ifEmpty { current.name }
         val last =
             current.lastGood?.takeIf { it in reachability.addresses }
         val updated =
             current.copy(
-                alias = name,
-                name = name,
-                username = reachability.username,
-                user = reachability.username,
+                name = resolvedName,
+                user = reachability.user,
                 port = reachability.port,
                 hints = reachability.addresses,
                 lastGood = last,
@@ -786,13 +781,13 @@ public class HostManager(
 private data class Reachability(
     val addresses: List<String>,
     val port: Int,
-    val username: String,
+    val user: String,
 )
 
 private fun parseReachability(
     addresses: List<String>,
     port: Int?,
-    username: String?,
+    user: String?,
     fallbackAddresses: List<String>,
     fallbackPort: Int,
     fallbackUser: String,
@@ -806,7 +801,7 @@ private fun parseReachability(
                 fallbackAddresses.map { it.trim() }.filter { it.isNotEmpty() }
             }
     val resolvedPort = port ?: fallbackPort
-    val resolvedUser = username?.trim()?.takeIf { it.isNotEmpty() } ?: fallbackUser.trim()
+    val resolvedUser = user?.trim()?.takeIf { it.isNotEmpty() } ?: fallbackUser.trim()
     if (resolvedAddresses.isEmpty()) {
         return fail(Failure.Transport("Enter a host address."))
     }

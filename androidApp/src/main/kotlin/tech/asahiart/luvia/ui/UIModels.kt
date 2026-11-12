@@ -10,7 +10,7 @@ data class HostUiModel(
     val address: String,
     val addresses: List<String> = emptyList(),
     val port: Int = 22,
-    val username: String = "",
+    val user: String = "",
     val sessionName: String?,
     val connection: ConnectionBadge,
     val workingAgents: Int = 0,

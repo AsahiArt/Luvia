@@ -525,7 +525,7 @@ struct ContentView: View {
 private struct SettingsForm: View {
     @Bindable var model: AppModel
     var onUnpair: () -> Void
-    @State private var alias = ""
+    @State private var name = ""
     @State private var addresses = ""
     @State private var port = ""
     @State private var user = ""
@@ -534,23 +534,23 @@ private struct SettingsForm: View {
         Form {
             if let host = model.selectedHost {
                 Section(connectionLabel(host.connection)) {
-                    TextField("名称", text: $alias)
+                    TextField("名称", text: $name)
                     TextField("地址", text: $addresses, axis: .vertical)
                     TextField("SSH 端口", text: $port)
                     TextField("用户", text: $user)
                     Button("保存连接") {
                         let id = host.id
-                        let alias = alias
+                        let name = name
                         let addresses = addresses
                         let port = port
                         let user = user
                         _Concurrency.Task {
                             _ = await model.updateConnection(
                                 hostID: id,
-                                alias: alias,
+                                name: name,
                                 hosts: addresses,
                                 port: port,
-                                username: user
+                                user: user
                             )
                         }
                     }
@@ -575,9 +575,9 @@ private struct SettingsForm: View {
 
     private func load() {
         guard let host = model.selectedHost else { return }
-        alias = host.name
+        name = host.name
         addresses = host.addresses.joined(separator: "\n")
         port = String(host.port)
-        user = host.username
+        user = host.user
     }
 }

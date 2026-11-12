@@ -18,9 +18,9 @@ class HostStoreTest {
         store.upsert(
             HostProfile(
                 id = "host-1",
-                alias = "studio",
-                username = "misaka",
-                hostKeyFingerprints = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+                name = "studio",
+                user = "misaka",
+                hostKeys = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
                 role = HostRole.Observer,
                 lastStatus = HostStatus.Reachable,
                 lastUpdatedEpochMs = 100,
@@ -41,10 +41,10 @@ class HostStoreTest {
         store.setLastConnectedAddress("host-1", "10.0.0.2")
         store.updateStatus("host-1", HostStatus.Stale, 200)
         val loaded = store.current().hosts.single()
-        assertEquals("studio", loaded.alias)
+        assertEquals("studio", loaded.name)
         assertEquals(listOf("studio.tailnet", "10.0.0.2"), loaded.hints)
-        assertEquals("misaka", loaded.username)
-        assertEquals(listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"), loaded.hostKeyFingerprints)
+        assertEquals("misaka", loaded.user)
+        assertEquals(listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"), loaded.hostKeys)
         assertEquals(HostRole.Observer, loaded.role)
         assertEquals(HostStatus.Stale, loaded.lastStatus)
         assertEquals(200, loaded.lastUpdatedEpochMs)
@@ -57,7 +57,10 @@ class HostStoreTest {
         assertFalse(bytes.contains("prompt"))
         assertTrue(bytes.contains("studio"))
         assertTrue(bytes.contains("\"hints\""))
-        assertTrue(bytes.contains("\"hostKeyFingerprints\""))
+        assertTrue(bytes.contains("\"hostKeys\""))
+        assertFalse(bytes.contains("\"hostKeyFingerprints\""))
+        assertFalse(bytes.contains("\"alias\""))
+        assertFalse(bytes.contains("\"username\""))
         store.remove("host-1")
         assertTrue(store.current().hosts.isEmpty())
     }
@@ -70,9 +73,9 @@ class HostStoreTest {
         store.upsert(
             HostProfile(
                 id = "host-1",
-                alias = "Yui.local",
-                username = "misaka",
-                hostKeyFingerprints = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+                name = "Yui.local",
+                user = "misaka",
+                hostKeys = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
                 role = HostRole.Controller,
                 lastStatus = HostStatus.Unknown,
                 lastUpdatedEpochMs = 1,

@@ -474,8 +474,8 @@ fun ChatFirstApp(
             hasPushDistributor = hasPushDistributor,
             onSetPushEnabled = onSetPushEnabled,
             onDismiss = { showSettings = false },
-            onSave = { alias, addresses, port, user ->
-                viewModel.updateConnection(selected.id, alias, addresses, port, user)
+            onSave = { name, addresses, port, user ->
+                viewModel.updateConnection(selected.id, name, addresses, port, user)
             },
             onConnect = { viewModel.connect(selected.id) },
             onDisconnect = { viewModel.disconnect(selected.id) },
@@ -516,10 +516,10 @@ private fun HostSettingsSheet(
     onRefresh: () -> Unit,
     onUnpair: () -> Unit,
 ) {
-    var alias by rememberSaveable(host.id) { mutableStateOf(host.name) }
+    var name by rememberSaveable(host.id) { mutableStateOf(host.name) }
     var addresses by rememberSaveable(host.id) { mutableStateOf(host.addresses.joinToString("\n")) }
     var port by rememberSaveable(host.id) { mutableStateOf(host.port.toString()) }
-    var user by rememberSaveable(host.id) { mutableStateOf(host.username) }
+    var user by rememberSaveable(host.id) { mutableStateOf(host.user) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
@@ -527,13 +527,13 @@ private fun HostSettingsSheet(
             Text(host.connection.chromeLabel(), color = MaterialTheme.colorScheme.onSurfaceVariant)
             host.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Spacer(Modifier.height(12.dp))
-            OutlinedTextField(alias, { alias = it }, label = { Text(stringResource(R.string.name)) }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.name)) }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(addresses, { addresses = it }, label = { Text(stringResource(R.string.addresses)) }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(port, { port = it }, label = { Text(stringResource(R.string.ssh_port)) }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(user, { user = it }, label = { Text(stringResource(R.string.user)) }, modifier = Modifier.fillMaxWidth())
             Button(
                 onClick = {
-                    onSave(alias, addresses, port, user)
+                    onSave(name, addresses, port, user)
                     onDismiss()
                 },
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
