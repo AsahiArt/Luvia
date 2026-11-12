@@ -1016,7 +1016,10 @@ mod tests {
     }
 
     fn grant() -> Grant {
-        grant_with("ab".repeat(16).as_str(), "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw")
+        grant_with(
+            "ab".repeat(16).as_str(),
+            "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+        )
     }
 
     fn facts() -> HostFacts {
@@ -1143,7 +1146,13 @@ mod tests {
             RedeemError::DkMismatch
         );
         assert!(table
-            .redeem(&minted.code, "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw", lan(), now, &policy)
+            .redeem(
+                &minted.code,
+                "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                lan(),
+                now,
+                &policy
+            )
             .is_ok());
 
         let (mut table, minted) = table_with(now);
@@ -1163,7 +1172,13 @@ mod tests {
         );
         assert_eq!(
             table
-                .redeem(&minted.code, "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw", lan(), now, &policy)
+                .redeem(
+                    &minted.code,
+                    "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                    lan(),
+                    now,
+                    &policy
+                )
                 .unwrap_err(),
             RedeemError::InvalidCode
         );
@@ -1178,20 +1193,38 @@ mod tests {
         for _ in 0..4 {
             assert_eq!(
                 table
-                    .redeem(&wrong, "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw", lan(), now, &policy)
+                    .redeem(
+                        &wrong,
+                        "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                        lan(),
+                        now,
+                        &policy
+                    )
                     .unwrap_err(),
                 RedeemError::InvalidCode
             );
         }
         assert_eq!(
             table
-                .redeem(&wrong, "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw", lan(), now, &policy)
+                .redeem(
+                    &wrong,
+                    "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                    lan(),
+                    now,
+                    &policy
+                )
                 .unwrap_err(),
             RedeemError::Exhausted
         );
         assert_eq!(
             table
-                .redeem(&minted.code, "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw", lan(), now, &policy)
+                .redeem(
+                    &minted.code,
+                    "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                    lan(),
+                    now,
+                    &policy
+                )
                 .unwrap_err(),
             RedeemError::InvalidCode
         );
@@ -1272,13 +1305,25 @@ mod tests {
         assert_ne!(first.code, second.code);
         assert_eq!(
             table
-                .redeem(&first.code, "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw", lan(), now, &policy)
+                .redeem(
+                    &first.code,
+                    "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                    lan(),
+                    now,
+                    &policy
+                )
                 .unwrap_err(),
             RedeemError::InvalidCode
         );
         assert_eq!(
             table
-                .redeem(&second.code, "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw", lan(), now, &policy)
+                .redeem(
+                    &second.code,
+                    "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                    lan(),
+                    now,
+                    &policy
+                )
                 .unwrap(),
             second.pairing_code
         );
@@ -1293,13 +1338,25 @@ mod tests {
         for _ in 0..10 {
             assert_eq!(
                 table
-                    .redeem(&minted.code, "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw", public_ip, now, &policy)
+                    .redeem(
+                        &minted.code,
+                        "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                        public_ip,
+                        now,
+                        &policy
+                    )
                     .unwrap_err(),
                 RedeemError::PeerNotAllowed
             );
         }
         assert!(table
-            .redeem(&minted.code, "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw", lan(), now, &policy)
+            .redeem(
+                &minted.code,
+                "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                lan(),
+                now,
+                &policy
+            )
             .is_ok());
     }
 
@@ -1532,7 +1589,10 @@ mod tests {
             .find(|addr| addr.is_ipv4())
             .map(|addr| addr.port())
             .unwrap();
-        let body = format!(r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#, minted.code);
+        let body = format!(
+            r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#,
+            minted.code
+        );
         let started = std::time::Instant::now();
         let (status, text) = post(port, &body);
         let elapsed = started.elapsed();
@@ -1563,7 +1623,10 @@ mod tests {
         )
         .unwrap();
         let port = server.bound[0].port();
-        let body = format!(r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#, minted.code);
+        let body = format!(
+            r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#,
+            minted.code
+        );
         let (status, text) = post(port, &body);
         assert_eq!(status, 200, "{text}");
         let value: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -1584,7 +1647,10 @@ mod tests {
             .unwrap()
             .mint(&grant(), &facts(), Duration::from_secs(90), unix_ms())
             .unwrap();
-        let body = format!(r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#, minted.code);
+        let body = format!(
+            r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#,
+            minted.code
+        );
         let closed = serve_explicit(
             table.clone(),
             "127.0.0.1:0".parse().unwrap(),
@@ -1640,7 +1706,10 @@ mod tests {
         let server = serve_explicit(expired, "127.0.0.1:0".parse().unwrap(), true, &[]).unwrap();
         let (status, text) = post(
             server.bound[0].port(),
-            &format!(r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#, minted.code),
+            &format!(
+                r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#,
+                minted.code
+            ),
         );
         assert_eq!(status, 410, "{text}");
         assert!(text.contains("expired"));
@@ -1662,7 +1731,9 @@ mod tests {
         for _ in 0..5 {
             let (status, text) = post(
                 port,
-                &format!(r#"{{"code":"{wrong}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#),
+                &format!(
+                    r#"{{"code":"{wrong}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#
+                ),
             );
             assert!(status == 404 || status == 410, "{status} {text}");
             if text.contains("exhausted") {
@@ -1672,7 +1743,10 @@ mod tests {
         assert!(saw_exhausted);
         let (status, text) = post(
             port,
-            &format!(r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#, minted.code),
+            &format!(
+                r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#,
+                minted.code
+            ),
         );
         assert_ne!(status, 200, "{text}");
         assert!(!text.contains("luvia1"));

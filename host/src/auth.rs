@@ -579,7 +579,7 @@ mod tests {
             let err = auth_message(host_id, &nonce, device_id).unwrap_err();
             assert_eq!(err.code, "invalid_id");
         }
-        assert!(auth_message(&"y".repeat(1), &nonce, &"z".repeat(64)).is_ok());
-        assert!(auth_message(&"y".repeat(64), &nonce, &"z".repeat(1)).is_ok());
+        assert!(auth_message("y", &nonce, &"z".repeat(64)).is_ok());
+        assert!(auth_message(&"y".repeat(64), &nonce, "z").is_ok());
     }
 }
