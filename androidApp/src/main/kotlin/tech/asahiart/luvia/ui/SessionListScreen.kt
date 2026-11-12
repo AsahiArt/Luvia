@@ -1,6 +1,12 @@
 package tech.asahiart.luvia.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -65,6 +71,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
@@ -91,6 +99,7 @@ import tech.asahiart.luvia.thread.AGENT_BRAND_ASSET_PI
 import tech.asahiart.luvia.thread.agentBrandLogo
 import tech.asahiart.luvia.thread.agentColorSlot
 import tech.asahiart.luvia.thread.agentMark
+import tech.asahiart.luvia.thread.decisionQuestionText
 import tech.asahiart.luvia.thread.recommendedOption
 import tech.asahiart.luvia.thread.searchSessions
 import tech.asahiart.luvia.thread.sessionAgeLabel
@@ -165,9 +174,6 @@ fun SessionListScreen(
                 },
                 actions = {
                     if (tab == HomeTab.Sessions) {
-                        if (selected != null && selected.connection != ConnectionBadge.Live && !selected.pairingRevoked) {
-                            TextButton(onClick = onRetry) { Text(stringResource(R.string.retry)) }
-                        }
                         IconButton(onClick = { searching = !searching }) {
                             Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.search))
                         }
@@ -227,6 +233,8 @@ fun SessionListScreen(
                 onFilter = onFilter,
                 onOpenThread = onOpenThread,
                 onAnswer = onAnswer,
+                onRetry = onRetry,
+                onPair = onPair,
             )
             HomeTab.Machines -> MachinesBody(
                 padding = padding,
@@ -278,7 +286,15 @@ private fun HostChip(
         DropdownMenu(expanded = menu, onDismissRequest = { onMenu(false) }) {
             hosts.forEach { host ->
                 DropdownMenuItem(
-                    text = { Text(host.name) },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(host.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            host.route?.let { route ->
+                                Spacer(Modifier.width(8.dp))
+                                RouteChip(route)
+                            }
+                        }
+                    },
                     onClick = {
                         onMenu(false)
                         onSelectHost(host.id)
@@ -323,9 +339,12 @@ private fun SessionsBody(
     onFilter: (SessionFilter) -> Unit,
     onOpenThread: (AgentThread) -> Unit,
     onAnswer: (AgentThread, AskOption) -> Unit,
+    onRetry: () -> Unit,
+    onPair: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(padding)) {
         StatsRow(roster, latencyMs)
+        HostStateBanner(selected, onRetry, onPair)
         if (searching) {
             OutlinedTextField(
                 value = query,
@@ -342,6 +361,13 @@ private fun SessionsBody(
         }
         val showCards = pending.isNotEmpty() && filter != SessionFilter.Idle && filter != SessionFilter.Running
         if (showCards) {
+            val cardsLocked = selected != null &&
+                (selected.pairingRevoked || selected.connection != ConnectionBadge.Live)
+            val lockedLabel = when {
+                selected?.pairingRevoked == true -> stringResource(R.string.decision_locked_revoked)
+                cardsLocked -> stringResource(R.string.decision_locked_offline)
+                else -> null
+            }
             Text(
                 stringResource(R.string.needs_you_section, pending.size),
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -353,13 +379,26 @@ private fun SessionsBody(
                 state = pagerState,
                 contentPadding = PaddingValues(start = 16.dp, end = 72.dp),
                 pageSpacing = 12.dp,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                userScrollEnabled = !cardsLocked,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .alpha(if (cardsLocked) 0.38f else 1f)
+                    .then(
+                        if (lockedLabel == null) {
+                            Modifier
+                        } else {
+                            Modifier.semantics(mergeDescendants = true) {
+                                contentDescription = lockedLabel
+                            }
+                        },
+                    ),
             ) { page ->
                 val thread = pending[page]
                 DecisionPreview(
                     thread = thread,
                     age = sessionAgeLabel(thread.updatedEpochMs, nowEpochMs),
-                    enabled = selected?.isObserver != true,
+                    enabled = !cardsLocked && selected?.isObserver != true,
                     onAnswer = { option -> onAnswer(thread, option) },
                     onOpen = { onOpenThread(thread) },
                 )
@@ -488,11 +527,17 @@ private fun MachinesBody(
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(host.name, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        host.connectionCopy(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            host.connectionCopy(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        host.route?.let { route ->
+                            Spacer(Modifier.width(6.dp))
+                            RouteChip(route)
+                        }
+                    }
                 }
                 if (host.id == selected?.id) {
                     Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -512,6 +557,31 @@ private fun MachinesBody(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HostStateBanner(
+    selected: HostUiModel?,
+    onRetry: () -> Unit,
+    onPair: () -> Unit,
+) {
+    val revoked = selected?.pairingRevoked == true
+    val away = selected != null && !revoked && selected.connection != ConnectionBadge.Live
+    val motionEnter = fadeIn(tween(300)) + expandVertically(tween(300))
+    val motionExit = fadeOut(tween(300)) + shrinkVertically(tween(300))
+    AnimatedVisibility(visible = revoked, enter = motionEnter, exit = motionExit) {
+        PairingRevokedBanner(
+            onPairAgain = onPair,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+    }
+    AnimatedVisibility(visible = away, enter = motionEnter, exit = motionExit) {
+        OfflineCacheBanner(
+            retrying = selected?.connection == ConnectionBadge.Connecting,
+            onRetry = onRetry,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        )
     }
 }
 
@@ -775,6 +845,7 @@ private fun DecisionPreview(
     val secondary = ask.options.firstOrNull { it != primary }
     Surface(
         onClick = onOpen,
+        enabled = enabled,
         shape = RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.tertiaryContainer,
     ) {
@@ -791,14 +862,16 @@ private fun DecisionPreview(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Text(
-                ask.question ?: thread.title,
-                modifier = Modifier.padding(top = 12.dp),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onTertiaryContainer,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
+            decisionQuestionText(thread)?.let { question ->
+                Text(
+                    question,
+                    modifier = Modifier.padding(top = 12.dp),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (primary != null || secondary != null) {
                 Row(
                     Modifier.fillMaxWidth().padding(top = 12.dp),

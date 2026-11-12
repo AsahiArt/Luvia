@@ -546,12 +546,15 @@ internal fun HostRuntime.toUi(): HostUiModel {
     return HostUiModel(
         id = profile.hostId,
         name = profile.name,
-        address = profile.lastGood ?: profile.hints.firstOrNull().orEmpty(),
+        address = (link as? HostLink.Online)?.address
+            ?: profile.lastGood
+            ?: profile.hints.firstOrNull().orEmpty(),
         addresses = profile.hints,
         port = profile.port,
         user = profile.user,
         sessionName = sessionName,
         connection = badge,
+        route = connectionRoute,
         workingAgents = agents.count { it.status == AgentStatus.Working },
         blockedAgents = agents.count { it.status == AgentStatus.Blocked },
         completedAgents = agents.count { it.status == AgentStatus.Done },

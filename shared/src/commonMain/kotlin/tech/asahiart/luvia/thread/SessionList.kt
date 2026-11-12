@@ -19,6 +19,17 @@ public enum class SessionFilter {
     Idle,
 }
 
+/**
+ * Question on a decision card. The cached ask only: never the session name,
+ * and never a generic stand-in. Null when the cache has no question, including
+ * while the host is offline or the pairing is invalid.
+ */
+public fun decisionQuestionText(thread: AgentThread): String? =
+    thread.ask?.question?.trim()?.takeIf { it.isNotEmpty() }
+
+public fun decisionQuestionText(question: String?): String? =
+    question?.trim()?.takeIf { it.isNotEmpty() }
+
 public fun filterSessions(threads: List<AgentThread>, filter: SessionFilter): List<AgentThread> =
     when (filter) {
         SessionFilter.All -> threads

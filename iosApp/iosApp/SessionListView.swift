@@ -61,6 +61,7 @@ struct SessionListView: View {
             if showsChrome {
                 header(host)
                 titleRow
+                sessionBanner(host)
                 if searching {
                     TextField("搜索会话", text: $query)
                         .textFieldStyle(.roundedBorder)
@@ -150,9 +151,16 @@ struct SessionListView: View {
                                     .frame(width: 10, height: 10)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(host.name).font(.headline)
-                                    Text(hostStatusLine(host))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                        Text(hostStatusLine(host))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        if let route = host.route {
+                                            RouteChip(route: route)
+                                                .transition(.opacity)
+                                        }
+                                    }
+                                    .animation(.easeInOut(duration: 0.2), value: host.route)
                                 }
                                 Spacer()
                                 if host.id == model.selectedHostID {
@@ -219,7 +227,18 @@ struct SessionListView: View {
         HStack(spacing: 8) {
             Menu {
                 ForEach(model.hosts) { item in
-                    Button(item.name) { model.select(item) }
+                    Button {
+                        model.select(item)
+                    } label: {
+                        Text(item.name)
+                        if item.route == .tailnet {
+                            Label("在线 · Tailnet", systemImage: "network")
+                        } else if item.route == .lan {
+                            Text("在线 · 局域网")
+                        } else if item.connection != .live && item.connection != .connecting {
+                            Text("离线")
+                        }
+                    }
                 }
                 Button("配对电脑", action: onPair)
                 if host != nil {
@@ -242,16 +261,6 @@ struct SessionListView: View {
             }
             .tint(.primary)
             Spacer()
-            if let host, host.pairingRevoked {
-                Text(host.failureMessage ?? FailureMessagesKt.PROVE_REJECTED_ZH)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            } else if let host, host.connection != .live {
-                Button("重试") { model.connect(host.id) }
-                    .buttonStyle(.bordered)
-                    .tint(.blue)
-            }
             Button(action: onNewSession) {
                 Image(systemName: "plus")
                     .font(.body.weight(.semibold))
@@ -278,6 +287,42 @@ struct SessionListView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 4)
+    }
+
+    private var decisionsLocked: Bool {
+        guard let host = model.selectedHost else { return false }
+        return host.pairingRevoked || host.connection != .live
+    }
+
+    private var decisionLockLabel: String {
+        if model.selectedHost?.pairingRevoked == true {
+            return "配对已失效，重新配对后才能作答"
+        }
+        return "离线，连上后才能作答"
+    }
+
+    private func sessionBanner(_ host: HostViewState?) -> some View {
+        let phase = sessionBannerPhase(host)
+        return VStack(spacing: 0) {
+            if phase == "revoked" {
+                PairingRevokedBanner(onPair: onPair)
+                    .transition(.opacity)
+            } else if phase == "offline" || phase == "retrying", let host {
+                OfflineCacheBanner(retrying: phase == "retrying") {
+                    model.connect(host.id)
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: phase)
+    }
+
+    private func sessionBannerPhase(_ host: HostViewState?) -> String {
+        guard let host else { return "none" }
+        if host.pairingRevoked { return "revoked" }
+        if host.connection == .connecting { return "retrying" }
+        if host.connection != .live { return "offline" }
+        return "live"
     }
 
     private var agentCount: Int { kotlinInt(roster.agents) ?? 0 }
@@ -536,6 +581,7 @@ struct SessionListView: View {
         }
         .padding(.bottom, visiblePending.count > 1 ? 24 : 8)
         .padding(.top, 8)
+        .modifier(DecisionLock(locked: decisionsLocked, label: decisionLockLabel))
     }
 
     private func stackRim(inset: CGFloat, opacity: Double) -> some View {
@@ -579,12 +625,14 @@ struct SessionListView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Text(ask?.question ?? thread.title)
-                .font(.system(size: 18, weight: .semibold))
-                .lineLimit(3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture { onOpen(thread) }
+            if let question = SessionListKt.decisionQuestionText(thread: thread) {
+                Text(question)
+                    .font(.system(size: 18, weight: .semibold))
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onOpen(thread) }
+            }
             HStack(spacing: 8) {
                 if let primary {
                     Button(primary.label) { onAnswer(thread, primary) }
@@ -827,6 +875,110 @@ func sessionLabel(_ status: AgentStatus) -> String {
     case .blocked: "等你决定"
     case .done: "已完成"
     default: "未知"
+    }
+}
+
+struct RouteChip: View {
+    var route: HostRoute
+
+    var body: some View {
+        let tailnet = route == .tailnet
+        HStack(spacing: tailnet ? 3 : 0) {
+            if tailnet {
+                Image(systemName: "network")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            Text(tailnet ? "Tailnet" : "局域网")
+                .font(.caption2.weight(.semibold))
+                .contentTransition(.opacity)
+        }
+        .foregroundStyle(tailnet ? Color.accentColor : Color.secondary)
+        .padding(.horizontal, 7)
+        .frame(height: 20)
+        .background(
+            (tailnet ? Color.accentColor : Color.secondary).opacity(tailnet ? 0.14 : 0.12),
+            in: Capsule()
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(tailnet ? "经 Tailnet 连接" : "经局域网连接")
+        .animation(.easeInOut(duration: 0.2), value: route)
+    }
+}
+
+struct PairingRevokedBanner: View {
+    var onPair: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(FailureMessagesKt.PROVE_REJECTED_ZH)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: onPair) {
+                Text("重新配对")
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .tint(.blue)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(16)
+        .background(Color(.systemRed).opacity(0.15), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+    }
+}
+
+struct OfflineCacheBanner: View {
+    var retrying: Bool
+    var onRetry: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "wifi.slash")
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+            Text("离线，显示的是缓存")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                if !retrying { onRetry() }
+            } label: {
+                if retrying {
+                    ProgressView()
+                } else {
+                    Text("重试")
+                }
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(16)
+        .background(
+            Color(.secondarySystemGroupedBackground),
+            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+        )
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+    }
+}
+
+private struct DecisionLock: ViewModifier {
+    var locked: Bool
+    var label: String
+
+    func body(content: Content) -> some View {
+        if locked {
+            content
+                .opacity(0.38)
+                .allowsHitTesting(false)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(label)
+        } else {
+            content
+        }
     }
 }
 

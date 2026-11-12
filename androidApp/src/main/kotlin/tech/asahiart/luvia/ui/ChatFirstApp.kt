@@ -541,6 +541,19 @@ private fun HostSettingsSheet(
             }
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.name)) }, modifier = Modifier.fillMaxWidth())
+            host.route?.let { route ->
+                androidx.compose.foundation.layout.Row(
+                    Modifier.fillMaxWidth().padding(top = 12.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                ) {
+                    Text(
+                        host.address,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    RouteChip(route)
+                }
+            }
             OutlinedTextField(addresses, { addresses = it }, label = { Text(stringResource(R.string.addresses)) }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(port, { port = it }, label = { Text(stringResource(R.string.ssh_port)) }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(user, { user = it }, label = { Text(stringResource(R.string.user)) }, modifier = Modifier.fillMaxWidth())
