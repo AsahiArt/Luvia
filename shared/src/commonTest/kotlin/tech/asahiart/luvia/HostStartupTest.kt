@@ -52,17 +52,70 @@ class HostStartupTest {
 
     @Test
     fun savedSelectionOfADifferentComputerIsKept() {
-        val yui = profile(id = "yui-local", name = "Yui.local", status = HostStatus.Reachable, updated = 500)
-        val nas = profile(id = "nas", name = "nas", status = HostStatus.Stale, updated = 100, lastConnected = "nas.local")
+        val yui =
+            profile(
+                id = "yui-local",
+                name = "Yui.local",
+                status = HostStatus.Reachable,
+                updated = 500,
+                hostId = "ab".repeat(16),
+            )
+        val nas =
+            profile(
+                id = "nas",
+                name = "nas",
+                status = HostStatus.Stale,
+                updated = 100,
+                lastConnected = "nas.local",
+                hostId = "cd".repeat(16),
+            )
         assertEquals("nas", resolveStartupHost(listOf(yui, nas), "nas")?.id)
     }
 
     @Test
     fun savedSelectionOfASimilarNameYieldsLastGoodHost() {
-        val stale = profile(id = "yui-old", name = "Yui", status = HostStatus.Stale, updated = 9_000, lastConnected = "yui.local")
-        val lastGood = profile(id = "yui-local", name = "Yui.local", status = HostStatus.Reachable, updated = 1_000)
+        val stale =
+            profile(
+                id = "yui-old",
+                name = "Yui",
+                status = HostStatus.Stale,
+                updated = 9_000,
+                lastConnected = "yui.local",
+                hostId = "ab".repeat(16),
+            )
+        val lastGood =
+            profile(
+                id = "yui-local",
+                name = "Yui.local",
+                status = HostStatus.Reachable,
+                updated = 1_000,
+                hostId = "cd".repeat(16),
+            )
         assertEquals("yui-local", resolveStartupHost(listOf(stale, lastGood), "yui-old")?.id)
         assertEquals(lastGood.id, resolveStartupHost(listOf(stale, lastGood), null)?.id)
+    }
+
+    @Test
+    fun savedSelectionOfTheSameComputerIsThatRecord() {
+        val saved =
+            profile(
+                id = "yui-old",
+                name = "Yui",
+                status = HostStatus.Stale,
+                updated = 9_000,
+                lastConnected = "yui.local",
+                hostId = "ab".repeat(16),
+            )
+        val preferred =
+            profile(
+                id = "yui-local",
+                name = "Yui.local",
+                status = HostStatus.Reachable,
+                updated = 1_000,
+                hostId = "ab".repeat(16),
+            )
+        assertEquals("yui-old", resolveStartupHost(listOf(saved, preferred), "yui-old")?.id)
+        assertEquals("yui-old", resolveStartupHost(listOf(preferred, saved), "yui-old")?.id)
     }
 
     @Test
@@ -139,10 +192,11 @@ private fun profile(
     status: HostStatus,
     updated: Long,
     lastConnected: String? = "Yui.local",
+    hostId: String = "ab".repeat(16),
 ): HostProfile =
     HostProfile(
         id = id,
-        hostId = "ab".repeat(16),
+        hostId = hostId,
         name = name,
         user = "misaka",
         hostKeys = setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),

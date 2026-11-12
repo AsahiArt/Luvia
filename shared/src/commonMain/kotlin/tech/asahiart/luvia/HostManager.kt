@@ -211,16 +211,6 @@ public class HostManager internal constructor(
                 if (previous != null && previous.id != profile.id) {
                     vault.delete(previous.id)
                 }
-                if (previous != null) {
-                    val saved = store.current().hosts.firstOrNull { it.hostId == profile.hostId }
-                    if (saved != null) {
-                        store.upsert(saved.copy(lastGood = null))
-                        mutex.withLock {
-                            catalogHosts = store.current().hosts
-                            publishLocked(catalogHosts)
-                        }
-                    }
-                }
                 return ok(profile)
             }
             is Outcome.Err -> {

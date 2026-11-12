@@ -44,7 +44,7 @@ public fun resolveStartupHost(profiles: List<HostProfile>, selectedId: String?):
         profiles.firstOrNull { it.id == selectedId }
             ?: profiles.firstOrNull { it.hostId == selectedId }
             ?: return preferred
-    if (selected.id == preferred.id) return selected
+    if (selected.hostId == preferred.hostId) return selected
     val stem = nameStem(selected.name)
     if (stem.isNotEmpty() && stem == nameStem(preferred.name)) {
         return preferred

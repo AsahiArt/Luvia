@@ -5,7 +5,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -418,7 +417,7 @@ class HostManagerTest {
         assertEquals(newDevice, replaced.id)
         assertEquals("Yui", replaced.name)
         assertEquals(setOf(NEW_HOST_KEY), replaced.hostKeys)
-        assertNull(replaced.lastGood)
+        assertEquals("10.0.0.8", replaced.lastGood)
         assertFalse(vault.deviceIds().contains(oldDevice))
         assertTrue(vault.deviceIds().contains(newDevice))
         assertEquals(1, oldAttempts)
