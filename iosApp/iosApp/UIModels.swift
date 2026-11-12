@@ -431,6 +431,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
     var lastUpdated: Date?
     var isController: Bool
     var failureMessage: String?
+    var pairingRevoked: Bool
     var agents: [AgentViewState]
     var tasks: [TaskViewState]
     var terminalLocator: TerminalLocator?
@@ -455,6 +456,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         lastUpdated: Date? = nil,
         isController: Bool = false,
         failureMessage: String? = nil,
+        pairingRevoked: Bool = false,
         agents: [AgentViewState] = [],
         tasks: [TaskViewState] = [],
         terminalLocator: TerminalLocator? = nil,
@@ -478,6 +480,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         self.lastUpdated = lastUpdated
         self.isController = isController
         self.failureMessage = failureMessage
+        self.pairingRevoked = pairingRevoked
         self.agents = agents
         self.tasks = tasks
         self.terminalLocator = terminalLocator
@@ -567,6 +570,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
                 : nil,
             isController: profile.role == HostRole.controller,
             failureMessage: link.failure,
+            pairingRevoked: link.pairingRevoked,
             agents: agents,
             tasks: tasks,
             terminalLocator: locator,
@@ -594,6 +598,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         var address: String
         var sessionName: String?
         var failure: String?
+        var pairingRevoked: Bool
     }
 
     private static func linkPresentation(_ runtime: HostRuntime) -> LinkPresentation {
@@ -607,14 +612,16 @@ struct HostViewState: Identifiable, Hashable, Sendable {
                 badge: runtime.freshness == ConnectionFreshness.stale ? .stale : .offline,
                 address: fallbackAddress,
                 sessionName: runtime.snapshot?.sessionName ?? profile.topology?.sessionName,
-                failure: nil
+                failure: nil,
+                pairingRevoked: false
             )
         case .connecting(_):
             return LinkPresentation(
                 badge: .connecting,
                 address: fallbackAddress,
                 sessionName: runtime.snapshot?.sessionName ?? profile.topology?.sessionName,
-                failure: nil
+                failure: nil,
+                pairingRevoked: false
             )
         case .online(let online):
             let badge: HostConnectionBadge = runtime.freshness == ConnectionFreshness.stale ? .stale : .live
@@ -622,14 +629,22 @@ struct HostViewState: Identifiable, Hashable, Sendable {
                 badge: badge,
                 address: online.address,
                 sessionName: online.sessionName,
-                failure: nil
+                failure: nil,
+                pairingRevoked: false
             )
         case .failed(let failed):
+            let revoked: Bool
+            if case .proveRejected(_) = onEnum(of: failed.failure) {
+                revoked = true
+            } else {
+                revoked = false
+            }
             return LinkPresentation(
                 badge: .offline,
                 address: fallbackAddress,
                 sessionName: runtime.snapshot?.sessionName ?? profile.topology?.sessionName,
-                failure: FailureText.connectActionable(failed.failure)
+                failure: FailureText.connectActionable(failed.failure),
+                pairingRevoked: revoked
             )
         }
     }
@@ -757,8 +772,10 @@ enum FailureText {
             return "\u{4e3b}\u{673a}\u{5bc6}\u{94a5}\u{53d8}\u{4e86}\u{3002}\u{8bf7}\u{91cd}\u{65b0}\u{914d}\u{5bf9}\u{3002}"
         case .closedBeforeBanner(_):
             return "主机拒绝了连接"
-        case .proveRejected(let value):
-            return value.message
+        case .handshakeFailed(_):
+            return FailureMessagesKt.HANDSHAKE_FAILED_ZH
+        case .proveRejected(_):
+            return FailureMessagesKt.PROVE_REJECTED_ZH
         case .closed(_):
             return "连接已断开"
         case .revisionConflict(let value):
@@ -832,6 +849,16 @@ enum FailureText {
     }
 
     static func connectActionable(_ failure: Failure) -> String {
+        switch onEnum(of: failure) {
+        case .proveRejected(_):
+            return FailureMessagesKt.PROVE_REJECTED_ZH
+        case .handshakeFailed(_):
+            return FailureMessagesKt.HANDSHAKE_FAILED_ZH
+        case .closedBeforeBanner(_):
+            return "主机拒绝了连接"
+        default:
+            break
+        }
         let raw: String
         switch onEnum(of: failure) {
         case .protocolError(let value):

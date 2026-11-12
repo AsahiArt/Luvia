@@ -309,6 +309,7 @@ fun ChatFirstApp(
                         sending = state?.agentDetail?.sending == true,
                         isObserver = selected?.isObserver == true,
                         connection = selected?.connection,
+                        pairingRevoked = selected?.pairingRevoked == true,
                         onRetry = { selected?.id?.let(viewModel::connect) },
                     )
                 }
@@ -524,8 +525,10 @@ private fun HostSettingsSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
             Text(host.name, style = MaterialTheme.typography.headlineSmall)
-            Text(host.connection.chromeLabel(), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            host.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            Text(host.connectionCopy(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!host.pairingRevoked) {
+                host.errorMessage?.let { Text(localizeUiMessage(it), color = MaterialTheme.colorScheme.error) }
+            }
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.name)) }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(addresses, { addresses = it }, label = { Text(stringResource(R.string.addresses)) }, modifier = Modifier.fillMaxWidth())
@@ -540,7 +543,9 @@ private fun HostSettingsSheet(
                 shape = RoundedCornerShape(20.dp),
             ) { Text(stringResource(R.string.save_connection)) }
             TextButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.refresh)) }
-            TextButton(onClick = onConnect, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.connect)) }
+            if (!host.pairingRevoked) {
+                TextButton(onClick = onConnect, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.connect)) }
+            }
             TextButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.disconnect)) }
             if (hasPushDistributor) {
                 androidx.compose.foundation.layout.Row(

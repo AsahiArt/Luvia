@@ -37,7 +37,7 @@ struct ChatView: View {
                     headerSubtitle.font(.caption).lineLimit(1)
                 }
                 Spacer()
-                if hostOffline, let host = model.selectedHost {
+                if hostOffline, let host = model.selectedHost, !host.pairingRevoked {
                     Button("重试") { model.connect(host.id) }
                         .buttonStyle(.bordered)
                         .tint(.blue)
@@ -53,7 +53,13 @@ struct ChatView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            if hostOffline, let host = model.selectedHost {
+            if let host = model.selectedHost, host.pairingRevoked {
+                Text(host.failureMessage ?? FailureMessagesKt.PROVE_REJECTED_ZH)
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+            } else if hostOffline, let host = model.selectedHost {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(connectionLabel(host.connection)).font(.headline)
                     Text("缓存").font(.caption).foregroundStyle(.secondary)
@@ -98,6 +104,9 @@ struct ChatView: View {
     }
 
     private var headerSubtitle: Text {
+        if let host = model.selectedHost, host.pairingRevoked {
+            return Text(host.failureMessage ?? FailureMessagesKt.PROVE_REJECTED_ZH).foregroundColor(.secondary)
+        }
         if hostOffline, let host = model.selectedHost {
             return Text("\(connectionLabel(host.connection)) · 缓存").foregroundColor(.secondary)
         }

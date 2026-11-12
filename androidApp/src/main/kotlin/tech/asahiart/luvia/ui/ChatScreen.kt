@@ -112,9 +112,10 @@ fun ChatScreen(
     sending: Boolean,
     isObserver: Boolean,
     connection: ConnectionBadge? = null,
+    pairingRevoked: Boolean = false,
     onRetry: () -> Unit = {},
 ) {
-    val offline = connection != null && connection != ConnectionBadge.Live
+    val offline = !pairingRevoked && connection != null && connection != ConnectionBadge.Live
     val listState = rememberLazyListState()
     var draft by remember(thread.id) { mutableStateOf(initialDraft) }
     val visible = items.filterNot { it is TimelineItem.AskCard }
@@ -134,9 +135,11 @@ fun ChatScreen(
             }
             Column(Modifier.weight(1f)) {
                 Text(thread.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val detail = if (offline && connection != null) {
-                    connection.chromeLabel() + " · " + stringResource(R.string.cached)
-                } else {
+                val detail = when {
+                    pairingRevoked -> localizeUiMessage(tech.asahiart.luvia.PROVE_REJECTED_EN)
+                    offline && connection != null ->
+                        connection.chromeLabel() + " · " + stringResource(R.string.cached)
+                    else ->
                     listOfNotNull(thread.projectLabel, thread.status.sessionLabel()).joinToString(" · ")
                 }
                 Text(
@@ -155,7 +158,13 @@ fun ChatScreen(
                 modifier = terminalModifier.padding(end = 8.dp),
             )
         }
-        if (offline && connection != null) {
+        if (pairingRevoked) {
+            Text(
+                localizeUiMessage(tech.asahiart.luvia.PROVE_REJECTED_EN),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.titleMedium,
+            )
+        } else if (offline && connection != null) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(connection.chromeLabel(), style = MaterialTheme.typography.titleMedium)
                 Text(

@@ -19,6 +19,7 @@ data class HostUiModel(
     val activeTask: String? = null,
     val lastUpdatedEpochMs: Long = 0L,
     val errorMessage: String? = null,
+    val pairingRevoked: Boolean = false,
     val isObserver: Boolean = false,
     val connected: Boolean = false,
     val hasSnapshot: Boolean = false,

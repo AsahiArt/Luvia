@@ -558,6 +558,7 @@ internal fun HostRuntime.toUi(): HostUiModel {
         activeTask = taskList.firstOrNull { !it.status.equals("done", ignoreCase = true) }?.title,
         lastUpdatedEpochMs = profile.lastUpdatedEpochMs,
         errorMessage = (link as? HostLink.Failed)?.failure?.connectMessage(),
+        pairingRevoked = (link as? HostLink.Failed)?.failure is Failure.ProveRejected,
         isObserver = profile.role == HostRole.Observer,
         connected = connected,
         hasSnapshot = snapshot != null,

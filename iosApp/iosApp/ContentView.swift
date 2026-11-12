@@ -533,7 +533,7 @@ private struct SettingsForm: View {
     var body: some View {
         Form {
             if let host = model.selectedHost {
-                Section(connectionLabel(host.connection)) {
+                Section(host.pairingRevoked ? (host.failureMessage ?? FailureMessagesKt.PROVE_REJECTED_ZH) : connectionLabel(host.connection)) {
                     TextField("名称", text: $name)
                     TextField("地址", text: $addresses, axis: .vertical)
                     TextField("SSH 端口", text: $port)
@@ -557,7 +557,9 @@ private struct SettingsForm: View {
                 }
                 Section {
                     Button("刷新") { _Concurrency.Task { await model.refresh(host.id) } }
-                    Button("连接") { model.connect(host.id) }
+                    if !host.pairingRevoked {
+                        Button("连接") { model.connect(host.id) }
+                    }
                     Button("断开") { model.disconnect(host.id) }
                     Toggle("唤醒这台手机", isOn: Binding(
                         get: { model.isPushEnabled },

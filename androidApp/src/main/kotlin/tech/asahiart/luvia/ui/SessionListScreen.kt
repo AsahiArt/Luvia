@@ -165,7 +165,7 @@ fun SessionListScreen(
                 },
                 actions = {
                     if (tab == HomeTab.Sessions) {
-                        if (selected != null && selected.connection != ConnectionBadge.Live) {
+                        if (selected != null && selected.connection != ConnectionBadge.Live && !selected.pairingRevoked) {
                             TextButton(onClick = onRetry) { Text(stringResource(R.string.retry)) }
                         }
                         IconButton(onClick = { searching = !searching }) {
@@ -488,7 +488,11 @@ private fun MachinesBody(
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(host.name, style = MaterialTheme.typography.titleMedium)
-                    Text(host.connection.chromeLabel(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        host.connectionCopy(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 if (host.id == selected?.id) {
                     Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -529,7 +533,7 @@ private fun SettingsBody(
         Spacer(Modifier.height(16.dp))
         if (selected != null) {
             Text(selected.name, style = MaterialTheme.typography.titleLarge)
-            Text(selected.connection.chromeLabel(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(selected.connectionCopy(), color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(onClick = onOpenSettings, modifier = Modifier.padding(top = 16.dp)) {
                 Text(stringResource(R.string.computer_settings))
             }

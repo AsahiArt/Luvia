@@ -3,6 +3,10 @@ package tech.asahiart.luvia.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import tech.asahiart.luvia.AgentStatus
+import tech.asahiart.luvia.HANDSHAKE_FAILED_EN
+import tech.asahiart.luvia.HANDSHAKE_FAILED_ZH
+import tech.asahiart.luvia.PROVE_REJECTED_EN
+import tech.asahiart.luvia.PROVE_REJECTED_ZH
 import tech.asahiart.luvia.R
 import tech.asahiart.luvia.thread.PanePiece
 import tech.asahiart.luvia.thread.ToolTrailKind
@@ -37,6 +41,10 @@ internal fun localizeUiMessage(message: String): String {
         lower.contains("still handling a previous message") -> "agent 还在处理上一条消息。等它完成。"
         lower.contains("screen changed") -> "agent 的画面变了。刷新后再发按键。"
         lower.contains("host key changed") || lower.contains("host key mismatch") -> "主机密钥变了。请重新配对。"
+        message == PROVE_REJECTED_EN || lower.contains("no pairing grant") || lower.contains("no longer paired") ->
+            PROVE_REJECTED_ZH
+        message == HANDSHAKE_FAILED_EN || lower.contains("handshake with the host failed") ->
+            HANDSHAKE_FAILED_ZH
         lower.contains("host refused the connection") || lower.contains("closed before banner") ->
             "主机拒绝了连接"
         lower.contains("name lookup timed out") || lower.contains("dns timeout") ->
@@ -79,6 +87,14 @@ internal fun ConnectionBadge.label(): String =
         ConnectionBadge.Connecting -> stringResource(R.string.link_connecting)
         ConnectionBadge.Stale -> stringResource(R.string.link_stale)
         ConnectionBadge.Offline -> stringResource(R.string.link_offline)
+    }
+
+@Composable
+internal fun HostUiModel.connectionCopy(): String =
+    if (pairingRevoked) {
+        localizeUiMessage(errorMessage ?: PROVE_REJECTED_EN)
+    } else {
+        connection.chromeLabel()
     }
 
 @Composable
