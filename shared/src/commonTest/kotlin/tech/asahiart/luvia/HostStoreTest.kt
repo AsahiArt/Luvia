@@ -148,4 +148,55 @@ class HostStoreTest {
             )
         }
     }
+
+    @Test
+    fun mainEraHostsFileOpensAsEmptyCatalogAndAcceptsANewHost() = runTest {
+        val mainEra =
+            """
+            {"version":2,"updatedEpochMs":10,"hosts":[{
+              "id":"host-1",
+              "alias":"Yui",
+              "addresses":["192.168.1.8","100.89.1.2"],
+              "address":"192.168.1.8",
+              "sshPort":22,
+              "username":"misaka",
+              "hostKeyFingerprints":["SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"],
+              "hostKeySha256":"SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs",
+              "role":"Controller",
+              "lastStatus":"Reachable",
+              "lastUpdatedEpochMs":10,
+              "lastConnectedAddress":"192.168.1.8"
+            }]}
+            """.trimIndent()
+        assertFailsWith<CorruptionException> {
+            HostCatalogOkioSerializer.readFrom(Buffer().writeUtf8(mainEra))
+        }
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-host-main-${Random.nextLong()}.json"
+        FileSystem.SYSTEM.write(path) { writeUtf8(mainEra) }
+        val store = HostStore(path.toString(), backgroundScope)
+        val opened = store.current()
+        assertTrue(opened.hosts.isEmpty(), "main-era catalog must not crash or surface old hosts")
+        assertEquals(0, opened.updatedEpochMs)
+        store.upsert(
+            HostProfile(
+                id = "host-2",
+                hostId = "cd".repeat(16),
+                name = "studio",
+                user = "misaka",
+                hostKeys = setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+                bridgePath = "/usr/local/bin/luvia-host",
+                role = HostRole.Controller,
+                lastStatus = HostStatus.Unknown,
+                lastUpdatedEpochMs = 20,
+                topology = null,
+                hints = listOf("10.0.0.2"),
+                port = 22,
+            ),
+        )
+        val loaded = store.current().hosts.single()
+        assertEquals("host-2", loaded.id)
+        assertEquals("studio", loaded.name)
+        assertEquals(listOf("10.0.0.2"), loaded.hints)
+        assertEquals(22, loaded.port)
+    }
 }

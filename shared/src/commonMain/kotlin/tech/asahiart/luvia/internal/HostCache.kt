@@ -3,6 +3,7 @@ package tech.asahiart.luvia.internal
 import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.DataStoreFactory
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.core.okio.OkioSerializer
 import androidx.datastore.core.okio.OkioStorage
 import kotlinx.coroutines.CoroutineScope
@@ -132,11 +133,19 @@ internal class DataStoreHostStore(
                 serializer = HostCatalogOkioSerializer,
                 producePath = { path },
             )
+        val corruptionHandler = ReplaceFileCorruptionHandler { HostCatalogFile() }
         dataStore =
             if (scope == null) {
-                DataStoreFactory.create(storage = storage)
+                DataStoreFactory.create(
+                    storage = storage,
+                    corruptionHandler = corruptionHandler,
+                )
             } else {
-                DataStoreFactory.create(storage = storage, scope = scope)
+                DataStoreFactory.create(
+                    storage = storage,
+                    corruptionHandler = corruptionHandler,
+                    scope = scope,
+                )
             }
     }
 
