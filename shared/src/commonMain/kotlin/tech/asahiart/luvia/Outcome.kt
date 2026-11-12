@@ -36,6 +36,12 @@ public sealed class Failure {
         public val actual: String,
     ) : Failure()
 
+    /**
+     * The peer accepted TCP and closed before the SSH banner. The candidate
+     * race treats this like a timeout: that attempt fails, the others continue.
+     */
+    public class ClosedBeforeBanner : Failure()
+
     public class Closed : Failure()
 
     /**

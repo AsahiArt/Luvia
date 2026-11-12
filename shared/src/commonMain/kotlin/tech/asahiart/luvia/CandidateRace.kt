@@ -110,13 +110,17 @@ internal suspend fun <T> raceCandidates(
         val state = Mutex()
         val loserLines = ArrayList<String>()
         var lastFailure: Failure = Failure.Transport("incomplete host endpoint")
+        var refused: Failure? = null
 
         suspend fun addLoser(address: String, reason: String) {
             state.withLock { loserLines += "loser $address: $reason" }
         }
 
         suspend fun noteFailure(failure: Failure) {
-            state.withLock { lastFailure = failure }
+            state.withLock {
+                if (refused == null && failure.isClosedBeforeBanner()) refused = failure
+                lastFailure = failure
+            }
         }
 
         val jobs = ArrayList<Job>(addresses.size)
@@ -174,7 +178,7 @@ internal suspend fun <T> raceCandidates(
             state.withLock { loserLines.toList() }.forEach(log)
             return@coroutineScope ok(address to value)
         }
-        val failure = state.withLock { lastFailure }
+        val failure = state.withLock { refused ?: lastFailure }
         state.withLock { loserLines.toList() }.forEach(log)
         fail(failure)
     }
@@ -240,9 +244,14 @@ internal fun HostProfile.raceEndpoint(address: String): HostEndpoint =
 internal fun Failure.raceReason(): String =
     when (this) {
         is Failure.HostKeyMismatch -> "host key mismatch: expected $expected, actual $actual"
+        is Failure.ClosedBeforeBanner -> "closed before banner"
         is Failure.Transport -> reason
         else -> userMessage()
     }
+
+internal fun Failure.isClosedBeforeBanner(): Boolean =
+    this is Failure.ClosedBeforeBanner ||
+        (this is Failure.Transport && reason.contains("closed before banner", ignoreCase = true))
 
 private fun mdnsCandidate(profile: HostProfile): String? {
     val raw = profile.name.trim()

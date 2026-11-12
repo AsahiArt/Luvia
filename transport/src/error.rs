@@ -30,6 +30,10 @@ pub enum TransportError {
     HostIdMismatch,
     #[error("refusing to sign before host-key verification")]
     HostKeyUnverified,
+    /// TCP connected, then the peer closed before an SSH banner.
+    /// Not a session disconnect and not a connect timeout.
+    #[error("closed before banner")]
+    ClosedBeforeBanner,
     #[error("disconnected: {reason}")]
     Disconnected { reason: String },
     #[error("channel closed")]

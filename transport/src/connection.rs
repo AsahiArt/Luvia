@@ -128,6 +128,7 @@ impl SshConnection {
                     device_id,
                     signing_seed,
                 },
+                PROVE_BUDGET,
             )
             .await
         })
@@ -209,7 +210,13 @@ fn remaining_until(deadline: Instant) -> Duration {
 
 fn map_handshake_error(err: TransportError) -> TransportError {
     match err {
-        TransportError::Disconnected { .. } => TransportError::io("connect timeout"),
+        // EOF is `Disconnected`. A RST or a dropped socket is the generic IO
+        // failure: russh does not keep the std::io kind. Both mean the peer
+        // never produced a banner. Timeouts and host-key mismatches stay as-is.
+        TransportError::Disconnected { .. } => TransportError::ClosedBeforeBanner,
+        TransportError::Io { reason } if reason == "ssh transport failure" => {
+            TransportError::ClosedBeforeBanner
+        }
         other => other,
     }
 }
@@ -246,6 +253,7 @@ async fn connect_inner(
     accepted: Vec<[u8; 32]>,
     key: PrivateKey,
     identity: ConnectIdentity,
+    prove_budget: Duration,
 ) -> Result<Arc<SshConnection>, TransportError> {
     if host.is_empty() || user.is_empty() {
         return Err(TransportError::io("host and user are required"));
@@ -253,9 +261,10 @@ async fn connect_inner(
 
     let resolved = lookup_host(&host, port).await?;
 
-    // 10s runs from TCP start through Prove, not from DNS.
+    // Production budget is 10s from TCP start through Prove, not from DNS.
+    // Tests pass a shorter budget; the public connect path does not.
     let tcp_started = Instant::now();
-    let prove_deadline = tcp_started + PROVE_BUDGET;
+    let prove_deadline = tcp_started + prove_budget;
     let stream = match tokio::time::timeout(TCP_TIMEOUT, TcpStream::connect(resolved)).await {
         Ok(Ok(stream)) => stream,
         Ok(Err(err)) => return Err(TransportError::from_connect_io(err)),
@@ -290,8 +299,8 @@ async fn connect_inner(
     {
         Ok(Ok(session)) => session,
         // A peer that accepts TCP and then FINs with no banner is a failed
-        // connect. russh surfaces that as Disconnect; do not report it as a
-        // session that was already up.
+        // connect. russh surfaces that as Disconnect. It is not a timeout and
+        // not a session that was already up.
         Ok(Err(err)) => return Err(map_handshake_error(err)),
         Err(_) => return Err(TransportError::io("candidate timeout")),
     };
@@ -429,15 +438,25 @@ mod tests {
     }
 
     #[test]
-    fn handshake_disconnect_is_connect_timeout_but_mismatch_is_not() {
+    fn handshake_disconnect_is_closed_before_banner_but_mismatch_is_not() {
         let dropped = map_handshake_error(TransportError::disconnected("disconnected"));
-        let shown = format!("{dropped:?}");
-        assert!(shown.contains("connect timeout"), "{shown}");
+        assert!(matches!(dropped, TransportError::ClosedBeforeBanner));
+        let shown = format!("{dropped:?}{dropped}");
+        assert!(shown.contains("closed before banner"), "{shown}");
+        assert!(!shown.contains("connect timeout"), "{shown}");
         let mismatch = map_handshake_error(TransportError::HostKeyMismatch {
             expected: "SHA256:aaa".into(),
             actual: "SHA256:bbb".into(),
         });
         assert!(matches!(mismatch, TransportError::HostKeyMismatch { .. }));
+        assert!(!matches!(mismatch, TransportError::ClosedBeforeBanner));
+        let reset = map_handshake_error(TransportError::io("ssh transport failure"));
+        assert!(matches!(reset, TransportError::ClosedBeforeBanner));
+        let timed_out = map_handshake_error(TransportError::io("connect timeout"));
+        assert!(
+            matches!(timed_out, TransportError::Io { ref reason } if reason == "connect timeout")
+        );
+        assert!(!matches!(timed_out, TransportError::ClosedBeforeBanner));
     }
 
     #[test]
@@ -513,24 +532,75 @@ mod tests {
         );
     }
 
+    fn dial_local(
+        port: u16,
+        openssh: String,
+        budget: Duration,
+    ) -> Result<Arc<SshConnection>, TransportError> {
+        let key = parse_private_key(openssh)?;
+        let signing_seed = ed25519_seed(&key)?;
+        let accepted = vec![parse_sha256_fingerprint(&dummy_fingerprint())?];
+        crate::runtime::runtime().block_on(connect_inner(
+            "127.0.0.1".into(),
+            port,
+            "luvia".into(),
+            accepted,
+            key,
+            ConnectIdentity {
+                expected_host_id: "host".into(),
+                device_id: "device".into(),
+                signing_seed,
+            },
+            budget,
+        ))
+    }
+
     #[test]
-    fn connect_times_out_on_unroutable_literal() {
+    fn connect_closed_before_banner_when_listener_drops() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                drop(stream);
+            }
+        });
         let key = generate_device_key().unwrap();
         let started = std::time::Instant::now();
-        let err = crate::runtime::runtime().block_on(SshConnection::connect(
-            "192.0.2.1".into(),
-            22,
-            "luvia".into(),
-            vec![dummy_fingerprint()],
-            key.private_key_openssh,
-            "host".into(),
-            "device".into(),
-        ));
-        assert!(started.elapsed() < Duration::from_secs(8));
-        let shown = format!("{err:?}");
+        let err =
+            dial_local(port, key.private_key_openssh, Duration::from_millis(800)).unwrap_err();
         assert!(
-            shown.contains("connect timeout") || shown.contains("no route"),
-            "{shown}"
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
         );
+        assert!(matches!(err, TransportError::ClosedBeforeBanner), "{err:?}");
+        let _ = server.join();
+    }
+
+    #[test]
+    fn connect_times_out_when_listener_sends_no_banner() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let server = std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                let _ = release_rx.recv_timeout(Duration::from_secs(3));
+                drop(stream);
+            }
+        });
+        let key = generate_device_key().unwrap();
+        let started = std::time::Instant::now();
+        let err =
+            dial_local(port, key.private_key_openssh, Duration::from_millis(200)).unwrap_err();
+        let elapsed = started.elapsed();
+        let _ = release_tx.send(());
+        let _ = server.join();
+        assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
+        assert!(
+            !matches!(err, TransportError::ClosedBeforeBanner),
+            "{err:?}"
+        );
+        let shown = format!("{err:?}{err}");
+        assert!(shown.contains("timeout"), "{shown}");
     }
 }

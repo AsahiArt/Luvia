@@ -1,14 +1,18 @@
 package tech.asahiart.luvia
 
 import kotlin.random.Random
+import androidx.datastore.core.CorruptionException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import okio.Buffer
 import okio.FileSystem
 import okio.Path.Companion.toPath
+import tech.asahiart.luvia.internal.HostCatalogOkioSerializer
 
 class HostStoreTest {
     @Test
@@ -89,5 +93,31 @@ class HostStoreTest {
         val afterOk = store.current().hosts.single()
         assertEquals(hints, afterOk.hints)
         assertEquals("192.168.1.33", afterOk.lastGood)
+    }
+
+    @Test
+    fun hostFileMissingRoleFailsToParse() = runTest {
+        val thrown =
+            assertFailsWith<CorruptionException> {
+                HostCatalogOkioSerializer.readFrom(
+                    Buffer().writeUtf8(
+                        """{"version":2,"hosts":[{"id":"host-1","name":"Yui","user":"misaka","port":22,"hostKeys":["SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"]}],"updatedEpochMs":1}""",
+                    ),
+                )
+            }
+        assertTrue(thrown.cause?.message?.contains("missing role") == true, thrown.toString())
+    }
+
+    @Test
+    fun hostFilePortZeroFailsToParse() = runTest {
+        val thrown =
+            assertFailsWith<CorruptionException> {
+                HostCatalogOkioSerializer.readFrom(
+                    Buffer().writeUtf8(
+                        """{"version":2,"hosts":[{"id":"host-1","role":"Controller","name":"Yui","user":"misaka","port":0,"hostKeys":["SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"]}],"updatedEpochMs":1}""",
+                    ),
+                )
+            }
+        assertTrue(thrown.cause?.message?.contains("port is 0") == true, thrown.toString())
     }
 }

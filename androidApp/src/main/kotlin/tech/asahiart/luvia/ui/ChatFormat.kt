@@ -12,7 +12,9 @@ import tech.asahiart.luvia.thread.splitPaneTranscript
 internal fun localizeUiMessage(message: String): String {
     val lower = message.lowercase()
     return when {
-        lower.contains("not a luvia2") || lower.contains("must start with luvia2") || lower.contains("luvia1:") ->
+        lower.contains("luvia1:") || lower.contains("old pairing code") ->
+            "这是旧版配对码，已不再支持。在电脑上更新 luvia-host，重新运行 pair，再扫新码。草稿仍然有效。"
+        lower.contains("not a luvia2") || lower.contains("must start with luvia2") ->
             "这不是 luvia2: 配对码。再扫一次，或粘贴另一条码。草稿仍然有效。"
         lower.contains("short code expired") ->
             "六位短码已过期。在电脑上重新运行 pair --short，或粘贴 luvia2: 码。草稿仍然有效。"
@@ -35,8 +37,10 @@ internal fun localizeUiMessage(message: String): String {
         lower.contains("still handling a previous message") -> "agent 还在处理上一条消息。等它完成。"
         lower.contains("screen changed") -> "agent 的画面变了。刷新后再发按键。"
         lower.contains("host key changed") || lower.contains("host key mismatch") -> "主机密钥变了。请重新配对。"
+        lower.contains("host refused the connection") || lower.contains("closed before banner") ->
+            "主机拒绝了连接"
         lower.contains("name lookup timed out") || lower.contains("dns timeout") ->
-            "解析主机名超时。检查网络或 Tailscale。"
+            "找不到这台电脑（主机名解析超时）。检查网络或 Tailscale。"
         lower.contains("candidate timeout") || lower.contains("no address reachable") ->
             "没有能连上的地址。检查网络或 Tailscale。"
         lower.contains("observe still works") -> message.substringBefore("Observe").trim() + " 观察仍然有效。"

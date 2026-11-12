@@ -16,6 +16,7 @@ public fun Failure.userMessage(): String {
             is Failure.Transport -> reason
             is Failure.HostKeyMismatch ->
                 "host key mismatch: expected $expected, actual $actual"
+            is Failure.ClosedBeforeBanner -> "closed before banner"
             is Failure.Bridge -> reason
             is Failure.Remote -> message
             is Failure.Frame -> reason
@@ -48,7 +49,9 @@ public fun Failure.pairingMessage(): String {
     val reason = (this as? Failure.ProtocolError)?.reason ?: return userMessage()
     val draftStays = "The draft is still valid."
     return when {
-        reason.contains("must start with luvia2") || reason.contains("luvia1:") ->
+        reason.contains("luvia1:") ->
+            "This is an old pairing code and is no longer supported. Update luvia-host on the computer, run pair again, and scan the new code. $draftStays"
+        reason.contains("must start with luvia2") ->
             "This is not a luvia2: pairing code. Scan again or paste a different code. $draftStays"
         reason.contains("short code expired") ->
             "This short code expired. Run pair --short again, or paste the luvia2: code. $draftStays"
@@ -70,9 +73,15 @@ public fun Failure.pairingMessage(): String {
     }
 }
 
+public fun Failure.refusedOutcomeZh(): String =
+    if (isClosedBeforeBanner()) "主机拒绝了连接" else connectMessage()
+
 public fun Failure.connectMessage(): String {
     if (this is Failure.HostKeyMismatch) {
         return "Host key changed. Re-pair this Host."
+    }
+    if (this.isClosedBeforeBanner()) {
+        return "The host refused the connection."
     }
     val raw =
         when (this) {
@@ -89,8 +98,10 @@ public fun Failure.connectMessage(): String {
             lower.contains("authentication failed") ||
             lower.contains("permission denied") ->
             "SSH refused. Check the Grant on the Host."
+        lower.contains("closed before banner") ->
+            "The host refused the connection."
         lower.contains("dns timeout") ->
-            "Name lookup timed out. Check network or Tailscale."
+            "Couldn't find this computer (name lookup timed out). Check network or Tailscale."
         lower.contains("candidate timeout") ->
             "No address reachable. Check network or Tailscale."
         lower.contains("incomplete host endpoint") ||

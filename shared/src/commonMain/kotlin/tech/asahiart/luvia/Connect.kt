@@ -168,8 +168,11 @@ private suspend fun openSession(
 internal fun mapTransport(error: Throwable): Failure {
     var current: Throwable? = error
     while (current != null) {
-        if (current is TransportException.HostKeyMismatch) {
-            return Failure.HostKeyMismatch(current.expected, current.actual)
+        when (current) {
+            is TransportException.HostKeyMismatch ->
+                return Failure.HostKeyMismatch(current.expected, current.actual)
+            is TransportException.ClosedBeforeBanner ->
+                return Failure.ClosedBeforeBanner()
         }
         current = current.cause
     }

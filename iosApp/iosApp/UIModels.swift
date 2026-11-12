@@ -755,6 +755,8 @@ enum FailureText {
             return value.reason
         case .hostKeyMismatch(_):
             return "\u{4e3b}\u{673a}\u{5bc6}\u{94a5}\u{53d8}\u{4e86}\u{3002}\u{8bf7}\u{91cd}\u{65b0}\u{914d}\u{5bf9}\u{3002}"
+        case .closedBeforeBanner(_):
+            return "主机拒绝了连接"
         case .closed(_):
             return "连接已断开"
         case .revisionConflict(let value):
@@ -797,7 +799,10 @@ enum FailureText {
         if reason == "pairing code is for a different device key" {
             return "这条配对码属于另一把设备密钥。请在电脑上运行上一步的命令，再扫描它打印的码。" + draftNote
         }
-        if reason.contains("luvia1:") || reason.contains("must start with luvia2") {
+        if reason.contains("luvia1:") {
+            return "这是旧版配对码，已不再支持。在电脑上更新 luvia-host，重新运行 pair，再扫新码。草稿仍然有效。"
+        }
+        if reason.contains("must start with luvia2") {
             return "这不是 luvia2: 配对码。请扫描或粘贴一条 luvia2: 码。" + draftNote
         }
         if reason.contains("short code expired") {
@@ -846,8 +851,11 @@ enum FailureText {
         {
             return "SSH 拒绝了这台设备。请在主机上检查授权。"
         }
+        if lower.contains("closed before banner") || lower.contains("host refused") {
+            return "主机拒绝了连接"
+        }
         if lower.contains("dns timeout") {
-            return "解析主机名超时。检查网络或 Tailscale。"
+            return "找不到这台电脑（主机名解析超时）。检查网络或 Tailscale。"
         }
         if lower.contains("candidate timeout") {
             return "没有能连上的地址。检查网络或 Tailscale。"

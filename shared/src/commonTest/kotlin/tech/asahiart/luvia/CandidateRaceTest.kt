@@ -4,6 +4,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.Deferred
@@ -140,6 +141,31 @@ class CandidateRaceTest {
             scriptDial(prove = { hangUntilCancelled(it, ArrayList()) }),
             "candidate timeout",
         )
+    }
+
+    @Test
+    fun anyClosedBeforeBannerRefusesWhenEveryCandidateFails() = runTest {
+        val result =
+            raceCandidates(
+                listOf("192.168.1.8", "yui.java-tiyanki.ts.net"),
+                scriptDial(
+                    prove = { address ->
+                        if (address == "192.168.1.8") {
+                            fail(Failure.ClosedBeforeBanner())
+                        } else {
+                            fail(Failure.Transport("connect timeout"))
+                        }
+                    },
+                ),
+            )
+        advanceUntilIdle()
+        val err = assertIs<Outcome.Err<Pair<String, String>>>(result)
+        assertIs<Failure.ClosedBeforeBanner>(err.failure)
+        assertEquals("The host refused the connection.", err.failure.connectMessage())
+        assertEquals("主机拒绝了连接", err.failure.refusedOutcomeZh())
+        assertFalse(err.failure.connectMessage().contains("No address reachable"))
+        assertFalse(err.failure.refusedOutcomeZh().contains("没有地址可达"))
+        assertFalse(err.failure.refusedOutcomeZh().contains("没有能连上的地址"))
     }
 
     @Test

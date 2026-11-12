@@ -245,11 +245,11 @@ internal fun HostCatalogFile.migrated(): HostCatalogFile =
         hosts = hosts.map { it.migrated() },
     )
 
-internal fun HostFile.migrated(): HostFile =
-    copy(
-        role = hostRole(role).name,
-        port = if (port == 0) 22 else port,
-    )
+internal fun HostFile.migrated(): HostFile {
+    val rawRole = role ?: throw IllegalArgumentException("host file is missing role")
+    if (port == 0) throw IllegalArgumentException("host file port is 0")
+    return copy(role = hostRole(rawRole).name)
+}
 
 private fun HostCatalogFile.toPublic(): HostCatalog =
     HostCatalog(
@@ -262,7 +262,7 @@ private fun HostFile.toPublic(): HostProfile {
     return HostProfile(
         id = migrated.id,
         hostId = migrated.hostId,
-        role = hostRole(migrated.role),
+        role = hostRole(migrated.role ?: throw IllegalArgumentException("host file is missing role")),
         lastStatus = hostStatus(migrated.lastStatus),
         lastUpdatedEpochMs = migrated.lastUpdatedEpochMs,
         topology = migrated.topology?.toPublic(),
@@ -387,16 +387,11 @@ private fun agentStatus(raw: String): AgentStatus =
     AgentStatus.entries.firstOrNull { it.name == raw } ?: parseAgentStatus(raw.lowercase())
 
 /**
- * v1 caches predate roles, and those hosts were fully controllable, so an
- * absent role migrates to [HostRole.Controller] rather than silently demoting
- * a host the user already drives. A present but unrecognized role is a
- * corrupt or future value and falls back to least privilege.
+ * A present but unrecognized role is a corrupt or future value and falls
+ * back to least privilege. A missing role is a parse error, not Controller.
  */
-private fun hostRole(raw: String?): HostRole =
-    when (raw) {
-        null -> HostRole.Controller
-        else -> HostRole.entries.firstOrNull { it.name == raw } ?: HostRole.Observer
-    }
+private fun hostRole(raw: String): HostRole =
+    HostRole.entries.firstOrNull { it.name == raw } ?: HostRole.Observer
 
 private fun hostStatus(raw: String): HostStatus =
     HostStatus.entries.firstOrNull { it.name == raw } ?: HostStatus.Unknown
