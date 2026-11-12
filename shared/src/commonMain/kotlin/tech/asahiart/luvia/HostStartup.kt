@@ -40,8 +40,11 @@ public fun preferredStartupHost(profiles: List<HostProfile>): HostProfile? {
  */
 public fun resolveStartupHost(profiles: List<HostProfile>, selectedId: String?): HostProfile? {
     val preferred = preferredStartupHost(profiles) ?: return null
-    val selected = profiles.firstOrNull { it.id == selectedId } ?: return preferred
-    if (selected.id == preferred.id) return selected
+    val selected =
+        profiles.firstOrNull { it.id == selectedId }
+            ?: profiles.firstOrNull { it.hostId == selectedId }
+            ?: return preferred
+    if (selected.hostId == preferred.hostId) return selected
     val stem = nameStem(selected.name)
     if (stem.isNotEmpty() && stem == nameStem(preferred.name)) {
         return preferred

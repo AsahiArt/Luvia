@@ -156,31 +156,35 @@ internal class DataStoreHostStore(
     override suspend fun upsert(host: HostProfile) {
         val sanitized = host.sanitized()
         dataStore.updateData { current ->
+            val indexed = current.hosts.indexedByHostId()
+            indexed[sanitized.hostId] = sanitized.toFile()
             current.copy(
                 version = HOST_CATALOG_VERSION,
-                hosts = current.hosts.filterNot { it.id == sanitized.id } + sanitized.toFile(),
+                hosts = indexed.values.toList(),
                 updatedEpochMs = sanitized.lastUpdatedEpochMs,
             )
         }
     }
 
-    override suspend fun remove(id: String) {
+    override suspend fun remove(hostId: String) {
         dataStore.updateData { current ->
-            current.copy(hosts = current.hosts.filterNot { it.id == id })
+            val indexed = current.hosts.indexedByHostId()
+            indexed.remove(hostId)
+            current.copy(hosts = indexed.values.toList())
         }
     }
 
     override suspend fun rememberTopology(hostId: String, topology: CachedTopology) {
         dataStore.updateData { current ->
-            val hosts =
-                current.hosts.map { host ->
-                    if (host.id == hostId) {
-                        host.copy(topology = topology.toFile(), lastUpdatedEpochMs = topology.capturedAtEpochMs)
-                    } else {
-                        host
-                    }
-                }
-            current.copy(version = HOST_CATALOG_VERSION, hosts = hosts, updatedEpochMs = topology.capturedAtEpochMs)
+            val indexed = current.hosts.indexedByHostId()
+            val host = indexed[hostId] ?: return@updateData current
+            indexed[hostId] =
+                host.copy(topology = topology.toFile(), lastUpdatedEpochMs = topology.capturedAtEpochMs)
+            current.copy(
+                version = HOST_CATALOG_VERSION,
+                hosts = indexed.values.toList(),
+                updatedEpochMs = topology.capturedAtEpochMs,
+            )
         }
     }
 
@@ -188,25 +192,23 @@ internal class DataStoreHostStore(
         val working = address.trim()
         if (working.isEmpty()) return
         dataStore.updateData { current ->
-            val hosts =
-                current.hosts.map { host ->
-                    if (host.id != hostId) host else host.copy(lastGood = working)
-                }
-            current.copy(version = HOST_CATALOG_VERSION, hosts = hosts)
+            val indexed = current.hosts.indexedByHostId()
+            val host = indexed[hostId] ?: return@updateData current
+            indexed[hostId] = host.copy(lastGood = working)
+            current.copy(version = HOST_CATALOG_VERSION, hosts = indexed.values.toList())
         }
     }
 
     override suspend fun updateStatus(hostId: String, status: HostStatus, atEpochMs: Long) {
         dataStore.updateData { current ->
-            val hosts =
-                current.hosts.map { host ->
-                    if (host.id == hostId) {
-                        host.copy(lastStatus = status.name, lastUpdatedEpochMs = atEpochMs)
-                    } else {
-                        host
-                    }
-                }
-            current.copy(version = HOST_CATALOG_VERSION, hosts = hosts, updatedEpochMs = atEpochMs)
+            val indexed = current.hosts.indexedByHostId()
+            val host = indexed[hostId] ?: return@updateData current
+            indexed[hostId] = host.copy(lastStatus = status.name, lastUpdatedEpochMs = atEpochMs)
+            current.copy(
+                version = HOST_CATALOG_VERSION,
+                hosts = indexed.values.toList(),
+                updatedEpochMs = atEpochMs,
+            )
         }
     }
 }
@@ -283,9 +285,24 @@ internal fun HostProfile.sanitized(): HostProfile =
         ),
     )
 
+/**
+ * One file record per hostId. A later duplicate with an equal or newer
+ * [HostFile.lastUpdatedEpochMs] replaces the value and keeps the first slot.
+ */
+private fun Iterable<HostFile>.indexedByHostId(): LinkedHashMap<String, HostFile> {
+    val indexed = LinkedHashMap<String, HostFile>()
+    for (host in this) {
+        val previous = indexed[host.hostId]
+        if (previous == null || host.lastUpdatedEpochMs >= previous.lastUpdatedEpochMs) {
+            indexed[host.hostId] = host
+        }
+    }
+    return indexed
+}
+
 private fun HostCatalogFile.toPublic(): HostCatalog =
     HostCatalog(
-        hosts = hosts.map { it.toPublic() },
+        hosts = hosts.indexedByHostId().values.map { it.toPublic() },
         updatedEpochMs = updatedEpochMs,
     )
 

@@ -525,11 +525,11 @@ public class HostUhpRegistry(
         combine(manager.hosts, combined, ledger) { runtimes, slices, done ->
             val hosts = runtimes.map { runtime ->
                 NowHost(
-                    hostId = runtime.profile.id,
+                    hostId = runtime.profile.hostId,
                     name = runtime.profile.name,
                     freshness = runtime.freshness,
                     isObserver = runtime.profile.role == HostRole.Observer,
-                    state = slices[runtime.profile.id],
+                    state = slices[runtime.profile.hostId],
                 )
             }
             val nowMs = Clock.System.now().toEpochMilliseconds()
@@ -550,10 +550,10 @@ public class HostUhpRegistry(
     init {
         registryScope.launch {
             manager.hosts.collect { runtimes ->
-                val ids = runtimes.map { it.profile.id }.toSet()
+                val ids = runtimes.map { it.profile.hostId }.toSet()
                 workspaces.keys.filter { it !in ids }.toList().forEach { drop(it) }
                 runtimes.forEach { runtime ->
-                    workspace(runtime.profile.id).applyRuntime(runtime)
+                    workspace(runtime.profile.hostId).applyRuntime(runtime)
                 }
             }
         }
@@ -570,7 +570,7 @@ public class HostUhpRegistry(
         val created =
             HostUhp(
                 session = { manager.session(hostId) },
-                runtime = { manager.hosts.value.firstOrNull { it.profile.id == hostId } },
+                runtime = { manager.hosts.value.firstOrNull { it.profile.hostId == hostId } },
                 scope = registryScope,
                 manager = manager,
             )

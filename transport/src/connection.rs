@@ -262,6 +262,19 @@ fn remaining_until(deadline: Instant) -> Duration {
     deadline.saturating_duration_since(Instant::now())
 }
 
+/// Publickey failure after a verified host key is AuthRejected.
+/// The same failure before verification stays AuthenticationFailed.
+/// Host-key mismatch is never rewritten.
+fn promote_verified_auth_failure(err: TransportError, host_key_verified: bool) -> TransportError {
+    if host_key_verified && matches!(err, TransportError::AuthenticationFailed) {
+        TransportError::AuthRejected {
+            reason: "ssh publickey authentication rejected".into(),
+        }
+    } else {
+        err
+    }
+}
+
 fn map_handshake_error(err: TransportError) -> TransportError {
     match err {
         // `read_ssh_id` returns Disconnect on a clean FIN before a valid
@@ -374,14 +387,22 @@ async fn connect_inner(
     }
     let hash_alg = session.best_supported_rsa_hash().await?.flatten();
     // CLIENT_SSH_AUTH is publickey only. Do not call none or password.
+    // `connect_stream` returned, so check_server_key already ran. A publickey
+    // rejection after that match is AuthRejected, not a candidate timeout.
     debug_assert_eq!(CLIENT_SSH_AUTH, ["publickey"]);
+    let host_key_ok = host_key_verified.load(Ordering::SeqCst);
     let auth = match tokio::time::timeout(
         auth_budget,
         session.authenticate_publickey(user, PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg)),
     )
     .await
     {
-        Ok(result) => result?,
+        Ok(Ok(auth)) => auth,
+        Ok(Err(err)) => {
+            let mapped = promote_verified_auth_failure(TransportError::from(err), host_key_ok);
+            let _ = session.disconnect(Disconnect::ByApplication, "", "").await;
+            return Err(mapped);
+        }
         Err(_) => {
             let _ = session.disconnect(Disconnect::ByApplication, "", "").await;
             return Err(TransportError::io("candidate timeout"));
@@ -389,7 +410,10 @@ async fn connect_inner(
     };
     if !auth.success() {
         let _ = session.disconnect(Disconnect::ByApplication, "", "").await;
-        return Err(TransportError::AuthenticationFailed);
+        return Err(promote_verified_auth_failure(
+            TransportError::AuthenticationFailed,
+            host_key_ok,
+        ));
     }
 
     Ok(Arc::new(SshConnection {
@@ -630,9 +654,34 @@ mod tests {
             actual: "SHA256:bbb".into(),
         };
         assert!(!matches!(err, TransportError::AuthenticationFailed));
+        assert!(!matches!(err, TransportError::AuthRejected { .. }));
         let shown = format!("{err:?}");
         assert!(shown.contains("HostKeyMismatch"));
         assert!(!shown.contains("BEGIN OPENSSH"));
+    }
+
+    #[test]
+    fn verified_publickey_failure_is_auth_rejected_and_not_a_timeout() {
+        let rejected = promote_verified_auth_failure(TransportError::AuthenticationFailed, true);
+        let shown = format!("{rejected}{rejected:?}");
+        match &rejected {
+            TransportError::AuthRejected { reason } => {
+                assert!(!reason.is_empty());
+                assert!(shown.contains("AuthRejected"), "{shown}");
+                assert!(!shown.to_lowercase().contains("timeout"), "{shown}");
+            }
+            other => panic!("expected AuthRejected, got {other:?}"),
+        }
+        let unverified = promote_verified_auth_failure(TransportError::AuthenticationFailed, false);
+        assert!(matches!(unverified, TransportError::AuthenticationFailed));
+        let mismatch = promote_verified_auth_failure(
+            TransportError::HostKeyMismatch {
+                expected: "SHA256:aaa".into(),
+                actual: "SHA256:bbb".into(),
+            },
+            true,
+        );
+        assert!(matches!(mismatch, TransportError::HostKeyMismatch { .. }));
     }
 
     fn dummy_fingerprint() -> String {

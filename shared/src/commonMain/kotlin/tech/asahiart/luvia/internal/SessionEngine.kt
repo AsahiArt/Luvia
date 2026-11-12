@@ -572,7 +572,7 @@ internal class SessionEngine(
 
 private fun failureFromChannelOpen(error: Throwable): Failure {
     val mapped = mapTransport(error)
-    if (mapped is Failure.ProveRejected) return mapped
+    if (mapped is Failure.ProveRejected || mapped is Failure.AuthRejected) return mapped
     return Failure.Bridge(error.message ?: "channel open failed")
 }
 

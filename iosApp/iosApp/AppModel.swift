@@ -179,18 +179,18 @@ final class AppModel {
                 guard let profile = ok.value else {
                     return .failure(UserFacingError(message: "配对没有返回电脑。"))
                 }
-                selectedHostID = profile.id
+                selectedHostID = profile.hostId
                 selectedSection = .agents
-                suppressAutoConnect.remove(profile.id)
-                autoConnectAttempted.insert(profile.id)
-                bindUhp(hostID: profile.id)
+                suppressAutoConnect.remove(profile.hostId)
+                autoConnectAttempted.insert(profile.hostId)
+                bindUhp(hostID: profile.hostId)
                 hostUhp()?.shown()
                 if !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || !port.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     || !user.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 {
                     _ = await updateConnection(
-                        hostID: profile.id,
+                        hostID: profile.hostId,
                         name: profile.name,
                         hosts: host,
                         port: port,

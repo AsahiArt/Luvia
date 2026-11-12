@@ -39,13 +39,22 @@ public data class ProfileConnectResult(
 
 public class ConnectedHost internal constructor(
     public val client: LuviaClient,
-    private val connection: SshConnection,
+    private val shutdown: suspend () -> Unit,
 ) {
+    internal constructor(client: LuviaClient, connection: SshConnection) : this(
+        client,
+        { runCatching { connection.shutdown() } },
+    )
+
     public suspend fun close() {
         client.close()
-        runCatching { connection.shutdown() }
+        shutdown()
     }
 }
+
+/** A connected host with no SSH session, for tests that script the bridge. */
+internal fun connectedHostForTest(client: LuviaClient): ConnectedHost =
+    ConnectedHost(client) {}
 
 public object DeviceKeys {
     public fun generate(): Outcome<GeneratedDeviceKey> =
@@ -178,6 +187,8 @@ internal fun mapTransport(error: Throwable): Failure {
                 return Failure.HandshakeFailed(current.reason)
             is TransportException.ProveRejected ->
                 return Failure.ProveRejected(current.code, current.reason)
+            is TransportException.AuthRejected ->
+                return Failure.AuthRejected(current.reason)
         }
         current = current.cause
     }

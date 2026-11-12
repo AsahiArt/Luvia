@@ -98,7 +98,7 @@ public class HostManager internal constructor(
 
     /** Last successfully connected host, for cold start. Null when nothing is paired. */
     public fun preferredHostId(): String? =
-        preferredStartupHost(hostsState.value.map { it.profile })?.id
+        preferredStartupHost(hostsState.value.map { it.profile })?.hostId
     public val pushRegistration: StateFlow<PushRegistration?> = pushRegistrationState.asStateFlow()
     internal val busEvents: SharedFlow<Pair<String, BusEvent>> = busEventsFlow.asSharedFlow()
 
@@ -181,6 +181,7 @@ public class HostManager internal constructor(
         } catch (error: Exception) {
             return fail(Failure.ProtocolError("Could not store the device key on this device."))
         }
+        val previous = store.current().hosts.firstOrNull { it.hostId == code.hostId }
         val typedAddresses = addresses.any { it.isNotBlank() }
         val profile =
             HostProfile(
@@ -190,7 +191,7 @@ public class HostManager internal constructor(
                 lastStatus = HostStatus.Unknown,
                 lastUpdatedEpochMs = nowEpochMs(),
                 topology = null,
-                name = code.name,
+                name = if (previous != null) previous.name else code.name,
                 tailnetFqdn = code.tailnetFqdn,
                 user = reachability.user,
                 port = reachability.port,
@@ -200,11 +201,33 @@ public class HostManager internal constructor(
                 lastGood = null,
             )
         store.upsert(profile)
-        connect(profile.id)
-        when (val reach = awaitCurrentConnect(profile.id)) {
-            is Outcome.Ok -> return ok(profile)
+        mutex.withLock {
+            catalogHosts = store.current().hosts
+            publishLocked(catalogHosts)
+        }
+        connectDevice(profile.hostId, profile.id)
+        when (val reach = awaitCurrentConnect(profile.hostId)) {
+            is Outcome.Ok -> {
+                if (previous != null && previous.id != profile.id) {
+                    vault.delete(previous.id)
+                }
+                return ok(profile)
+            }
             is Outcome.Err -> {
-                unpair(profile.id)
+                if (previous == null) {
+                    unpair(profile.hostId)
+                } else {
+                    retireConnect(profile.hostId)
+                    if (previous.id != profile.id) {
+                        vault.delete(profile.id)
+                    }
+                    store.upsert(previous)
+                    mutex.withLock {
+                        catalogHosts = store.current().hosts
+                        publishLocked(catalogHosts)
+                    }
+                    connectDevice(previous.hostId, previous.id)
+                }
                 return fail(reach.failure)
             }
         }
@@ -218,7 +241,7 @@ public class HostManager internal constructor(
         user: String,
     ): Outcome<HostProfile> {
         val current =
-            store.current().hosts.firstOrNull { it.id == hostId }
+            store.current().hosts.firstOrNull { it.hostId == hostId }
                 ?: return fail(Failure.NotFound("host not found"))
         val reachability =
             when (val parsed = parseReachability(addresses, port, user, current.hints, current.port, current.user)) {
@@ -240,7 +263,7 @@ public class HostManager internal constructor(
         store.upsert(updated)
         val shouldReconnect =
             mutex.withLock {
-                catalogHosts = catalogHosts.map { if (it.id == hostId) updated else it }
+                catalogHosts = catalogHosts.map { if (it.hostId == hostId) updated else it }
                 publishLocked(catalogHosts)
                 val liveHost = live[hostId]
                 val connecting = connectJobs.containsKey(hostId)
@@ -258,41 +281,65 @@ public class HostManager internal constructor(
 
 
     public suspend fun unpair(hostId: String) {
+        val deviceId = store.current().hosts.firstOrNull { it.hostId == hostId }?.id ?: hostId
         disconnect(hostId)
-        vault.delete(hostId)
+        vault.delete(deviceId)
         store.remove(hostId)
     }
+
     public fun connect(hostId: String) {
+        val profile = catalogHosts.firstOrNull { it.hostId == hostId }
+        connectDevice(hostId, profile?.id ?: hostId)
+    }
+
+    /**
+     * Starts one connect job for [hostKey]. A job already running for that computer is cancelled.
+     * [deviceId] selects the vault credential; it is not the map key.
+     */
+    private fun connectDevice(hostKey: String, deviceId: String) {
         val missingKey =
             Failure.ProtocolError(
                 "Device key for this host is gone. Re-pair the host to restore access.",
             )
-        if (vault.credential(hostId) == null) {
+        if (vault.credential(deviceId) == null) {
             val failed = HostLink.Failed(missingKey)
-            finishConnectWatch(hostId, beginConnectWatch(hostId), fail(missingKey))
-            links[hostId] = failed
+            finishConnectWatch(hostKey, beginConnectWatch(hostKey), fail(missingKey))
+            links[hostKey] = failed
             val current = hostsState.value
-            if (current.any { it.profile.id == hostId }) {
+            if (current.any { it.profile.hostId == hostKey }) {
                 hostsState.value =
                     current.map { runtime ->
-                        if (runtime.profile.id == hostId) {
+                        if (runtime.profile.hostId == hostKey) {
                             runtime.copy(link = failed, freshness = ConnectionFreshness.Offline)
                         } else {
                             runtime
                         }
                     }
             } else {
-                mgrScope.launch { setLink(hostId, failed) }
+                mgrScope.launch { setLink(hostKey, failed) }
             }
             return
         }
-        val generation = beginConnectWatch(hostId)
+        val generation = beginConnectWatch(hostKey)
         mgrScope.launch {
             mutex.withLock {
-                connectJobs.remove(hostId)?.cancel()
-                connectJobs[hostId] = mgrScope.launch { connectLoop(hostId, generation) }
+                connectJobs.remove(hostKey)?.cancel()
+                connectJobs[hostKey] = mgrScope.launch { connectLoop(hostKey, generation) }
             }
         }
+    }
+
+    /** Cancels the computer's connect job and waits until that coroutine has left. */
+    private suspend fun retireConnect(hostKey: String) {
+        val running = mutex.withLock { connectJobs.remove(hostKey) }
+        running?.cancel()
+        running?.join()
+        val removed =
+            mutex.withLock {
+                links.remove(hostKey)
+                live.remove(hostKey)
+            }
+        removed?.close()
     }
 
     /**
@@ -384,7 +431,7 @@ public class HostManager internal constructor(
     }
 
     private fun currentLink(hostId: String): HostLink? =
-        hostsState.value.firstOrNull { it.profile.id == hostId }?.link
+        hostsState.value.firstOrNull { it.profile.hostId == hostId }?.link
 
     public fun close() {
         connectJobs.values.forEach { it.cancel() }
@@ -454,10 +501,10 @@ public class HostManager internal constructor(
 
     private suspend fun connectOnce(hostId: String): Outcome<LuviaSession> {
         val profile =
-            store.current().hosts.firstOrNull { it.id == hostId }
+            store.current().hosts.firstOrNull { it.hostId == hostId }
                 ?: return fail(Failure.NotFound("host not found"))
         val credential =
-            vault.credential(hostId)
+            vault.credential(profile.id)
                 ?: return fail(
                     Failure.ProtocolError(
                         "Device key for this host is gone. Re-pair the host to restore access.",
@@ -694,7 +741,7 @@ public class HostManager internal constructor(
     private fun publishLocked(profiles: List<HostProfile>) {
         hostsState.value =
             profiles.map { profile ->
-                val session = live[profile.id]
+                val session = live[profile.hostId]
                 val topology = profile.topology
                 // session.snapshot omits agents on 0.13.4; the agent.list result kept
                 // in LiveHost.agents is the authoritative list for the runtime.
@@ -703,7 +750,7 @@ public class HostManager internal constructor(
                         if (session.agents.isNotEmpty()) snap.copy(agents = session.agents) else snap
                     } ?: topology?.toSnapshot()
                 val tasks = session?.tasks ?: topology?.tasks ?: emptyList()
-                val link = links[profile.id]
+                val link = links[profile.hostId]
                     ?: session?.forcedLink
                     ?: if (session != null) {
                         HostLink.Online(session.address, session.sessionName)
@@ -843,6 +890,7 @@ private fun isRetryable(failure: Failure): Boolean {
         is Failure.NotFound -> false
         is Failure.HostKeyMismatch -> false
         is Failure.ProveRejected -> false
+        is Failure.AuthRejected -> false
         is Failure.ProtocolError -> !failure.reason.contains("Re-pair")
         is Failure.Transport -> !failure.reason.contains("host key mismatch")
         else -> true

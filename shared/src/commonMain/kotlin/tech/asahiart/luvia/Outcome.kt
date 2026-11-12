@@ -60,6 +60,16 @@ public sealed class Failure {
         public val message: String,
     ) : Failure()
 
+    /**
+     * The SSH host key matched, then sshd rejected publickey. Not a bridge
+     * [ProveRejected]. Other addresses may still win. If every candidate loses,
+     * this outranks timeouts and network errors, is not retried, and is not
+     * stored as lastGood. User-facing copy matches [ProveRejected].
+     */
+    public class AuthRejected(
+        public val reason: String,
+    ) : Failure()
+
     public class Closed : Failure()
 
     /**

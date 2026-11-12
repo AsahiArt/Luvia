@@ -44,8 +44,8 @@ class HostStoreTest {
                 port = 22,
             ),
         )
-        store.setLastConnectedAddress("host-1", "10.0.0.2")
-        store.updateStatus("host-1", HostStatus.Stale, 200)
+        store.setLastConnectedAddress("ab".repeat(16), "10.0.0.2")
+        store.updateStatus("ab".repeat(16), HostStatus.Stale, 200)
         val loaded = store.current().hosts.single()
         assertEquals("studio", loaded.name)
         assertEquals(listOf("studio.tailnet", "10.0.0.2"), loaded.hints)
@@ -67,7 +67,7 @@ class HostStoreTest {
         assertFalse(bytes.contains("\"hostKeyFingerprints\""))
         assertFalse(bytes.contains("\"alias\""))
         assertFalse(bytes.contains("\"username\""))
-        store.remove("host-1")
+        store.remove("ab".repeat(16))
         assertTrue(store.current().hosts.isEmpty())
     }
 
@@ -93,7 +93,7 @@ class HostStoreTest {
                 lastGood = "Yui.local",
             ),
         )
-        store.setLastConnectedAddress("host-1", "192.168.1.33")
+        store.setLastConnectedAddress("ab".repeat(16), "192.168.1.33")
         val afterOk = store.current().hosts.single()
         assertEquals(hints, afterOk.hints)
         assertEquals("192.168.1.33", afterOk.lastGood)
@@ -199,4 +199,60 @@ class HostStoreTest {
         assertEquals(listOf("10.0.0.2"), loaded.hints)
         assertEquals(22, loaded.port)
     }
+
+    @Test
+    fun upsertReplacesTheSameHostIdInPlace() = runTest {
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-host-replace-${Random.nextLong()}.json"
+        val store = HostStore(path.toString(), backgroundScope)
+        val hostId = "cd".repeat(16)
+        store.upsert(
+            hostFile("other", "ee".repeat(16), "Other"),
+        )
+        store.upsert(hostFile("dev-old", hostId, "Yui"))
+        store.upsert(hostFile("dev-new", hostId, "Yui.local").copy(lastGood = "10.0.0.8"))
+        val hosts = store.current().hosts
+        assertEquals(listOf("ee".repeat(16), hostId), hosts.map { it.hostId })
+        assertEquals("dev-new", hosts[1].id)
+        assertEquals("Yui.local", hosts[1].name)
+    }
+
+    @Test
+    fun duplicateHostIdsInAnOldCatalogCollapseToTheNewest() = runTest {
+        val hostId = "cd".repeat(16)
+        val otherId = "ee".repeat(16)
+        val catalog =
+            """
+            {"version":2,"updatedEpochMs":9,"hosts":[
+              {"id":"other","hostId":"$otherId","role":"Controller","lastStatus":"Unknown","lastUpdatedEpochMs":1,"name":"Other","user":"misaka","port":22,"bridgePath":"/usr/local/bin/luvia-host","hostKeys":["SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"],"hints":["10.0.0.1"]},
+              {"id":"dev-old","hostId":"$hostId","role":"Controller","lastStatus":"Unknown","lastUpdatedEpochMs":1,"name":"Old","user":"misaka","port":22,"bridgePath":"/usr/local/bin/luvia-host","hostKeys":["SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"],"hints":["10.0.0.1"],"lastGood":"10.0.0.1"},
+              {"id":"dev-new","hostId":"$hostId","role":"Controller","lastStatus":"Reachable","lastUpdatedEpochMs":9,"name":"New","user":"misaka","port":2222,"bridgePath":"/usr/local/bin/luvia-host","hostKeys":["SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"],"hints":["10.0.0.8"],"lastGood":"10.0.0.8"}
+            ]}
+            """.trimIndent()
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-host-dup-${Random.nextLong()}.json"
+        FileSystem.SYSTEM.write(path) { writeUtf8(catalog) }
+        val hosts = HostStore(path.toString(), backgroundScope).current().hosts
+        assertEquals(2, hosts.size)
+        assertEquals(otherId, hosts[0].hostId)
+        assertEquals("other", hosts[0].id)
+        assertEquals("dev-new", hosts[1].id)
+        assertEquals("New", hosts[1].name)
+        assertEquals(9, hosts[1].lastUpdatedEpochMs)
+        assertEquals("10.0.0.8", hosts[1].lastGood)
+    }
 }
+
+private fun hostFile(id: String, hostId: String, name: String): HostProfile =
+    HostProfile(
+        id = id,
+        hostId = hostId,
+        name = name,
+        user = "misaka",
+        hostKeys = setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+        bridgePath = "/usr/local/bin/luvia-host",
+        role = HostRole.Controller,
+        lastStatus = HostStatus.Unknown,
+        lastUpdatedEpochMs = 1,
+        topology = null,
+        hints = listOf("10.0.0.2"),
+        port = 22,
+    )

@@ -137,8 +137,8 @@ class LuviaViewModel(
             ) {
                 is Outcome.Ok -> {
                     val profile = result.value
-                    suppressAutoConnect.remove(profile.id)
-                    _pairing.value = PairingUiState(pairedHostId = profile.id)
+                    suppressAutoConnect.remove(profile.hostId)
+                    _pairing.value = PairingUiState(pairedHostId = profile.hostId)
                     onSuccess()
                 }
                 is Outcome.Err ->
@@ -190,7 +190,7 @@ class LuviaViewModel(
 
     fun autoConnect(hostId: String) {
         if (hostId in suppressAutoConnect) return
-        val runtime = manager.hosts.value.firstOrNull { it.profile.id == hostId } ?: return
+        val runtime = manager.hosts.value.firstOrNull { it.profile.hostId == hostId } ?: return
         when (hostChrome(runtime.link, runtime.freshness)) {
             HostChrome.Live, HostChrome.Reconnecting -> return
             HostChrome.Offline -> manager.connect(hostId)
@@ -213,7 +213,7 @@ class LuviaViewModel(
     fun refreshAll() {
         viewModelScope.launch {
             manager.hosts.value.forEach { runtime ->
-                manager.refresh(runtime.profile.id)
+                manager.refresh(runtime.profile.hostId)
             }
         }
     }
@@ -226,7 +226,7 @@ class LuviaViewModel(
     }
 
     fun ensureTerminal(hostId: String, paneId: String? = null) {
-        val runtime = manager.hosts.value.firstOrNull { it.profile.id == hostId } ?: return
+        val runtime = manager.hosts.value.firstOrNull { it.profile.hostId == hostId } ?: return
         val observer = runtime.profile.role == HostRole.Observer
         val identity = terminalIdentity(runtime, paneId)
         val panes = terminalPaneChoices(runtime, identity?.paneId)
@@ -301,7 +301,7 @@ class LuviaViewModel(
     }
 
     fun requestControl(hostId: String) {
-        val runtime = manager.hosts.value.firstOrNull { it.profile.id == hostId } ?: return
+        val runtime = manager.hosts.value.firstOrNull { it.profile.hostId == hostId } ?: return
         if (runtime.profile.role != HostRole.Controller) return
         val identity = identities[hostId] ?: terminalIdentity(runtime) ?: return
         identities[hostId] = identity
@@ -372,7 +372,7 @@ class LuviaViewModel(
             PushRegistrar.cachedEndpoint(appContext)?.let { applyPushEndpoint(it) }
         } else {
             manager.hosts.value.forEach { runtime ->
-                uhpRegistry.workspace(runtime.profile.id).setPushEnabled(false)
+                uhpRegistry.workspace(runtime.profile.hostId).setPushEnabled(false)
             }
             PushRegistrar.unregisterApp(appContext)
             manager.setPushRegistration(null)
@@ -383,7 +383,7 @@ class LuviaViewModel(
         val registration = PushRegistration(kind = "unifiedpush", token = endpoint)
         manager.setPushRegistration(registration)
         manager.hosts.value.forEach { runtime ->
-            uhpRegistry.workspace(runtime.profile.id).setPushEnabled(true)
+            uhpRegistry.workspace(runtime.profile.hostId).setPushEnabled(true)
         }
     }
 
@@ -462,7 +462,7 @@ class LuviaViewModel(
     }
 
     private fun rebindTerminal(hostId: String, failure: Failure) {
-        val runtime = manager.hosts.value.firstOrNull { it.profile.id == hostId }
+        val runtime = manager.hosts.value.firstOrNull { it.profile.hostId == hostId }
         val observer = runtime?.profile?.role == HostRole.Observer
         val tried = triedTerminals.getOrPut(hostId) { mutableSetOf() }
         identities[hostId]?.terminalId?.let { tried += it }
@@ -544,7 +544,7 @@ internal fun HostRuntime.toUi(): HostUiModel {
         }
     }
     return HostUiModel(
-        id = profile.id,
+        id = profile.hostId,
         name = profile.name,
         address = profile.lastGood ?: profile.hints.firstOrNull().orEmpty(),
         addresses = profile.hints,
@@ -558,7 +558,7 @@ internal fun HostRuntime.toUi(): HostUiModel {
         activeTask = taskList.firstOrNull { !it.status.equals("done", ignoreCase = true) }?.title,
         lastUpdatedEpochMs = profile.lastUpdatedEpochMs,
         errorMessage = (link as? HostLink.Failed)?.failure?.connectMessage(),
-        pairingRevoked = (link as? HostLink.Failed)?.failure is Failure.ProveRejected,
+        pairingRevoked = (link as? HostLink.Failed)?.failure?.isPairingRevoked() == true,
         isObserver = profile.role == HostRole.Observer,
         connected = connected,
         hasSnapshot = snapshot != null,
