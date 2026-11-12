@@ -68,14 +68,24 @@ struct PairingView: View {
             stageBackground
             GeometryReader { geo in
                 let visible = max(geo.size.height - 150, 320)
-                ScrollView {
-                    scrollContent(
-                        hero: min(268, max(188, visible * 0.34)),
-                        width: geo.size.width,
-                        viewport: visible
-                    )
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        scrollContent(
+                            hero: min(268, max(188, visible * 0.34)),
+                            width: geo.size.width,
+                            viewport: visible
+                        )
+                    }
+                    .scrollDismissesKeyboard(.immediately)
+                    .onChange(of: error) { _, newValue in
+                        guard newValue != nil else { return }
+                        DispatchQueue.main.async {
+                            withAnimation {
+                                proxy.scrollTo(pasteFieldID, anchor: .bottom)
+                            }
+                        }
+                    }
                 }
-                .scrollDismissesKeyboard(.immediately)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 actionBar
@@ -149,8 +159,18 @@ struct PairingView: View {
                 }
                 darkField("电脑地址 · 短码旁边", text: $shortHost, focus: .host)
                     .padding(.top, 12)
-                darkField("粘贴 luvia2: 码", text: $longCode, focus: .code)
-                    .padding(.top, 8)
+                VStack(alignment: .leading, spacing: 4) {
+                    darkField("粘贴 luvia2: 码", text: $longCode, focus: .code)
+                    if let error {
+                        Text(error)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color(hex: "FF3B30"))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.top, 8)
+                .id(pasteFieldID)
                 if remaining == 0 {
                     Text("倒计时结束。仍可用粘贴的 luvia2: 码配对。")
                         .font(.system(size: 13))
@@ -286,14 +306,6 @@ struct PairingView: View {
 
     private var actionBar: some View {
         VStack(spacing: 10) {
-            if let error {
-                Text(error)
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color(hex: "FF3B30"))
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
             Button(action: confirmTapped) {
                 ZStack {
                     if busy {
@@ -345,8 +357,10 @@ struct PairingView: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
-        .padding(.bottom, 6)
+        .padding(.bottom, 16)
     }
+
+    private var pasteFieldID: String { "luvia-paste-field" }
 
     private func shortTiles(width: CGFloat) -> some View {
         let tileWidth = min(46, max(36, (width - 40 - 18 - 24) / 6))

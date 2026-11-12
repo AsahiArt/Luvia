@@ -104,7 +104,11 @@ struct ContentView: View {
                     showsChrome: stage != "terminal",
                     glass: glass,
                     nextQuestion: nextQuestion(after: thread),
-                    nextAgent: nextAgentName(after: thread)
+                    nextAgent: nextAgentName(after: thread),
+                    onPairAgain: {
+                        userOpenedPairing = true
+                        stage = "pair"
+                    }
                 )
             } else {
                 ContentUnavailableView("会话不在了", systemImage: "bubble.left", description: Text("回到列表。"))

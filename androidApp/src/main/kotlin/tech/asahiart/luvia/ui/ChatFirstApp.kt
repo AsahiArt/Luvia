@@ -311,6 +311,11 @@ fun ChatFirstApp(
                         connection = selected?.connection,
                         pairingRevoked = selected?.pairingRevoked == true,
                         onRetry = { selected?.id?.let(viewModel::connect) },
+                        onPairAgain = {
+                            viewModel.cancelPairing()
+                            userOpenedPairing = true
+                            stage = "pair"
+                        },
                     )
                 }
             }

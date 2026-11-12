@@ -15,6 +15,8 @@
     <string name="confirm_pair">确认配对</string>
     <string name="pairing_connecting">连接中</string>
     <string name="pair_computer">配对电脑</string>
+    <string name="pair_again">重新配对</string>
+    <string name="pairing_revoked">配对已失效</string>
     <string name="pair_new_computer">配对新电脑</string>
     <string name="start_pairing">开始配对</string>
     <string name="device_name">设备名称</string>

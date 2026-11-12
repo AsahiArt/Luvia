@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -50,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
 import tech.asahiart.luvia.R
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -114,10 +116,18 @@ fun ChatScreen(
     connection: ConnectionBadge? = null,
     pairingRevoked: Boolean = false,
     onRetry: () -> Unit = {},
+    onPairAgain: () -> Unit = {},
 ) {
-    val offline = !pairingRevoked && connection != null && connection != ConnectionBadge.Live
     val listState = rememberLazyListState()
     var draft by remember(thread.id) { mutableStateOf(initialDraft) }
+    val chrome = chatComposerChrome(
+        pairingRevoked = pairingRevoked,
+        connection = connection,
+        isObserver = isObserver,
+        sending = sending,
+        draftNonBlank = draft.isNotBlank(),
+    )
+    val offline = chrome.offline
     val visible = items.filterNot { it is TimelineItem.AskCard }
     LaunchedEffect(visible.size) {
         if (visible.isNotEmpty()) listState.animateScrollToItem(visible.lastIndex)
@@ -135,17 +145,20 @@ fun ChatScreen(
             }
             Column(Modifier.weight(1f)) {
                 Text(thread.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val detail = when {
-                    pairingRevoked -> localizeUiMessage(tech.asahiart.luvia.PROVE_REJECTED_EN)
+                val detail = chrome.headerSubtitle ?: when {
                     offline && connection != null ->
                         connection.chromeLabel() + " · " + stringResource(R.string.cached)
                     else ->
                     listOfNotNull(thread.projectLabel, thread.status.sessionLabel()).joinToString(" · ")
                 }
                 Text(
-                    detail,
+                    if (chrome.showPairAgain) stringResource(R.string.pairing_revoked) else detail,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (chrome.showPairAgain) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     maxLines = 1,
                 )
             }
@@ -158,12 +171,31 @@ fun ChatScreen(
                 modifier = terminalModifier.padding(end = 8.dp),
             )
         }
-        if (pairingRevoked) {
-            Text(
-                localizeUiMessage(tech.asahiart.luvia.PROVE_REJECTED_EN),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                style = MaterialTheme.typography.titleMedium,
-            )
+        if (chrome.showPairAgain) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 8.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    localizeUiMessage(tech.asahiart.luvia.PROVE_REJECTED_EN),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Button(
+                    onClick = onPairAgain,
+                    modifier = Modifier.align(Alignment.End).height(40.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Text(stringResource(R.string.pair_again))
+                }
+            }
         } else if (offline && connection != null) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(connection.chromeLabel(), style = MaterialTheme.typography.titleMedium)
@@ -204,17 +236,18 @@ fun ChatScreen(
             }
         }
         thread.ask?.let { ask ->
-            DecisionCard(
-                ask = ask,
-                agentType = thread.agentType,
-                sessionTitle = thread.title,
-                index = queueIndex,
-                total = queueTotal,
-                enabled = !isObserver && !sending && !offline,
-                onAnswer = onAnswer,
-            )
+            Box(Modifier.alpha(if (pairingRevoked) 0.38f else 1f)) {
+                DecisionCard(
+                    ask = ask,
+                    agentType = thread.agentType,
+                    sessionTitle = thread.title,
+                    index = queueIndex,
+                    total = queueTotal,
+                    enabled = chrome.decisionEnabled,
+                    onAnswer = onAnswer,
+                )
+            }
         }
-        val canType = !isObserver && !sending && !offline
         Composer(
             draft = draft,
             onDraft = { draft = it },
@@ -225,12 +258,13 @@ fun ChatScreen(
                     draft = ""
                 }
             },
-            canSend = canType && draft.isNotBlank(),
-            editable = canType,
-            hint = when {
-                offline -> stringResource(R.string.offline_cannot_send)
-                isObserver -> stringResource(R.string.observer_cannot_send)
-                else -> stringResource(R.string.message_hint)
+            canSend = chrome.sendEnabled,
+            editable = chrome.inputEnabled,
+            hint = when (chrome.hint) {
+                ChatComposerHint.PairingRevoked -> stringResource(R.string.pairing_revoked)
+                ChatComposerHint.Offline -> stringResource(R.string.offline_cannot_send)
+                ChatComposerHint.Observer -> stringResource(R.string.observer_cannot_send)
+                ChatComposerHint.Message -> stringResource(R.string.message_hint)
             },
         )
     }

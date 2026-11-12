@@ -13,6 +13,7 @@ struct ChatView: View {
     var glass: Namespace.ID
     var nextQuestion: String? = nil
     var nextAgent: String? = nil
+    var onPairAgain: () -> Void = {}
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var draft = ""
@@ -53,12 +54,8 @@ struct ChatView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            if let host = model.selectedHost, host.pairingRevoked {
-                Text(host.failureMessage ?? FailureMessagesKt.PROVE_REJECTED_ZH)
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
+            if model.selectedHost?.pairingRevoked == true {
+                pairingLostBanner
             } else if hostOffline, let host = model.selectedHost {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(connectionLabel(host.connection)).font(.headline)
@@ -104,8 +101,8 @@ struct ChatView: View {
     }
 
     private var headerSubtitle: Text {
-        if let host = model.selectedHost, host.pairingRevoked {
-            return Text(host.failureMessage ?? FailureMessagesKt.PROVE_REJECTED_ZH).foregroundColor(.secondary)
+        if model.selectedHost?.pairingRevoked == true {
+            return Text("配对已失效").foregroundColor(errorColor)
         }
         if hostOffline, let host = model.selectedHost {
             return Text("\(connectionLabel(host.connection)) · 缓存").foregroundColor(.secondary)
@@ -282,8 +279,48 @@ struct ChatView: View {
         return result
     }
 
+    private var pairingRevoked: Bool {
+        model.selectedHost?.pairingRevoked == true
+    }
+
     private var canCompose: Bool {
-        model.selectedHost?.isController == true && !hostOffline
+        model.selectedHost?.isController == true && !hostOffline && !pairingRevoked
+    }
+
+    private var errorColor: Color {
+        colorScheme == .dark ? Color(hex: "FFB4AB") : Color(hex: "BA1A1A")
+    }
+
+    private var errorContainer: Color {
+        colorScheme == .dark ? Color(hex: "93000A") : Color(hex: "FFDAD6")
+    }
+
+    private var onErrorContainer: Color {
+        colorScheme == .dark ? Color(hex: "FFDAD6") : Color(hex: "410002")
+    }
+
+    private var pairingLostBanner: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(FailureMessagesKt.PROVE_REJECTED_ZH)
+                .font(.body)
+                .foregroundStyle(onErrorContainer)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: onPairAgain) {
+                Text("重新配对")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .frame(height: 40)
+                    .background(Color.blue, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(16)
+        .background(errorContainer, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
     }
 
     private func decision(_ ask: Ask) -> some View {
@@ -391,6 +428,8 @@ struct ChatView: View {
         }
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
+        .opacity(model.selectedHost?.pairingRevoked == true ? 0.38 : 1)
+        .allowsHitTesting(model.selectedHost?.pairingRevoked != true)
     }
 
     private var peekLabel: String {
@@ -502,6 +541,7 @@ struct ChatView: View {
     }
 
     private var composerPlaceholder: String {
+        if pairingRevoked { return "配对已失效" }
         if hostOffline { return "离线，无法发送" }
         if model.selectedHost?.isController == true { return "消息" }
         return "观察者只能看，不能发"
