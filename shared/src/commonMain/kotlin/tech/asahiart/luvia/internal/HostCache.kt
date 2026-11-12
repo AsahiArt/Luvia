@@ -3,6 +3,7 @@ package tech.asahiart.luvia.internal
 import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.DataStoreFactory
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.core.okio.OkioSerializer
 import androidx.datastore.core.okio.OkioStorage
 import kotlinx.coroutines.CoroutineScope
@@ -11,6 +12,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import okio.BufferedSink
 import okio.BufferedSource
 import okio.Path.Companion.toPath
@@ -24,11 +31,10 @@ import tech.asahiart.luvia.HostStatus
 import tech.asahiart.luvia.HostStore
 import tech.asahiart.luvia.TaskSummary
 import tech.asahiart.luvia.WorkspaceSummary
-import tech.asahiart.luvia.isLiteralIp
 
 private val cacheJson: Json =
     Json {
-        ignoreUnknownKeys = true
+        ignoreUnknownKeys = false
         encodeDefaults = true
         prettyPrint = false
         explicitNulls = false
@@ -46,18 +52,19 @@ internal data class HostCatalogFile(
 @Serializable
 internal data class HostFile(
     val id: String,
-    val alias: String,
-    val addresses: List<String> = emptyList(),
-    val address: String? = null,
-    val sshPort: Int = 22,
-    val username: String? = null,
-    val hostKeyFingerprints: List<String> = emptyList(),
-    val hostKeySha256: String? = null,
-    val role: String? = null,
+    val hostId: String,
+    val role: String,
     val lastStatus: String = HostStatus.Unknown.name,
     val lastUpdatedEpochMs: Long = 0,
-    val lastConnectedAddress: String? = null,
     val topology: TopologyFile? = null,
+    val name: String = "",
+    val tailnetFqdn: String? = null,
+    val user: String = "",
+    val port: Int,
+    val bridgePath: String,
+    val hostKeys: Set<String> = emptySet(),
+    val hints: List<String> = emptyList(),
+    val lastGood: String? = null,
 )
 
 @Serializable
@@ -126,11 +133,19 @@ internal class DataStoreHostStore(
                 serializer = HostCatalogOkioSerializer,
                 producePath = { path },
             )
+        val corruptionHandler = ReplaceFileCorruptionHandler { HostCatalogFile() }
         dataStore =
             if (scope == null) {
-                DataStoreFactory.create(storage = storage)
+                DataStoreFactory.create(
+                    storage = storage,
+                    corruptionHandler = corruptionHandler,
+                )
             } else {
-                DataStoreFactory.create(storage = storage, scope = scope)
+                DataStoreFactory.create(
+                    storage = storage,
+                    corruptionHandler = corruptionHandler,
+                    scope = scope,
+                )
             }
     }
 
@@ -171,39 +186,11 @@ internal class DataStoreHostStore(
 
     override suspend fun setLastConnectedAddress(hostId: String, address: String) {
         val working = address.trim()
+        if (working.isEmpty()) return
         dataStore.updateData { current ->
             val hosts =
                 current.hosts.map { host ->
-                    if (host.id != hostId) {
-                        host
-                    } else {
-                        val rest = host.addresses.filterNot { it == working }
-                        host.copy(
-                            lastConnectedAddress = working,
-                            addresses = listOf(working) + rest,
-                        )
-                    }
-                }
-            current.copy(version = HOST_CATALOG_VERSION, hosts = hosts)
-        }
-    }
-
-    override suspend fun forgetLiteralAddresses(hostId: String, addresses: List<String>) {
-        val drop = addresses.map { it.trim() }.filter { it.isNotEmpty() && isLiteralIp(it) }.toSet()
-        if (drop.isEmpty()) return
-        dataStore.updateData { current ->
-            val hosts =
-                current.hosts.map { host ->
-                    if (host.id != hostId) {
-                        host
-                    } else {
-                        val remaining = host.addresses.filterNot { it in drop }
-                        val kept = remaining.ifEmpty { host.addresses }
-                        val last = host.lastConnectedAddress
-                        val newLast =
-                            if (last != null && last in drop) kept.firstOrNull() else last
-                        host.copy(addresses = kept, lastConnectedAddress = newLast)
-                    }
+                    if (host.id != hostId) host else host.copy(lastGood = working)
                 }
             current.copy(version = HOST_CATALOG_VERSION, hosts = hosts)
         }
@@ -237,30 +224,54 @@ internal object HostCatalogOkioSerializer : OkioSerializer<HostCatalogFile> {
                 throw CorruptionException("host cache is not UTF-8", e)
             }
         return try {
-            cacheJson.decodeFromString(HostCatalogFile.serializer(), text).migrated()
+            rejectInvalidHostCatalog(text)
+            cacheJson.decodeFromString(HostCatalogFile.serializer(), text)
         } catch (e: Exception) {
             throw CorruptionException("host cache is not valid JSON", e)
         }
     }
 
     override suspend fun writeTo(t: HostCatalogFile, sink: BufferedSink) {
-        val text = cacheJson.encodeToString(HostCatalogFile.serializer(), t.migrated())
+        val text = cacheJson.encodeToString(HostCatalogFile.serializer(), t)
         sink.writeUtf8(text)
+    }
+}
+
+private fun rejectInvalidHostCatalog(text: String) {
+    val root = cacheJson.parseToJsonElement(text) as? JsonObject ?: return
+    val hosts = root["hosts"] as? JsonArray ?: return
+    for (element in hosts) {
+        val host = element as? JsonObject
+            ?: throw IllegalArgumentException("host file is not an object")
+        if (!host.containsKey("role") || host["role"] == null || host["role"] is JsonNull) {
+            throw IllegalArgumentException("host file is missing role")
+        }
+        val port = (host["port"] as? JsonPrimitive)?.intOrNull
+        if (port == 0) {
+            throw IllegalArgumentException("host file port is 0")
+        }
+        val role = (host["role"] as? JsonPrimitive)?.contentOrNull
+        if (role != HostRole.Observer.name && role != HostRole.Controller.name) {
+            throw IllegalArgumentException("host file role is invalid")
+        }
+        val hostId = (host["hostId"] as? JsonPrimitive)?.contentOrNull
+        if (hostId.isNullOrEmpty()) {
+            throw IllegalArgumentException("host file is missing hostId")
+        }
+        val bridgePath = (host["bridgePath"] as? JsonPrimitive)?.contentOrNull
+        if (bridgePath.isNullOrEmpty()) {
+            throw IllegalArgumentException("host file is missing bridgePath")
+        }
     }
 }
 
 internal fun HostProfile.sanitized(): HostProfile =
     copy(
         id = id,
-        alias = alias,
-        addresses = addresses,
-        sshPort = sshPort,
-        username = username,
-        hostKeyFingerprints = hostKeyFingerprints,
+        hostId = hostId,
         role = role,
         lastStatus = lastStatus,
         lastUpdatedEpochMs = lastUpdatedEpochMs,
-        lastConnectedAddress = lastConnectedAddress,
         topology = topology?.copy(
             sessionName = topology.sessionName,
             serverGeneration = topology.serverGeneration,
@@ -272,61 +283,46 @@ internal fun HostProfile.sanitized(): HostProfile =
         ),
     )
 
-internal fun HostCatalogFile.migrated(): HostCatalogFile =
-    copy(
-        version = HOST_CATALOG_VERSION,
-        hosts = hosts.map { it.migrated() },
-    )
-
-internal fun HostFile.migrated(): HostFile {
-    val migratedAddresses = addresses.ifEmpty { listOfNotNull(address) }
-    val migratedFingerprints = hostKeyFingerprints.ifEmpty { listOfNotNull(hostKeySha256) }
-    return copy(
-        addresses = migratedAddresses,
-        address = null,
-        username = username ?: "",
-        hostKeyFingerprints = migratedFingerprints,
-        hostKeySha256 = null,
-        role = hostRole(role).name,
-    )
-}
-
 private fun HostCatalogFile.toPublic(): HostCatalog =
     HostCatalog(
         hosts = hosts.map { it.toPublic() },
         updatedEpochMs = updatedEpochMs,
     )
 
-private fun HostFile.toPublic(): HostProfile {
-    val migrated = migrated()
-    return HostProfile(
-        id = migrated.id,
-        alias = migrated.alias,
-        addresses = migrated.addresses,
-        sshPort = migrated.sshPort,
-        username = migrated.username ?: "",
-        hostKeyFingerprints = migrated.hostKeyFingerprints,
-        role = hostRole(migrated.role),
-        lastStatus = hostStatus(migrated.lastStatus),
-        lastUpdatedEpochMs = migrated.lastUpdatedEpochMs,
-        lastConnectedAddress = migrated.lastConnectedAddress,
-        topology = migrated.topology?.toPublic(),
+private fun HostFile.toPublic(): HostProfile =
+    HostProfile(
+        id = id,
+        hostId = hostId,
+        role = hostRole(role),
+        lastStatus = hostStatus(lastStatus),
+        lastUpdatedEpochMs = lastUpdatedEpochMs,
+        topology = topology?.toPublic(),
+        name = name,
+        tailnetFqdn = tailnetFqdn,
+        user = user,
+        port = port,
+        bridgePath = bridgePath,
+        hostKeys = hostKeys,
+        hints = hints,
+        lastGood = lastGood,
     )
-}
 
 private fun HostProfile.toFile(): HostFile =
     HostFile(
         id = id,
-        alias = alias,
-        addresses = addresses,
-        sshPort = sshPort,
-        username = username,
-        hostKeyFingerprints = hostKeyFingerprints,
+        hostId = hostId,
         role = role.name,
         lastStatus = lastStatus.name,
         lastUpdatedEpochMs = lastUpdatedEpochMs,
-        lastConnectedAddress = lastConnectedAddress,
         topology = topology?.toFile(),
+        name = name,
+        tailnetFqdn = tailnetFqdn,
+        user = user,
+        port = port,
+        bridgePath = bridgePath,
+        hostKeys = hostKeys,
+        hints = hints,
+        lastGood = lastGood,
     )
 
 private fun TopologyFile.toPublic(): CachedTopology =
@@ -420,16 +416,12 @@ private fun AgentSummary.toFile(): AgentFile =
 private fun agentStatus(raw: String): AgentStatus =
     AgentStatus.entries.firstOrNull { it.name == raw } ?: parseAgentStatus(raw.lowercase())
 
-/**
- * v1 caches predate roles, and those hosts were fully controllable, so an
- * absent role migrates to [HostRole.Controller] rather than silently demoting
- * a host the user already drives. A present but unrecognized role is a
- * corrupt or future value and falls back to least privilege.
- */
-private fun hostRole(raw: String?): HostRole =
+/** A role other than Observer or Controller is a corrupt cache, not a fallback. */
+private fun hostRole(raw: String): HostRole =
     when (raw) {
-        null -> HostRole.Controller
-        else -> HostRole.entries.firstOrNull { it.name == raw } ?: HostRole.Observer
+        HostRole.Observer.name -> HostRole.Observer
+        HostRole.Controller.name -> HostRole.Controller
+        else -> throw IllegalArgumentException("host file role is invalid")
     }
 
 private fun hostStatus(raw: String): HostStatus =

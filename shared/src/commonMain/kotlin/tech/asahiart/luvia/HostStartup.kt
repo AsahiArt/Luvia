@@ -36,21 +36,21 @@ public fun preferredStartupHost(profiles: List<HostProfile>): HostProfile? {
 
 /**
  * Cold-start selection. A saved id is kept when it names a different computer.
- * A similar alias (Yui vs Yui.local) yields the last-good host instead.
+ * A similar name (Yui vs Yui.local) yields the last-good host instead.
  */
 public fun resolveStartupHost(profiles: List<HostProfile>, selectedId: String?): HostProfile? {
     val preferred = preferredStartupHost(profiles) ?: return null
     val selected = profiles.firstOrNull { it.id == selectedId } ?: return preferred
     if (selected.id == preferred.id) return selected
-    val stem = aliasStem(selected.alias)
-    if (stem.isNotEmpty() && stem == aliasStem(preferred.alias)) {
+    val stem = nameStem(selected.name)
+    if (stem.isNotEmpty() && stem == nameStem(preferred.name)) {
         return preferred
     }
     return selected
 }
 
-internal fun aliasStem(alias: String): String {
-    val head = alias.trim().substringBefore('.').trim()
+internal fun nameStem(name: String): String {
+    val head = name.trim().substringBefore('.').trim()
     return head.lowercase()
 }
 
@@ -74,7 +74,7 @@ public fun shouldPresentPairing(
 }
 
 private fun startupRank(profile: HostProfile): Int {
-    val everConnected = !profile.lastConnectedAddress.isNullOrBlank()
+    val everConnected = !profile.lastGood.isNullOrBlank()
     return when (profile.lastStatus) {
         HostStatus.Reachable -> 3
         HostStatus.Stale -> if (everConnected) 2 else 1

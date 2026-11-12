@@ -93,8 +93,8 @@ class ShortCodeTest {
     }
 
     @Test
-    fun redeemShortCodeReturnsLuvia1FromAKnownHost() = runTest {
-        val luvia = sampleLuvia1()
+    fun redeemShortCodeReturnsLegacyFormatRejectionFromAKnownHost() = runTest {
+        val luvia = sampleLegacyFormatRejection()
         var seenUrl = ""
         var seenBody = ""
         val redeemed =
@@ -105,14 +105,14 @@ class ShortCodeTest {
                 ShortCodePoster { url, body ->
                     seenUrl = url
                     seenBody = body
-                    ShortCodeHttp(200, """{"luvia1":"$luvia"}""")
+                    ShortCodeHttp(200, """{"luvia2":"$luvia"}""")
                 },
             )
         assertEquals("http://192.168.1.4:8741/pair/redeem", seenUrl)
         assertTrue(seenBody.contains("\"code\":\"482197\""))
         assertTrue(seenBody.contains(fingerprint))
         assertEquals(luvia, (redeemed as Outcome.Ok).value)
-        assertEquals(fingerprint, (PairingCodes.decode(luvia) as Outcome.Ok).value.deviceKeyFingerprint)
+        assertEquals(fingerprint, (PairingCodes.decode(luvia) as Outcome.Ok).value.deviceKey)
     }
 
     @Test
@@ -172,14 +172,14 @@ class ShortCodeTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun redeemedLuvia1CompletesPairingThroughTheExistingPath() = runTest {
-        val luvia = sampleLuvia1()
+    fun redeemedLegacyFormatRejectionCompletesPairingThroughTheExistingPath() = runTest {
+        val luvia = sampleLegacyFormatRejection()
         val redeemed =
             redeemShortCode(
                 "482197",
                 fingerprint,
                 listOf(ShortCodeEndpoint("192.168.1.70", 8741)),
-                ShortCodePoster { _, _ -> ShortCodeHttp(200, """{"luvia1":"$luvia"}""") },
+                ShortCodePoster { _, _ -> ShortCodeHttp(200, """{"luvia2":"$luvia"}""") },
             )
         val code = (redeemed as Outcome.Ok).value
         val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-short-${Random.nextLong()}.json"
@@ -203,10 +203,12 @@ class ShortCodeTest {
         manager.close()
     }
 
-    private fun sampleLuvia1(): String {
+    private fun sampleLegacyFormatRejection(): String {
+        val hostId = "cd".repeat(16)
+        val deviceId = "ab".repeat(16)
         val body =
-            """{"v":1,"id":"grant-short","dk":"$fingerprint","name":"studio","user":"misaka","port":22,"addrs":["192.168.1.70"],"hk":["$fingerprint"],"role":"controller"}"""
-        return "luvia1:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
+            """{"name":"studio","user":"misaka","port":22,"bridge":"/usr/local/bin/luvia-host","hk":["$fingerprint"],"hints":["192.168.1.70"],"host_id":"$hostId","device_id":"$deviceId","device_key":"$fingerprint","role":"controller"}"""
+        return "luvia2:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
     }
 
     private fun protocolReason(outcome: Outcome<String>): String {

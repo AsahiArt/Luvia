@@ -73,16 +73,16 @@ class TerminalPaneChoicesTest {
         HostRuntime(
             profile = HostProfile(
                 id = "h",
-                alias = "host",
-                addresses = emptyList(),
-                sshPort = 22,
-                username = "u",
-                hostKeyFingerprints = emptyList(),
+                hostId = "ab".repeat(16),
+                name = "host",
+                user = "u",
+                hostKeys = emptySet(),
+                bridgePath = "/usr/local/bin/luvia-host",
                 role = HostRole.Controller,
                 lastStatus = HostStatus.Reachable,
                 lastUpdatedEpochMs = 0,
-                lastConnectedAddress = null,
                 topology = null,
+                port = 22,
             ),
             link = HostLink.Idle,
             snapshot = SessionSnapshot(

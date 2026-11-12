@@ -241,6 +241,7 @@ fn authorize(role: Role, method: &str) -> Result<()> {
             format!("unknown UHP method {method}"),
         ));
     }
+    crate::auth::reject_observer_input(role, Some(method), false)?;
     if WRITE_METHODS.contains(&method) && role == Role::Observer {
         return Err(Error::new(
             "forbidden",

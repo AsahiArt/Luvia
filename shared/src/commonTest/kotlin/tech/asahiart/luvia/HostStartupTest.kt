@@ -12,7 +12,7 @@ class HostStartupTest {
         val stale =
             profile(
                 id = "yui-old",
-                alias = "Yui",
+                name = "Yui",
                 status = HostStatus.Stale,
                 updated = 9_000,
                 lastConnected = "yui.local",
@@ -20,7 +20,7 @@ class HostStartupTest {
         val lastGood =
             profile(
                 id = "yui-local",
-                alias = "Yui.local",
+                name = "Yui.local",
                 status = HostStatus.Reachable,
                 updated = 1_000,
                 lastConnected = "Yui.local",
@@ -34,7 +34,7 @@ class HostStartupTest {
         val older =
             profile(
                 id = "yui-old",
-                alias = "Yui",
+                name = "Yui",
                 status = HostStatus.Reachable,
                 updated = 100,
                 lastConnected = "yui.local",
@@ -42,7 +42,7 @@ class HostStartupTest {
         val newer =
             profile(
                 id = "yui-local",
-                alias = "Yui.local",
+                name = "Yui.local",
                 status = HostStatus.Reachable,
                 updated = 500,
                 lastConnected = "192.168.1.70",
@@ -52,15 +52,15 @@ class HostStartupTest {
 
     @Test
     fun savedSelectionOfADifferentComputerIsKept() {
-        val yui = profile(id = "yui-local", alias = "Yui.local", status = HostStatus.Reachable, updated = 500)
-        val nas = profile(id = "nas", alias = "nas", status = HostStatus.Stale, updated = 100, lastConnected = "nas.local")
+        val yui = profile(id = "yui-local", name = "Yui.local", status = HostStatus.Reachable, updated = 500)
+        val nas = profile(id = "nas", name = "nas", status = HostStatus.Stale, updated = 100, lastConnected = "nas.local")
         assertEquals("nas", resolveStartupHost(listOf(yui, nas), "nas")?.id)
     }
 
     @Test
     fun savedSelectionOfASimilarNameYieldsLastGoodHost() {
-        val stale = profile(id = "yui-old", alias = "Yui", status = HostStatus.Stale, updated = 9_000, lastConnected = "yui.local")
-        val lastGood = profile(id = "yui-local", alias = "Yui.local", status = HostStatus.Reachable, updated = 1_000)
+        val stale = profile(id = "yui-old", name = "Yui", status = HostStatus.Stale, updated = 9_000, lastConnected = "yui.local")
+        val lastGood = profile(id = "yui-local", name = "Yui.local", status = HostStatus.Reachable, updated = 1_000)
         assertEquals("yui-local", resolveStartupHost(listOf(stale, lastGood), "yui-old")?.id)
         assertEquals(lastGood.id, resolveStartupHost(listOf(stale, lastGood), null)?.id)
     }
@@ -135,21 +135,23 @@ class HostStartupTest {
 
 private fun profile(
     id: String,
-    alias: String,
+    name: String,
     status: HostStatus,
     updated: Long,
     lastConnected: String? = "Yui.local",
 ): HostProfile =
     HostProfile(
         id = id,
-        alias = alias,
-        addresses = listOf("192.168.1.70", "Yui.local"),
-        sshPort = 22,
-        username = "misaka",
-        hostKeyFingerprints = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+        hostId = "ab".repeat(16),
+        name = name,
+        user = "misaka",
+        hostKeys = setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+        bridgePath = "/usr/local/bin/luvia-host",
         role = HostRole.Controller,
         lastStatus = status,
         lastUpdatedEpochMs = updated,
-        lastConnectedAddress = lastConnected,
         topology = null,
+        hints = listOf("192.168.1.70", "Yui.local"),
+        port = 22,
+        lastGood = lastConnected,
     )

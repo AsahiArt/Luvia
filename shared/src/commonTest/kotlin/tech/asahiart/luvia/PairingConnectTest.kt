@@ -38,8 +38,50 @@ class PairingConnectTest {
     }
 
     @Test
+    fun luvia1CodeIsTheOldCodeMessageNotTheGenericRejection() {
+        val old =
+            Failure.ProtocolError("luvia1: pairing codes are not accepted; use luvia2:").pairingMessage()
+        assertEquals(
+            "This is an old pairing code and is no longer supported. Update luvia-host on the computer, run pair again, and scan the new code. The draft is still valid.",
+            old,
+        )
+        assertFalse(old.contains("not a luvia2"))
+        val both = Failure.ProtocolError("luvia1: must start with luvia2").pairingMessage()
+        assertEquals(old, both)
+        assertFalse(both.contains("not a luvia2"))
+        val generic = Failure.ProtocolError("pairing code must start with luvia2:").pairingMessage()
+        assertTrue(generic.contains("not a luvia2"))
+        assertFalse(generic.contains("old pairing code"))
+    }
+
+    @Test
+    fun dnsTimeoutNamesTheComputerAndCandidateTimeoutStays() {
+        assertEquals(
+            "Couldn't find this computer (name lookup timed out). Check network or Tailscale.",
+            Failure.Transport("dns timeout").connectMessage(),
+        )
+        assertEquals(
+            "No address reachable. Check network or Tailscale.",
+            Failure.Transport("candidate timeout").connectMessage(),
+        )
+        assertEquals(
+            "The host refused the connection.",
+            Failure.ClosedBeforeBanner().connectMessage(),
+        )
+        assertEquals(HANDSHAKE_FAILED_EN, Failure.HandshakeFailed("key exchange failed").connectMessage())
+        assertEquals(HANDSHAKE_FAILED_ZH, "与主机握手失败")
+        val rejected = Failure.ProveRejected("unknown_device", "no pairing grant for host-1")
+        assertEquals(PROVE_REJECTED_EN, rejected.connectMessage())
+        assertEquals(PROVE_REJECTED_EN, rejected.userMessage())
+        assertEquals(PROVE_REJECTED_ZH, "这台设备的配对已失效。在电脑上重新运行 pair，再扫新码。")
+        assertFalse(rejected.connectMessage().contains("no pairing grant"))
+        assertFalse(rejected.userMessage().contains("unknown_device"))
+        assertFalse(rejected.userMessage().contains("host-1"))
+    }
+
+    @Test
     fun setupFailuresStayOnThePairingCopy() {
-        assertTrue(Failure.ProtocolError("pairing code must start with luvia1:").isPairingSetupFailure())
+        assertTrue(Failure.ProtocolError("luvia1: pairing codes are not accepted; use luvia2:").isPairingSetupFailure())
         assertTrue(Failure.ProtocolError("pairing code is for a different device key").isPairingSetupFailure())
         assertTrue(Failure.ProtocolError("Could not store the device key on this device.").isPairingSetupFailure())
         assertTrue(Failure.ProtocolError("short code expired").isPairingSetupFailure())

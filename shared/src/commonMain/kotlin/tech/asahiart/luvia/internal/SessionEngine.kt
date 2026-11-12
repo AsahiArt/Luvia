@@ -28,6 +28,7 @@ import tech.asahiart.luvia.TerminalControl
 import tech.asahiart.luvia.TerminalIdentity
 import tech.asahiart.luvia.TerminalUpdate
 import tech.asahiart.luvia.fail
+import tech.asahiart.luvia.mapTransport
 import tech.asahiart.luvia.ok
 
 internal class OpenStream(
@@ -45,7 +46,10 @@ internal class UnaryMux(
     val framer: NdjsonFramer,
 )
 
-private class BridgeOpenException(message: String) : Exception(message)
+private class BridgeOpenException(
+    message: String,
+    cause: Throwable? = null,
+) : Exception(message, cause)
 
 // Bridge stdin idle-timeout is 300s (host/src/bridge.rs IDLE_TIMEOUT).
 // Pooled channels are reopened on the next borrow rather than kept alive
@@ -395,7 +399,7 @@ internal class SessionEngine(
         val channel = try {
             register(channels.open())
         } catch (e: Exception) {
-            return fail(Failure.Bridge(e.message ?: "channel open failed"))
+            return fail(failureFromChannelOpen(e))
         }
         val framer = NdjsonFramer(channel)
         return try {
@@ -457,7 +461,7 @@ internal class SessionEngine(
                 throw e
             } catch (e: BridgeOpenException) {
                 dropSlotMux(slot)
-                fail(Failure.Bridge(e.message ?: "channel open failed"))
+                fail(failureFromChannelOpen(e))
             } catch (e: Exception) {
                 dropSlotMux(slot)
                 fail(e.toFailure(method, mutation, written))
@@ -500,7 +504,7 @@ internal class SessionEngine(
         val channel = try {
             register(channels.open())
         } catch (e: Exception) {
-            throw BridgeOpenException(e.message ?: "channel open failed")
+            throw BridgeOpenException(e.message ?: "channel open failed", e)
         }
         val framer = NdjsonFramer(channel)
         try {
@@ -529,7 +533,7 @@ internal class SessionEngine(
         val channel = try {
             register(channels.open())
         } catch (e: Exception) {
-            return fail(Failure.Bridge(e.message ?: "channel open failed"))
+            return fail(failureFromChannelOpen(e))
         }
         val framer = NdjsonFramer(channel)
         return try {
@@ -564,6 +568,12 @@ internal class SessionEngine(
         nextId += 1
         "r$nextId"
     }
+}
+
+private fun failureFromChannelOpen(error: Throwable): Failure {
+    val mapped = mapTransport(error)
+    if (mapped is Failure.ProveRejected) return mapped
+    return Failure.Bridge(error.message ?: "channel open failed")
 }
 
 private fun UhpError.toRemote(): Failure = toFailure()

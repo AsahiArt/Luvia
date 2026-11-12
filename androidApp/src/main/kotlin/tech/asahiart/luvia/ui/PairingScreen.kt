@@ -55,8 +55,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -71,6 +73,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -88,6 +93,7 @@ import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlinx.coroutines.delay
 import tech.asahiart.luvia.HostRole
@@ -258,10 +264,20 @@ private fun PairingRitual(
             looksLikeShortCode(pasted) -> pasted
             else -> pasted
         }
-    val fingerprintMatches = decoded?.deviceKeyFingerprint == draft.deviceKeyFingerprint
-    val hostName = decoded?.hostLabel?.takeIf { it.isNotBlank() }
+    val fingerprintMatches = decoded?.deviceKey == draft.deviceKeyFingerprint
+    val hostName = decoded?.name?.takeIf { it.isNotBlank() }
     val scanLabel = stringResource(R.string.scan_instead)
-    val address = decoded?.addresses?.firstOrNull().orEmpty()
+    val address = decoded?.hints?.firstOrNull().orEmpty()
+    val scroll = rememberScrollState()
+    var viewportHeight by remember { mutableIntStateOf(0) }
+    var pasteBottom by remember { mutableIntStateOf(0) }
+    LaunchedEffect(pairing.errorMessage) {
+        if (pairing.errorMessage == null) return@LaunchedEffect
+        withFrameNanos { }
+        withFrameNanos { }
+        val target = (pasteBottom - viewportHeight).coerceAtLeast(0)
+        scroll.animateScrollTo(target.coerceAtMost(scroll.maxValue))
+    }
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) scanning = true
     }
@@ -297,7 +313,8 @@ private fun PairingRitual(
         Column(
             Modifier
                 .weight(1f)
-                .verticalScroll(rememberScrollState())
+                .onSizeChanged { viewportHeight = it.height }
+                .verticalScroll(scroll)
                 .padding(horizontal = 12.dp),
         ) {
             Column(
@@ -488,7 +505,21 @@ private fun PairingRitual(
                     onClearError()
                 },
                 label = { Text(stringResource(R.string.paste_code)) },
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                isError = pairing.errorMessage != null,
+                supportingText = pairing.errorMessage?.let { message ->
+                    {
+                        Text(
+                            localizeUiMessage(message),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                },
+                modifier = Modifier
+                    .onGloballyPositioned { coordinates ->
+                        pasteBottom = coordinates.boundsInParent().bottom.roundToInt()
+                    }
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = LuviaTheme.mono),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -496,18 +527,11 @@ private fun PairingRitual(
             )
             Spacer(Modifier.height(8.dp))
         }
-        pairing.errorMessage?.let { message ->
-            Text(
-                localizeUiMessage(message),
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(horizontal = 16.dp)
+                .padding(top = 8.dp, bottom = 16.dp)
                 .height(56.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {

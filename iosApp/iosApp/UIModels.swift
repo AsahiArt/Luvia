@@ -420,8 +420,8 @@ struct HostViewState: Identifiable, Hashable, Sendable {
     var name: String
     var address: String
     var addresses: [String]
-    var sshPort: Int32
-    var username: String
+    var port: Int32
+    var user: String
     var sessionName: String?
     var connection: HostConnectionBadge
     var workingAgents: Int
@@ -431,6 +431,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
     var lastUpdated: Date?
     var isController: Bool
     var failureMessage: String?
+    var pairingRevoked: Bool
     var agents: [AgentViewState]
     var tasks: [TaskViewState]
     var terminalLocator: TerminalLocator?
@@ -444,8 +445,8 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         name: String,
         address: String,
         addresses: [String] = [],
-        sshPort: Int32 = 22,
-        username: String = "",
+        port: Int32 = 22,
+        user: String = "",
         sessionName: String? = nil,
         connection: HostConnectionBadge = .offline,
         workingAgents: Int = 0,
@@ -455,6 +456,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         lastUpdated: Date? = nil,
         isController: Bool = false,
         failureMessage: String? = nil,
+        pairingRevoked: Bool = false,
         agents: [AgentViewState] = [],
         tasks: [TaskViewState] = [],
         terminalLocator: TerminalLocator? = nil,
@@ -467,8 +469,8 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         self.name = name
         self.address = address
         self.addresses = addresses
-        self.sshPort = sshPort
-        self.username = username
+        self.port = port
+        self.user = user
         self.sessionName = sessionName
         self.connection = connection
         self.workingAgents = workingAgents
@@ -478,6 +480,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         self.lastUpdated = lastUpdated
         self.isController = isController
         self.failureMessage = failureMessage
+        self.pairingRevoked = pairingRevoked
         self.agents = agents
         self.tasks = tasks
         self.terminalLocator = terminalLocator
@@ -551,11 +554,11 @@ struct HostViewState: Identifiable, Hashable, Sendable {
 
         self.init(
             id: profile.id,
-            name: profile.alias,
+            name: profile.name,
             address: link.address,
-            addresses: KotlinLists.array(profile.addresses as Any),
-            sshPort: profile.sshPort,
-            username: profile.username,
+            addresses: KotlinLists.array(profile.hints as Any),
+            port: profile.port,
+            user: profile.user,
             sessionName: link.sessionName,
             connection: link.badge,
             workingAgents: agentSummaries.filter { isStatus($0.status, .working) }.count,
@@ -567,6 +570,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
                 : nil,
             isController: profile.role == HostRole.controller,
             failureMessage: link.failure,
+            pairingRevoked: link.pairingRevoked,
             agents: agents,
             tasks: tasks,
             terminalLocator: locator,
@@ -594,12 +598,13 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         var address: String
         var sessionName: String?
         var failure: String?
+        var pairingRevoked: Bool
     }
 
     private static func linkPresentation(_ runtime: HostRuntime) -> LinkPresentation {
         let profile = runtime.profile
-        let fallbackAddress = profile.lastConnectedAddress
-            ?? KotlinLists.array(profile.addresses).first
+        let fallbackAddress = profile.lastGood
+            ?? KotlinLists.array(profile.hints).first
             ?? ""
         switch onEnum(of: runtime.link) {
         case .idle(_):
@@ -607,14 +612,16 @@ struct HostViewState: Identifiable, Hashable, Sendable {
                 badge: runtime.freshness == ConnectionFreshness.stale ? .stale : .offline,
                 address: fallbackAddress,
                 sessionName: runtime.snapshot?.sessionName ?? profile.topology?.sessionName,
-                failure: nil
+                failure: nil,
+                pairingRevoked: false
             )
         case .connecting(_):
             return LinkPresentation(
                 badge: .connecting,
                 address: fallbackAddress,
                 sessionName: runtime.snapshot?.sessionName ?? profile.topology?.sessionName,
-                failure: nil
+                failure: nil,
+                pairingRevoked: false
             )
         case .online(let online):
             let badge: HostConnectionBadge = runtime.freshness == ConnectionFreshness.stale ? .stale : .live
@@ -622,14 +629,22 @@ struct HostViewState: Identifiable, Hashable, Sendable {
                 badge: badge,
                 address: online.address,
                 sessionName: online.sessionName,
-                failure: nil
+                failure: nil,
+                pairingRevoked: false
             )
         case .failed(let failed):
+            let revoked: Bool
+            if case .proveRejected(_) = onEnum(of: failed.failure) {
+                revoked = true
+            } else {
+                revoked = false
+            }
             return LinkPresentation(
                 badge: .offline,
                 address: fallbackAddress,
                 sessionName: runtime.snapshot?.sessionName ?? profile.topology?.sessionName,
-                failure: FailureText.connectActionable(failed.failure)
+                failure: FailureText.connectActionable(failed.failure),
+                pairingRevoked: revoked
             )
         }
     }
@@ -753,6 +768,14 @@ enum FailureText {
             return value.reason
         case .transport(let value):
             return value.reason
+        case .hostKeyMismatch(_):
+            return "\u{4e3b}\u{673a}\u{5bc6}\u{94a5}\u{53d8}\u{4e86}\u{3002}\u{8bf7}\u{91cd}\u{65b0}\u{914d}\u{5bf9}\u{3002}"
+        case .closedBeforeBanner(_):
+            return "主机拒绝了连接"
+        case .handshakeFailed(_):
+            return FailureMessagesKt.HANDSHAKE_FAILED_ZH
+        case .proveRejected(_):
+            return FailureMessagesKt.PROVE_REJECTED_ZH
         case .closed(_):
             return "连接已断开"
         case .revisionConflict(let value):
@@ -795,34 +818,47 @@ enum FailureText {
         if reason == "pairing code is for a different device key" {
             return "这条配对码属于另一把设备密钥。请在电脑上运行上一步的命令，再扫描它打印的码。" + draftNote
         }
-        if reason == "pairing code must start with luvia1:" {
-            return "这不是 luvia1: 配对码。请扫描或粘贴一条 luvia1: 码。" + draftNote
+        if reason.contains("luvia1:") {
+            return "这是旧版配对码，已不再支持。在电脑上更新 luvia-host，重新运行 pair，再扫新码。草稿仍然有效。"
+        }
+        if reason.contains("must start with luvia2") {
+            return "这不是 luvia2: 配对码。请扫描或粘贴一条 luvia2: 码。" + draftNote
         }
         if reason.contains("short code expired") {
-            return "六位短码已过期。在电脑上重新运行 pair --short，或粘贴 luvia1: 码。" + draftNote
+            return "六位短码已过期。在电脑上重新运行 pair --short，或粘贴 luvia2: 码。" + draftNote
         }
         if reason.contains("invalidated after failed") {
-            return "六位短码已因错误尝试作废。在电脑上重新运行 pair --short，或粘贴 luvia1: 码。" + draftNote
+            return "六位短码已因错误尝试作废。在电脑上重新运行 pair --short，或粘贴 luvia2: 码。" + draftNote
         }
         if reason.contains("short code needs") {
             return "填写电脑上短码旁边的地址。" + draftNote
         }
         if reason.contains("short code redeem failed") {
-            return "连不上电脑兑换短码。检查地址，或粘贴 luvia1: 码。" + draftNote
+            return "连不上电脑兑换短码。检查地址，或粘贴 luvia2: 码。" + draftNote
         }
         if reason.contains("short code") {
-            return "电脑拒绝了这个短码。核对数字，或粘贴 luvia1: 码。" + draftNote
+            return "电脑拒绝了这个短码。核对数字，或粘贴 luvia2: 码。" + draftNote
         }
         if reason == "pairing code has no host key fingerprints" {
             return "这条配对码没有主机密钥，不能信任。请在电脑上重新生成。" + draftNote
         }
         if reason.hasPrefix("pairing code") {
-            return "这条配对码格式不对。再扫一次，或粘贴另一条 luvia1: 码。" + draftNote
+            return "这条配对码格式不对。再扫一次，或粘贴另一条 luvia2: 码。" + draftNote
         }
         return reason
     }
 
     static func connectActionable(_ failure: Failure) -> String {
+        switch onEnum(of: failure) {
+        case .proveRejected(_):
+            return FailureMessagesKt.PROVE_REJECTED_ZH
+        case .handshakeFailed(_):
+            return FailureMessagesKt.HANDSHAKE_FAILED_ZH
+        case .closedBeforeBanner(_):
+            return "主机拒绝了连接"
+        default:
+            break
+        }
         let raw: String
         switch onEnum(of: failure) {
         case .protocolError(let value):
@@ -843,6 +879,15 @@ enum FailureText {
             || lower.contains("permission denied")
         {
             return "SSH 拒绝了这台设备。请在主机上检查授权。"
+        }
+        if lower.contains("closed before banner") || lower.contains("host refused") {
+            return "主机拒绝了连接"
+        }
+        if lower.contains("dns timeout") {
+            return "找不到这台电脑（主机名解析超时）。检查网络或 Tailscale。"
+        }
+        if lower.contains("candidate timeout") {
+            return "没有能连上的地址。检查网络或 Tailscale。"
         }
         if lower.contains("timed out")
             || lower.contains("timeout")

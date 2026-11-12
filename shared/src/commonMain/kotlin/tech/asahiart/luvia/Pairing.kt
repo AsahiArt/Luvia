@@ -1,6 +1,7 @@
 package tech.asahiart.luvia
 
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
@@ -9,22 +10,27 @@ import tech.asahiart.luvia.internal.StrictJsonException
 import tech.asahiart.luvia.internal.parseStrictJson
 
 public data class PairingCode(
-    public val version: Int,
+    public val name: String,
+    public val tailnetFqdn: String?,
+    public val user: String,
+    public val port: Int,
+    public val bridgePath: String,
+    public val hostKeys: List<String>,
+    public val hints: List<String>,
+    public val hostId: String,
     public val deviceId: String,
-    public val deviceKeyFingerprint: String,
-    public val hostLabel: String,
-    public val username: String,
-    public val sshPort: Int,
-    public val addresses: List<String>,
-    public val hostKeyFingerprints: List<String>,
+    public val deviceKey: String,
     public val role: HostRole,
 )
 
 public object PairingCodes {
     public fun decode(raw: String): Outcome<PairingCode> {
         val trimmed = raw.trim()
-        if (!hasLuviaPrefix(trimmed)) {
-            return fail(Failure.ProtocolError("pairing code must start with luvia1:"))
+        if (hasPrefix(trimmed, LEGACY_PREFIX)) {
+            return fail(Failure.ProtocolError("luvia1: pairing codes are not accepted; use luvia2:"))
+        }
+        if (!hasPrefix(trimmed, PREFIX)) {
+            return fail(Failure.ProtocolError("pairing code must start with luvia2:"))
         }
         val body = trimmed.substring(PREFIX.length)
         val jsonBytes = decodeBase64UrlUnpadded(body)
@@ -48,7 +54,7 @@ public object PairingCodes {
 
     public fun looksLikeCode(raw: String): Boolean {
         val trimmed = raw.trim()
-        return hasLuviaPrefix(trimmed)
+        return hasPrefix(trimmed, PREFIX)
     }
 }
 
@@ -81,16 +87,19 @@ public fun pairCommandFor(deviceLabel: String, role: HostRole, authorizedKeysLin
     return "luvia-host pair --name ${posixSingleQuote(deviceLabel)} --role $roleFlag --key ${posixSingleQuote(authorizedKeysLine)} --short"
 }
 
-private const val PREFIX: String = "luvia1:"
+private const val PREFIX: String = "luvia2:"
+private const val LEGACY_PREFIX: String = "luvia1:"
 private val FINGERPRINT: Regex = Regex("^SHA256:[A-Za-z0-9+/]{43}$")
+private val HOST_ID: Regex = Regex("^[0-9a-f]{32}$")
 private val REQUIRED_KEYS: Set<String> =
-    setOf("v", "id", "dk", "name", "user", "port", "addrs", "hk", "role")
+    setOf("name", "user", "port", "bridge", "hk", "hints", "host_id", "device_id", "device_key", "role")
+private val OPTIONAL_KEYS: Set<String> = setOf("fqdn")
 
-private fun hasLuviaPrefix(value: String): Boolean =
-    value.length >= PREFIX.length && value.regionMatches(0, PREFIX, 0, PREFIX.length, ignoreCase = true)
+private fun hasPrefix(value: String, prefix: String): Boolean =
+    value.length >= prefix.length && value.regionMatches(0, prefix, 0, prefix.length, ignoreCase = true)
 
 private fun decodeObject(obj: JsonObject): Outcome<PairingCode> {
-    val extra = obj.keys - REQUIRED_KEYS
+    val extra = obj.keys - REQUIRED_KEYS - OPTIONAL_KEYS
     if (extra.isNotEmpty()) {
         return fail(Failure.ProtocolError("pairing code contains unknown field '${extra.first()}'"))
     }
@@ -100,36 +109,55 @@ private fun decodeObject(obj: JsonObject): Outcome<PairingCode> {
         }
     }
 
-    val version = intField(obj, "v") ?: return fail(Failure.ProtocolError("pairing code version must be 1"))
-    if (version != 1) {
-        return fail(Failure.ProtocolError("pairing code version must be 1"))
-    }
-    val deviceId = stringField(obj, "id") ?: return typeError("id")
-    val deviceKeyFingerprint = stringField(obj, "dk") ?: return typeError("dk")
-    val hostLabel = stringField(obj, "name") ?: return typeError("name")
-    val username = stringField(obj, "user") ?: return typeError("user")
+    val name = stringField(obj, "name") ?: return typeError("name")
+    val user = stringField(obj, "user") ?: return typeError("user")
     val port = intField(obj, "port")
         ?: return fail(Failure.ProtocolError("pairing code port is out of range"))
-    val addresses = stringList(obj, "addrs") ?: return typeError("addrs")
-    val hostKeyFingerprints = stringList(obj, "hk") ?: return typeError("hk")
+    val bridgePath = stringField(obj, "bridge") ?: return typeError("bridge")
+    val hostKeys = stringList(obj, "hk") ?: return typeError("hk")
+    val hints = stringList(obj, "hints") ?: return typeError("hints")
+    val hostId = stringField(obj, "host_id") ?: return typeError("host_id")
+    val deviceId = stringField(obj, "device_id") ?: return typeError("device_id")
+    val deviceKey = stringField(obj, "device_key") ?: return typeError("device_key")
     val roleRaw = stringField(obj, "role") ?: return typeError("role")
+    val tailnetFqdn =
+        if ("fqdn" !in obj || obj["fqdn"] == null || obj["fqdn"] is JsonNull) {
+            null
+        } else {
+            stringField(obj, "fqdn") ?: return typeError("fqdn")
+        }
 
-    if (username.isBlank()) {
+    if (name.isBlank()) {
+        return fail(Failure.ProtocolError("pairing code name is blank"))
+    }
+    if (user.isBlank()) {
         return fail(Failure.ProtocolError("pairing code username is blank"))
     }
     if (port !in 1..65535) {
         return fail(Failure.ProtocolError("pairing code port is out of range"))
     }
-    if (addresses.isEmpty()) {
-        return fail(Failure.ProtocolError("pairing code has no addresses"))
+    if (!bridgePath.startsWith("/") || bridgePath.contains('\n') || bridgePath.contains('\u0000')) {
+        return fail(Failure.ProtocolError("pairing code bridge path must be absolute"))
     }
-    if (hostKeyFingerprints.isEmpty()) {
+    if (hints.isEmpty() && tailnetFqdn.isNullOrBlank()) {
+        return fail(Failure.ProtocolError("pairing code has no hints or tailnet name"))
+    }
+    if (tailnetFqdn != null && tailnetFqdn.isBlank()) {
+        return fail(Failure.ProtocolError("pairing code tailnet name is blank"))
+    }
+    if (hostKeys.isEmpty()) {
         return fail(Failure.ProtocolError("pairing code has no host key fingerprints"))
     }
-    if (!isOpensshSha256Fingerprint(deviceKeyFingerprint)) {
-        return fail(Failure.ProtocolError("pairing code has an invalid host key fingerprint"))
+    if (!HOST_ID.matches(hostId)) {
+        return fail(Failure.ProtocolError("pairing code host_id must be 32 lowercase hex characters"))
     }
-    for (fingerprint in hostKeyFingerprints) {
+    if (!HOST_ID.matches(deviceId)) {
+        return fail(Failure.ProtocolError("pairing code device_id must be 32 lowercase hex characters"))
+    }
+    if (!isOpensshSha256Fingerprint(deviceKey)) {
+        return fail(Failure.ProtocolError("pairing code has an invalid device key fingerprint"))
+    }
+    for (fingerprint in hostKeys) {
         if (!isOpensshSha256Fingerprint(fingerprint)) {
             return fail(Failure.ProtocolError("pairing code has an invalid host key fingerprint"))
         }
@@ -142,14 +170,16 @@ private fun decodeObject(obj: JsonObject): Outcome<PairingCode> {
         }
     return ok(
         PairingCode(
-            version = version,
+            name = name,
+            tailnetFqdn = tailnetFqdn?.takeIf { it.isNotEmpty() },
+            user = user,
+            port = port,
+            bridgePath = bridgePath,
+            hostKeys = hostKeys,
+            hints = hints,
+            hostId = hostId,
             deviceId = deviceId,
-            deviceKeyFingerprint = deviceKeyFingerprint,
-            hostLabel = hostLabel,
-            username = username,
-            sshPort = port,
-            addresses = addresses,
-            hostKeyFingerprints = hostKeyFingerprints,
+            deviceKey = deviceKey,
             role = role,
         ),
     )

@@ -7,6 +7,8 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import okio.ByteString.Companion.encodeUtf8
@@ -74,9 +76,11 @@ class HostManagerTest {
                 privateKeyOpenssh = "SECRET",
             )
         val otherFp = "SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"
+        val hostId = "cd".repeat(16)
+        val deviceId = "ab".repeat(16)
         val body =
-            """{"v":1,"id":"grant-1","dk":"$otherFp","name":"studio","user":"misaka","port":22,"addrs":["studio.tailnet"],"hk":["$otherFp"],"role":"controller"}"""
-        val encoded = "luvia1:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
+            """{"name":"studio","fqdn":"studio.tailnet","user":"misaka","port":22,"bridge":"/usr/local/bin/luvia-host","hk":["$otherFp"],"hints":["10.0.0.2"],"host_id":"$hostId","device_id":"$deviceId","device_key":"$otherFp","role":"controller"}"""
+        val encoded = "luvia2:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
         val result = manager.completePairing(draft, encoded)
         val err = result as Outcome.Err
         assertEquals("pairing code is for a different device key", (err.failure as Failure.ProtocolError).reason)
@@ -98,9 +102,11 @@ class HostManagerTest {
                 command = "luvia-host pair",
                 privateKeyOpenssh = "SECRET",
             )
+        val hostId = "cd".repeat(16)
+        val deviceId = "ab".repeat(16)
         val body =
-            """{"v":1,"id":"grant-1","dk":"$fingerprint","name":"studio","user":"misaka","port":22,"addrs":["studio.tailnet"],"hk":["$fingerprint"],"role":"controller"}"""
-        val encoded = "luvia1:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
+            """{"name":"studio","fqdn":"studio.tailnet","user":"misaka","port":22,"bridge":"/usr/local/bin/luvia-host","hk":["$fingerprint"],"hints":["10.0.0.2"],"host_id":"$hostId","device_id":"$deviceId","device_key":"$fingerprint","role":"controller"}"""
+        val encoded = "luvia2:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
         val result = manager.completePairing(draft, encoded)
         val err = result as Outcome.Err
         assertEquals("Could not store the device key on this device.", (err.failure as Failure.ProtocolError).reason)
@@ -117,19 +123,19 @@ class HostManagerTest {
         val result =
             manager.updateConnection(
                 hostId = "host-1",
-                alias = "studio-lan",
+                name = "studio-lan",
                 addresses = listOf("192.168.1.20", "studio.local"),
-                sshPort = 2222,
-                username = "deploy",
+                port = 2222,
+                user = "deploy",
             )
         val updated = (result as Outcome.Ok).value
-        assertEquals("studio-lan", updated.alias)
-        assertEquals(listOf("192.168.1.20", "studio.local"), updated.addresses)
-        assertEquals(2222, updated.sshPort)
-        assertEquals("deploy", updated.username)
+        assertEquals("studio-lan", updated.name)
+        assertEquals(listOf("192.168.1.20", "studio.local"), updated.hints)
+        assertEquals(2222, updated.port)
+        assertEquals("deploy", updated.user)
         val stored = store.current().hosts.single()
-        assertEquals(listOf("192.168.1.20", "studio.local"), stored.addresses)
-        assertEquals(2222, stored.sshPort)
+        assertEquals(listOf("192.168.1.20", "studio.local"), stored.hints)
+        assertEquals(2222, stored.port)
         manager.close()
     }
 
@@ -149,16 +155,118 @@ class HostManagerTest {
                 command = "luvia-host pair",
                 privateKeyOpenssh = "not-a-key",
             )
+        val hostId = "cd".repeat(16)
+        val deviceId = "ab".repeat(16)
         val body =
-            """{"v":1,"id":"fail-test","dk":"$fingerprint","name":"FailTest","user":"misaka","port":2222,"addrs":["192.168.1.70"],"hk":["$fingerprint"],"role":"controller"}"""
-        val encoded = "luvia1:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
+            """{"name":"FailTest","user":"misaka","port":2222,"bridge":"/usr/local/bin/luvia-host","hk":["$fingerprint"],"hints":["192.168.1.70"],"host_id":"$hostId","device_id":"$deviceId","device_key":"$fingerprint","role":"controller"}"""
+        val encoded = "luvia2:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
         val result = manager.completePairing(draft, encoded)
         advanceUntilIdle()
         val err = result as Outcome.Err
         assertFalse(err.failure.isPairingSetupFailure())
         assertTrue(store.current().hosts.isEmpty(), "failed pairing must not leave a host")
         assertTrue(vault.deviceIds().isEmpty(), "failed pairing must drop the device key")
-        assertTrue(manager.hosts.value.none { it.profile.id == "fail-test" })
+        assertTrue(manager.hosts.value.none { it.profile.id == "ab".repeat(16) })
+        manager.close()
+    }
+
+    @Test
+    fun deletedGrantIsNotWrittenToLastGood() = runTest {
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-hm-grant-${Random.nextLong()}.json"
+        val store = HostStore(path.toString(), backgroundScope)
+        val vault = MemoryVault()
+        val profile = sampleProfile().copy(lastGood = "10.0.0.2", hints = listOf("192.168.1.9"))
+        vault.save(profile.id, "not-a-real-key")
+        val manager =
+            HostManager(store, vault, backgroundScope) { _, _ ->
+                ProfileConnectResult(
+                    fail(Failure.ProveRejected("unknown_device", "no pairing grant for ${profile.id}")),
+                )
+            }
+        store.upsert(profile)
+        advanceUntilIdle()
+        assertEquals(listOf("host-1"), manager.hosts.value.map { it.profile.id })
+        manager.connect(profile.id)
+        val reached = manager.awaitCurrentConnect(profile.id)
+        advanceUntilIdle()
+        val err = assertIs<Outcome.Err<Unit>>(reached)
+        val failure = assertIs<Failure.ProveRejected>(err.failure)
+        assertEquals("unknown_device", failure.code)
+        assertEquals("no pairing grant for ${profile.id}", failure.message)
+        assertEquals(PROVE_REJECTED_EN, failure.connectMessage())
+        assertEquals(PROVE_REJECTED_EN, failure.userMessage())
+        assertFalse(failure.connectMessage().contains("no pairing grant"))
+        assertFalse(failure.userMessage().contains(profile.id))
+        val stored = store.current().hosts.single()
+        assertEquals("10.0.0.2", stored.lastGood)
+        assertFalse(stored.lastGood == "192.168.1.9")
+        val link = assertIs<HostLink.Failed>(manager.hosts.value.single().link)
+        assertIs<Failure.ProveRejected>(link.failure)
+        manager.close()
+    }
+
+    @Test
+    fun proveRejectedRaceIsNotRetried() = runTest {
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-hm-race-${Random.nextLong()}.json"
+        val store = HostStore(path.toString(), backgroundScope)
+        val vault = MemoryVault()
+        val profile =
+            sampleProfile().copy(
+                name = "Yui",
+                lastGood = "192.168.1.9",
+                hints = listOf("100.89.1.2"),
+            )
+        vault.save(profile.id, "not-a-real-key")
+        var attempts = 0
+        val manager =
+            HostManager(store, vault, backgroundScope) { current, credential ->
+                attempts += 1
+                raceConnect(
+                    current,
+                    credential,
+                    object : CandidateDial<ConnectedHost> {
+                        override suspend fun dns(address: String): Outcome<Unit> = ok(Unit)
+
+                        override suspend fun tcp(address: String): Outcome<Unit> = ok(Unit)
+
+                        override suspend fun prove(address: String): Outcome<ConnectedHost> {
+                            if (address == "192.168.1.9") {
+                                return fail(
+                                    Failure.ProveRejected(
+                                        "unknown_device",
+                                        "no pairing grant for ${current.id}",
+                                    ),
+                                )
+                            }
+                            delay(PROVE_BUDGET_MS)
+                            return fail(Failure.Transport("candidate timeout"))
+                        }
+
+                        override suspend fun close(value: ConnectedHost) {
+                            value.close()
+                        }
+                    },
+                )
+            }
+        store.upsert(profile)
+        advanceUntilIdle()
+        manager.connect(profile.id)
+        val reached = manager.awaitCurrentConnect(profile.id)
+        advanceUntilIdle()
+        val err = assertIs<Outcome.Err<Unit>>(reached)
+        val failure = assertIs<Failure.ProveRejected>(err.failure)
+        assertEquals("unknown_device", failure.code)
+        assertEquals("no pairing grant for ${profile.id}", failure.message)
+        assertFalse(failure.connectMessage().contains("candidate timeout"))
+        assertFalse(failure.connectMessage().contains("no pairing grant"))
+        val link = assertIs<HostLink.Failed>(manager.hosts.value.single().link)
+        assertIs<Failure.ProveRejected>(link.failure)
+        advanceTimeBy(60_000)
+        advanceUntilIdle()
+        assertEquals(1, attempts)
+        val stayed = assertIs<HostLink.Failed>(manager.hosts.value.single().link)
+        assertIs<Failure.ProveRejected>(stayed.failure)
+        assertEquals("192.168.1.9", store.current().hosts.single().lastGood)
         manager.close()
     }
 
@@ -225,15 +333,15 @@ private class MemoryVault : DeviceKeyVault {
 private fun sampleProfile(): HostProfile =
     HostProfile(
         id = "host-1",
-        alias = "studio",
-        addresses = listOf("studio.tailnet"),
-        sshPort = 22,
-        username = "misaka",
-        hostKeyFingerprints = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+        hostId = "ab".repeat(16),
+        name = "studio",
+        user = "misaka",
+        hostKeys = setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+        bridgePath = "/usr/local/bin/luvia-host",
         role = HostRole.Controller,
         lastStatus = HostStatus.Unknown,
         lastUpdatedEpochMs = 1,
-        lastConnectedAddress = null,
+        port = 22,
         topology =
             CachedTopology(
                 sessionName = "default",

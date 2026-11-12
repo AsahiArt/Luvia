@@ -309,7 +309,13 @@ fun ChatFirstApp(
                         sending = state?.agentDetail?.sending == true,
                         isObserver = selected?.isObserver == true,
                         connection = selected?.connection,
+                        pairingRevoked = selected?.pairingRevoked == true,
                         onRetry = { selected?.id?.let(viewModel::connect) },
+                        onPairAgain = {
+                            viewModel.cancelPairing()
+                            userOpenedPairing = true
+                            stage = "pair"
+                        },
                     )
                 }
             }
@@ -474,8 +480,8 @@ fun ChatFirstApp(
             hasPushDistributor = hasPushDistributor,
             onSetPushEnabled = onSetPushEnabled,
             onDismiss = { showSettings = false },
-            onSave = { alias, addresses, port, user ->
-                viewModel.updateConnection(selected.id, alias, addresses, port, user)
+            onSave = { name, addresses, port, user ->
+                viewModel.updateConnection(selected.id, name, addresses, port, user)
             },
             onConnect = { viewModel.connect(selected.id) },
             onDisconnect = { viewModel.disconnect(selected.id) },
@@ -516,31 +522,35 @@ private fun HostSettingsSheet(
     onRefresh: () -> Unit,
     onUnpair: () -> Unit,
 ) {
-    var alias by rememberSaveable(host.id) { mutableStateOf(host.name) }
+    var name by rememberSaveable(host.id) { mutableStateOf(host.name) }
     var addresses by rememberSaveable(host.id) { mutableStateOf(host.addresses.joinToString("\n")) }
-    var port by rememberSaveable(host.id) { mutableStateOf(host.sshPort.toString()) }
-    var user by rememberSaveable(host.id) { mutableStateOf(host.username) }
+    var port by rememberSaveable(host.id) { mutableStateOf(host.port.toString()) }
+    var user by rememberSaveable(host.id) { mutableStateOf(host.user) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
             Text(host.name, style = MaterialTheme.typography.headlineSmall)
-            Text(host.connection.chromeLabel(), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            host.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            Text(host.connectionCopy(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!host.pairingRevoked) {
+                host.errorMessage?.let { Text(localizeUiMessage(it), color = MaterialTheme.colorScheme.error) }
+            }
             Spacer(Modifier.height(12.dp))
-            OutlinedTextField(alias, { alias = it }, label = { Text(stringResource(R.string.name)) }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.name)) }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(addresses, { addresses = it }, label = { Text(stringResource(R.string.addresses)) }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(port, { port = it }, label = { Text(stringResource(R.string.ssh_port)) }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(user, { user = it }, label = { Text(stringResource(R.string.user)) }, modifier = Modifier.fillMaxWidth())
             Button(
                 onClick = {
-                    onSave(alias, addresses, port, user)
+                    onSave(name, addresses, port, user)
                     onDismiss()
                 },
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                 shape = RoundedCornerShape(20.dp),
             ) { Text(stringResource(R.string.save_connection)) }
             TextButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.refresh)) }
-            TextButton(onClick = onConnect, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.connect)) }
+            if (!host.pairingRevoked) {
+                TextButton(onClick = onConnect, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.connect)) }
+            }
             TextButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.disconnect)) }
             if (hasPushDistributor) {
                 androidx.compose.foundation.layout.Row(

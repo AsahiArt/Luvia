@@ -2,13 +2,18 @@ package tech.asahiart.luvia
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import tech.asahiart.luvia.internal.ByteChannel
+import tech.asahiart.luvia.internal.ByteChannelFactory
+import tech.asahiart.luvia.transport.TransportException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -174,6 +179,67 @@ class SessionEngineTest {
         session.close()
     }
 
+    @Test
+    fun discoverReturnsProveRejectedInsteadOfBridge() = runTest {
+        val factory = ProveOnOpen(backgroundScope, rejectFrom = 1)
+        val err = assertIs<Outcome.Err<List<DiscoveredSession>>>(LuviaClient(factory).discover())
+        val rejected = assertIs<Failure.ProveRejected>(err.failure)
+        assertEquals("unknown_device", rejected.code)
+        assertEquals("no pairing grant", rejected.message)
+        assertEquals(1, factory.opens)
+    }
+
+    @Test
+    fun reopenedUnaryReturnsProveRejectedInsteadOfBridge() = runTest {
+        val factory =
+            ProveOnOpen(backgroundScope, rejectFrom = 2) { framer ->
+                loopDispatch(framer, mutableListOf(), closeAfter = 1)
+            }
+        val session = (LuviaClient(factory).open("default") as Outcome.Ok).value
+        advanceUntilIdle()
+        val err = assertIs<Outcome.Err<SessionSnapshot>>(session.snapshot())
+        val rejected = assertIs<Failure.ProveRejected>(err.failure)
+        assertEquals("unknown_device", rejected.code)
+        assertEquals("no pairing grant", rejected.message)
+        assertTrue(factory.opens >= 2)
+        session.close()
+    }
+
+    @Test
+    fun streamOpenReturnsProveRejectedInsteadOfBridge() = runTest {
+        val factory =
+            ProveOnOpen(backgroundScope, rejectFrom = 2) { framer ->
+                loopDispatch(framer, mutableListOf())
+            }
+        val session = (LuviaClient(factory).open("default") as Outcome.Ok).value
+        val identity =
+            TerminalIdentity(
+                serverGeneration = "11111111111111111111111111111111",
+                terminalId = "22222222222222222222222222222222",
+                paneId = "7",
+            )
+        val update = session.observe(identity).first()
+        val failed = assertIs<TerminalUpdate.Failed>(update)
+        val rejected = assertIs<Failure.ProveRejected>(failed.failure)
+        assertEquals("unknown_device", rejected.code)
+        assertEquals("no pairing grant", rejected.message)
+        assertEquals(2, factory.opens)
+        session.close()
+    }
+
+    @Test
+    fun otherChannelOpenFailuresStayBridge() = runTest {
+        val factory =
+            object : ByteChannelFactory {
+                override suspend fun open(): ByteChannel {
+                    throw IllegalStateException("boom")
+                }
+            }
+        val err = assertIs<Outcome.Err<List<DiscoveredSession>>>(LuviaClient(factory).discover())
+        val bridge = assertIs<Failure.Bridge>(err.failure)
+        assertEquals("boom", bridge.reason)
+    }
+
     private fun assertIsOk(outcome: Outcome<*>) {
         assertTrue(outcome is Outcome.Ok, "expected Ok, got $outcome")
     }
@@ -299,5 +365,23 @@ class SessionEngineTest {
                 Methods.TERMINAL_TYPE,
                 Methods.TERMINAL_OBSERVE,
             )
+    }
+}
+
+private class ProveOnOpen(
+    scope: kotlinx.coroutines.CoroutineScope,
+    private val rejectFrom: Int,
+    handle: suspend (NdjsonFramer) -> Unit = {},
+) : ByteChannelFactory {
+    private val scripted = ScriptedFactory(scope, handle)
+    var opens: Int = 0
+        private set
+
+    override suspend fun open(): ByteChannel {
+        opens += 1
+        if (opens >= rejectFrom) {
+            throw TransportException.ProveRejected("unknown_device", "no pairing grant")
+        }
+        return scripted.open()
     }
 }

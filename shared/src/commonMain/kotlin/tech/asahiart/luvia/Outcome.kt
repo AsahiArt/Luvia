@@ -27,6 +27,39 @@ public sealed class Failure {
 
     public class Transport(public val reason: String) : Failure()
 
+    /**
+     * The SSH server key was not in the pinned set. Every in-flight candidate
+     * must stop; do not fall back to another address.
+     */
+    public class HostKeyMismatch(
+        public val expected: String,
+        public val actual: String,
+    ) : Failure()
+
+    /**
+     * The peer accepted TCP and closed before the SSH identification banner.
+     * The candidate race treats this like a timeout: that attempt fails, the others continue.
+     */
+    public class ClosedBeforeBanner : Failure()
+
+    /**
+     * The SSH identification line arrived, or the handshake failed some other
+     * way (version, key exchange, generic transport IO). Not ClosedBeforeBanner.
+     */
+    public class HandshakeFailed(
+        public val reason: String,
+    ) : Failure()
+
+    /**
+     * The host rejected Prove. [message] is the host's reason and is not shown.
+     * Every in-flight candidate must stop; a reject is for this device, not one address.
+     * Do not store the attempt as lastGood.
+     */
+    public class ProveRejected(
+        public val code: String,
+        public val message: String,
+    ) : Failure()
+
     public class Closed : Failure()
 
     /**

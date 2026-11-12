@@ -1,7 +1,11 @@
 package tech.asahiart.luvia
 
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import tech.asahiart.luvia.internal.SshChannelFactory
 import tech.asahiart.luvia.transport.SshConnection
+import tech.asahiart.luvia.transport.TransportException
 import tech.asahiart.luvia.transport.generateDeviceKey
 import tech.asahiart.luvia.transport.importDeviceKey
 
@@ -10,6 +14,8 @@ public data class HostEndpoint(
     public val port: Int,
     public val username: String,
     public val hostKeyFingerprints: List<String>,
+    public val hostId: String = "",
+    public val deviceId: String = "",
 )
 
 public data class DevicePublicIdentity(
@@ -29,7 +35,6 @@ public data class HostConnection(
 
 public data class ProfileConnectResult(
     public val outcome: Outcome<HostConnection>,
-    public val deadLiteralAddresses: List<String> = emptyList(),
 )
 
 public class ConnectedHost internal constructor(
@@ -91,72 +96,101 @@ public suspend fun connectToHost(
             is DeviceCredential.SoftwareKey -> credential.privateKeyOpenssh
         }
     return try {
-        val connection = SshConnection.connect(
-            endpoint.address,
-            endpoint.port.toUShort(),
-            endpoint.username,
-            endpoint.hostKeyFingerprints,
-            privateKeyOpenssh,
-        )
+        val connection = openSession(endpoint, privateKeyOpenssh)
         ok(ConnectedHost(LuviaClient(SshChannelFactory(connection)), connection))
+    } catch (error: CancellationException) {
+        throw error
     } catch (error: Exception) {
-        fail(Failure.Transport(error.message ?: "ssh connection failed"))
+        fail(mapTransport(error))
+    }
+}
+
+/**
+ * SSH publickey auth plus the bridge signature proof. The returned host keeps
+ * the session; the probe channel is closed after the host's ok frame so a loser
+ * can drop it. An error frame is a loss, not a win.
+ */
+internal suspend fun connectAndProve(
+    endpoint: HostEndpoint,
+    credential: DeviceCredential,
+): Outcome<ConnectedHost> {
+    if (endpoint.port !in 1..65535) {
+        return fail(Failure.Transport("invalid SSH port"))
+    }
+    if (endpoint.username.isBlank() ||
+        endpoint.address.isBlank() ||
+        endpoint.hostKeyFingerprints.isEmpty()
+    ) {
+        return fail(Failure.Transport("incomplete host endpoint"))
+    }
+    val privateKeyOpenssh =
+        when (credential) {
+            is DeviceCredential.SoftwareKey -> credential.privateKeyOpenssh
+        }
+    var connection: SshConnection? = null
+    return try {
+        connection = openSession(endpoint, privateKeyOpenssh)
+        val channel = connection.openAuthenticatedBridge()
+        try {
+            channel.shutdown()
+        } catch (_: Exception) {
+        }
+        val host = ConnectedHost(LuviaClient(SshChannelFactory(connection)), connection)
+        connection = null
+        ok(host)
+    } catch (error: CancellationException) {
+        connection?.let { closeQuietly(it) }
+        throw error
+    } catch (error: Exception) {
+        connection?.let { closeQuietly(it) }
+        fail(mapTransport(error))
     }
 }
 
 public suspend fun connectToProfile(
     profile: HostProfile,
     credential: DeviceCredential,
-): ProfileConnectResult = connectToProfile(profile, credential, ::connectToHost)
+): ProfileConnectResult = raceConnect(profile, credential)
 
-internal suspend fun connectToProfile(
-    profile: HostProfile,
-    credential: DeviceCredential,
-    attempt: suspend (HostEndpoint, DeviceCredential) -> Outcome<ConnectedHost>,
-): ProfileConnectResult {
-    if (profile.sshPort !in 1..65535) {
-        return ProfileConnectResult(fail(Failure.Transport("invalid SSH port")))
+private suspend fun openSession(
+    endpoint: HostEndpoint,
+    privateKeyOpenssh: String,
+): SshConnection =
+    SshConnection.connect(
+        endpoint.address,
+        endpoint.port.toUShort(),
+        endpoint.username,
+        endpoint.hostKeyFingerprints,
+        privateKeyOpenssh,
+        endpoint.hostId,
+        endpoint.deviceId,
+    )
+
+internal fun mapTransport(error: Throwable): Failure {
+    var current: Throwable? = error
+    while (current != null) {
+        when (current) {
+            is TransportException.HostKeyMismatch ->
+                return Failure.HostKeyMismatch(current.expected, current.actual)
+            is TransportException.ClosedBeforeBanner ->
+                return Failure.ClosedBeforeBanner()
+            is TransportException.HandshakeFailed ->
+                return Failure.HandshakeFailed(current.reason)
+            is TransportException.ProveRejected ->
+                return Failure.ProveRejected(current.code, current.reason)
+        }
+        current = current.cause
     }
-    if (profile.username.isBlank() || profile.hostKeyFingerprints.isEmpty()) {
-        return ProfileConnectResult(fail(Failure.Transport("incomplete host endpoint")))
-    }
-    val ordered = orderedAddresses(profile)
-    if (ordered.isEmpty()) {
-        return ProfileConnectResult(fail(Failure.Transport("incomplete host endpoint")))
-    }
-    val dead = ArrayList<String>()
-    var lastFailure: Failure? = null
-    for (address in ordered) {
-        if (address.isBlank()) continue
-        when (
-            val result =
-                attempt(
-                    HostEndpoint(
-                        address = address,
-                        port = profile.sshPort,
-                        username = profile.username,
-                        hostKeyFingerprints = profile.hostKeyFingerprints,
-                    ),
-                    credential,
-                )
-        ) {
-            is Outcome.Ok ->
-                return ProfileConnectResult(ok(HostConnection(result.value, address)), dead)
-            is Outcome.Err -> {
-                lastFailure = result.failure
-                if (isLiteralIp(address) && isDeadLiteralFailure(result.failure)) {
-                    dead += address
-                }
-                if (!isRetryableTransportFailure(result.failure)) {
-                    return ProfileConnectResult(fail(result.failure), dead)
-                }
-            }
+    return Failure.Transport(error.message ?: "ssh connection failed")
+}
+
+private suspend fun closeQuietly(connection: SshConnection) {
+    withContext(NonCancellable) {
+        try {
+            connection.shutdown()
+        } catch (_: Exception) {
         }
     }
-    return ProfileConnectResult(
-        fail(lastFailure ?: Failure.Transport("incomplete host endpoint")),
-        dead,
-    )
 }
 
 public fun parseConnectionAddresses(raw: String): List<String> {
@@ -166,38 +200,6 @@ public fun parseConnectionAddresses(raw: String): List<String> {
         if (address.isNotEmpty()) seen += address
     }
     return seen.toList()
-}
-
-
-internal fun orderedAddresses(profile: HostProfile): List<String> {
-    val seen = LinkedHashSet<String>()
-    val literals = ArrayList<String>()
-    val names = ArrayList<String>()
-    for (raw in profile.addresses) {
-        val address = raw.trim()
-        if (address.isEmpty() || !seen.add(address)) continue
-        if (isLiteralIp(address)) literals += address else names += address
-    }
-    val last = profile.lastConnectedAddress?.trim().orEmpty()
-    if (isLiteralIp(last)) prefer(literals, last) else prefer(names, last)
-    return expandUnqualifiedHostnames(literals + names)
-}
-
-internal fun expandUnqualifiedHostnames(addresses: List<String>): List<String> {
-    val seen = LinkedHashSet<String>()
-    val out = ArrayList<String>()
-    for (address in addresses) {
-        if (seen.add(address)) out += address
-        val local = mdnsLocalAlias(address) ?: continue
-        if (seen.add(local)) out += local
-    }
-    return out
-}
-
-private fun mdnsLocalAlias(address: String): String? {
-    if (isLiteralIp(address) || address.contains('.') || address.contains(':')) return null
-    if (address.equals("localhost", ignoreCase = true)) return null
-    return "$address.local"
 }
 
 
@@ -233,18 +235,3 @@ internal fun isLiteralIp(address: String): Boolean {
     }
 }
 
-internal fun isDeadLiteralFailure(failure: Failure): Boolean {
-    val reason = (failure as? Failure.Transport)?.reason ?: return false
-    return reason.contains("connect timeout") || reason.contains("no route")
-}
-
-internal fun isRetryableTransportFailure(failure: Failure): Boolean {
-    val reason = (failure as? Failure.Transport)?.reason ?: return false
-    return !reason.contains("host key mismatch")
-}
-
-private fun prefer(list: MutableList<String>, preferred: String) {
-    if (preferred.isEmpty() || preferred !in list) return
-    list.remove(preferred)
-    list.add(0, preferred)
-}

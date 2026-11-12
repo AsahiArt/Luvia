@@ -11,7 +11,7 @@ import tech.asahiart.luvia.transport.maxReadBytes
 internal class SshChannelFactory(
     private val connection: SshConnection,
 ) : ByteChannelFactory {
-    override suspend fun open(): ByteChannel = SshByteChannel(connection.openBridge())
+    override suspend fun open(): ByteChannel = SshByteChannel(connection.openAuthenticatedBridge())
 }
 
 internal class SshByteChannel(

@@ -2,7 +2,7 @@
 //!
 //! The digits are not a credential. They only name a `PairingPayload` this
 //! process already built for an existing grant. The phone sends `{code, dk}`;
-//! a match returns the same `luvia1:` string `encode` would print, and the
+//! a match returns the same `luvia2:` string `encode` would print, and the
 //! phone still runs `completePairing`. Tickets live in memory and die with
 //! the process.
 
@@ -78,9 +78,9 @@ impl ShortEnd {
     pub fn message(self) -> &'static str {
         match self {
             Self::Redeemed => "short code redeemed",
-            Self::Expired => "short code expired; the luvia1: code above still works",
+            Self::Expired => "short code expired; the luvia2: code above still works",
             Self::Exhausted => {
-                "short code invalidated after failed attempts; paste the luvia1: code or run pair --short again"
+                "short code invalidated after failed attempts; paste the luvia2: code or run pair --short again"
             }
         }
     }
@@ -101,7 +101,7 @@ struct ShortTicket {
     code: String,
     grant_id: String,
     dk: String,
-    luvia1: String,
+    pairing_code: String,
     exp_ms: u64,
     attempts_left: u8,
 }
@@ -120,14 +120,14 @@ impl TicketTable {
         now_ms: u64,
     ) -> Result<Minted> {
         let payload = PairingPayload::from_grant(grant, facts)?;
-        let luvia1 = payload.encode()?;
-        self.insert(grant, luvia1, ttl, now_ms)
+        let pairing_code = payload.encode()?;
+        self.insert(grant, pairing_code, ttl, now_ms)
     }
 
     fn insert(
         &mut self,
         grant: &Grant,
-        luvia1: String,
+        pairing_code: String,
         ttl: Duration,
         now_ms: u64,
     ) -> Result<Minted> {
@@ -135,18 +135,19 @@ impl TicketTable {
         let code = self.draw_unique_code()?;
         let exp_ms = now_ms.saturating_add(ttl.as_millis() as u64);
         self.tickets.retain(|ticket| ticket.grant_id != grant.id);
+        let dk = grant.public_key().fingerprint()?;
         self.tickets.push(ShortTicket {
             code: code.clone(),
             grant_id: grant.id.clone(),
-            dk: grant.fingerprint.trim().to_string(),
-            luvia1: luvia1.clone(),
+            dk,
+            pairing_code: pairing_code.clone(),
             exp_ms,
             attempts_left: MAX_ATTEMPTS,
         });
         if self.end.is_some() && !self.tickets.is_empty() {
             self.end = None;
         }
-        Ok(Minted { code, luvia1 })
+        Ok(Minted { code, pairing_code })
     }
 
     fn draw_unique_code(&self) -> Result<String> {
@@ -185,9 +186,9 @@ impl TicketTable {
                 if self.tickets[index].dk != dk.trim() {
                     return Err(self.consume_attempt(index, RedeemError::DkMismatch));
                 }
-                let luvia1 = self.tickets.remove(index).luvia1;
+                let pairing_code = self.tickets.remove(index).pairing_code;
                 self.note_empty(ShortEnd::Redeemed);
-                return Ok(luvia1);
+                return Ok(pairing_code);
             }
         }
         let before = self.tickets.len();
@@ -247,7 +248,7 @@ impl TicketTable {
 struct Minted {
     code: String,
     #[allow(dead_code)]
-    luvia1: String,
+    pairing_code: String,
 }
 
 pub fn validate_ttl_secs(secs: u64) -> Result<Duration> {
@@ -295,7 +296,7 @@ impl RunningShort {
 
     pub fn banner(&self) -> String {
         let mut text = format!(
-            "Short code · {}s · one time · LAN only\n\n{}\n\nOn the phone, enter these 6 digits and this computer's address.\nPaste or scan the luvia1: code if the short code expires.\n",
+            "Short code · {}s · one time · LAN only\n\n{}\n\nOn the phone, enter these 6 digits and this computer's address.\nPaste or scan the luvia2: code if the short code expires.\n",
             self.ttl_secs,
             render_short_code(&self.code)
         );
@@ -347,14 +348,14 @@ pub fn start_short(
         end: None,
     };
     let minted = table.mint(grant, facts, ttl, unix_ms())?;
-    debug_assert!(minted.luvia1.starts_with("luvia1:"));
+    debug_assert!(minted.pairing_code.starts_with("luvia2:"));
     let shared = Arc::new(Mutex::new(table));
     // One wildcard listener. Binding each interface address misses same-host
     // connections to a LAN IP: macOS routes that destination out lo0, and an
     // IP-specific socket never accepts it. Public peers are still rejected.
-    let server = serve_wildcard(shared.clone(), port, &facts.addrs, true)?;
+    let server = serve_wildcard(shared.clone(), port, &facts.hints, true)?;
     let bound_port = server.bound.first().map(|addr| addr.port()).unwrap_or(port);
-    let targets = banner_targets(&local_bind_candidates(), &facts.addrs, bound_port);
+    let targets = banner_targets(&local_bind_candidates(), &facts.hints, bound_port);
     Ok(RunningShort {
         table: shared,
         server,
@@ -552,7 +553,7 @@ fn handle_client(mut stream: TcpStream, table: &Mutex<TicketTable>, policy: &Pee
         }
     };
     match result {
-        Ok(luvia1) => write_json(&mut stream, 200, "OK", &ok_body(&luvia1)),
+        Ok(pairing_code) => write_json(&mut stream, 200, "OK", &ok_body(&pairing_code)),
         Err(error) => {
             let (status, reason) = error.status();
             write_json(&mut stream, status, reason, &error_body(error.code()));
@@ -644,8 +645,8 @@ fn error_body(code: &str) -> String {
     serde_json::json!({"error": code}).to_string()
 }
 
-fn ok_body(luvia1: &str) -> String {
-    serde_json::json!({"luvia1": luvia1}).to_string()
+fn ok_body(pairing_code: &str) -> String {
+    serde_json::json!({"luvia2": pairing_code}).to_string()
 }
 
 fn format_target(addr: SocketAddr) -> String {
@@ -756,6 +757,10 @@ fn is_redeem_listen_ip(ip: IpAddr, advertised: &[String]) -> bool {
 }
 
 fn is_redeem_peer(ip: IpAddr, advertised: &[String], allow_loopback: bool) -> bool {
+    // sing-box userspace mode delivers tailnet connections to 8741 as
+    // 127.0.0.1. Keep allowing loopback; do not add source filters.
+    // Tailscale ACL, the 90s code lifetime, and the 5-wrong-tries void
+    // are what keep that path safe.
     if allow_loopback && ip.is_loopback() {
         return true;
     }
@@ -1011,7 +1016,10 @@ mod tests {
     }
 
     fn grant() -> Grant {
-        grant_with("ab".repeat(16).as_str(), "SHA256:devicekey")
+        grant_with(
+            "ab".repeat(16).as_str(),
+            "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+        )
     }
 
     fn facts() -> HostFacts {
@@ -1019,8 +1027,11 @@ mod tests {
             name: "studio".into(),
             user: "misaka".into(),
             port: 22,
-            addrs: vec!["192.168.1.4".into(), "studio.local".into()],
+            hints: vec!["192.168.1.4".into(), "100.64.0.8".into()],
             hk: vec!["SHA256:hostkeyone".into(), "SHA256:hostkeytwo".into()],
+            fqdn: None,
+            bridge: "/usr/local/bin/luvia-host".into(),
+            host_id: "cd".repeat(16),
         }
     }
 
@@ -1055,31 +1066,34 @@ mod tests {
     }
 
     #[test]
-    fn mint_returns_the_same_luvia1_encode_and_success_burns_the_ticket() {
+    fn mint_returns_the_same_pairing_code_encode_and_success_burns_the_ticket() {
         let now = 1_000_000_u64;
         let (mut table, minted) = table_with(now);
         let expected = PairingPayload::from_grant(&grant(), &facts())
             .unwrap()
             .encode()
             .unwrap();
-        assert_eq!(minted.luvia1, expected);
+        assert_eq!(minted.pairing_code, expected);
         assert_eq!(minted.code.len(), 6);
         assert!(minted.code.bytes().all(|byte| byte.is_ascii_digit()));
         let got = table
             .redeem(
                 &minted.code,
-                "SHA256:devicekey",
+                "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
                 lan(),
                 now,
                 &policy(&["192.168.1.4"]),
             )
             .unwrap();
         assert_eq!(got, expected);
-        assert_eq!(PairingPayload::decode(&got).unwrap().dk, "SHA256:devicekey");
+        assert_eq!(
+            PairingPayload::decode(&got).unwrap().device_key,
+            "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"
+        );
         let again = table
             .redeem(
                 &minted.code,
-                "SHA256:devicekey",
+                "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
                 lan(),
                 now,
                 &policy(&["192.168.1.4"]),
@@ -1100,7 +1114,7 @@ mod tests {
         assert!(alive
             .redeem(
                 &minted.code,
-                "SHA256:devicekey",
+                "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
                 lan(),
                 now + 89_999,
                 &policy(&["192.168.1.4"])
@@ -1110,7 +1124,7 @@ mod tests {
         assert_eq!(
             dead.redeem(
                 &minted.code,
-                "SHA256:devicekey",
+                "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
                 lan(),
                 now + 90_000,
                 &policy(&["192.168.1.4"])
@@ -1132,7 +1146,13 @@ mod tests {
             RedeemError::DkMismatch
         );
         assert!(table
-            .redeem(&minted.code, "SHA256:devicekey", lan(), now, &policy)
+            .redeem(
+                &minted.code,
+                "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                lan(),
+                now,
+                &policy
+            )
             .is_ok());
 
         let (mut table, minted) = table_with(now);
@@ -1152,7 +1172,13 @@ mod tests {
         );
         assert_eq!(
             table
-                .redeem(&minted.code, "SHA256:devicekey", lan(), now, &policy)
+                .redeem(
+                    &minted.code,
+                    "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                    lan(),
+                    now,
+                    &policy
+                )
                 .unwrap_err(),
             RedeemError::InvalidCode
         );
@@ -1167,20 +1193,38 @@ mod tests {
         for _ in 0..4 {
             assert_eq!(
                 table
-                    .redeem(&wrong, "SHA256:devicekey", lan(), now, &policy)
+                    .redeem(
+                        &wrong,
+                        "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                        lan(),
+                        now,
+                        &policy
+                    )
                     .unwrap_err(),
                 RedeemError::InvalidCode
             );
         }
         assert_eq!(
             table
-                .redeem(&wrong, "SHA256:devicekey", lan(), now, &policy)
+                .redeem(
+                    &wrong,
+                    "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                    lan(),
+                    now,
+                    &policy
+                )
                 .unwrap_err(),
             RedeemError::Exhausted
         );
         assert_eq!(
             table
-                .redeem(&minted.code, "SHA256:devicekey", lan(), now, &policy)
+                .redeem(
+                    &minted.code,
+                    "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                    lan(),
+                    now,
+                    &policy
+                )
                 .unwrap_err(),
             RedeemError::InvalidCode
         );
@@ -1195,7 +1239,7 @@ mod tests {
         };
         let first = table
             .mint(
-                &grant_with("aa", "SHA256:one"),
+                &grant_with(&"aa".repeat(16), "SHA256:one"),
                 &facts(),
                 Duration::from_secs(60),
                 now,
@@ -1203,7 +1247,7 @@ mod tests {
             .unwrap();
         let second = table
             .mint(
-                &grant_with("bb", "SHA256:two"),
+                &grant_with(&"bb".repeat(16), "SHA256:two"),
                 &facts(),
                 Duration::from_secs(60),
                 now,
@@ -1261,15 +1305,27 @@ mod tests {
         assert_ne!(first.code, second.code);
         assert_eq!(
             table
-                .redeem(&first.code, "SHA256:devicekey", lan(), now, &policy)
+                .redeem(
+                    &first.code,
+                    "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                    lan(),
+                    now,
+                    &policy
+                )
                 .unwrap_err(),
             RedeemError::InvalidCode
         );
         assert_eq!(
             table
-                .redeem(&second.code, "SHA256:devicekey", lan(), now, &policy)
+                .redeem(
+                    &second.code,
+                    "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                    lan(),
+                    now,
+                    &policy
+                )
                 .unwrap(),
-            second.luvia1
+            second.pairing_code
         );
     }
 
@@ -1282,13 +1338,25 @@ mod tests {
         for _ in 0..10 {
             assert_eq!(
                 table
-                    .redeem(&minted.code, "SHA256:devicekey", public_ip, now, &policy)
+                    .redeem(
+                        &minted.code,
+                        "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                        public_ip,
+                        now,
+                        &policy
+                    )
                     .unwrap_err(),
                 RedeemError::PeerNotAllowed
             );
         }
         assert!(table
-            .redeem(&minted.code, "SHA256:devicekey", lan(), now, &policy)
+            .redeem(
+                &minted.code,
+                "SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw",
+                lan(),
+                now,
+                &policy
+            )
             .is_ok());
     }
 
@@ -1521,7 +1589,10 @@ mod tests {
             .find(|addr| addr.is_ipv4())
             .map(|addr| addr.port())
             .unwrap();
-        let body = format!(r#"{{"code":"{}","dk":"SHA256:devicekey"}}"#, minted.code);
+        let body = format!(
+            r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#,
+            minted.code
+        );
         let started = std::time::Instant::now();
         let (status, text) = post(port, &body);
         let elapsed = started.elapsed();
@@ -1530,11 +1601,11 @@ mod tests {
             "redeem took {elapsed:?}; body {text}"
         );
         assert_eq!(status, 200, "{text}");
-        assert!(text.contains("luvia1"));
+        assert!(text.contains("luvia2"));
     }
 
     #[test]
-    fn http_redeem_returns_luvia1_once() {
+    fn http_redeem_returns_pairing_code_once() {
         let table = Arc::new(Mutex::new(TicketTable {
             tickets: Vec::new(),
             end: None,
@@ -1552,11 +1623,14 @@ mod tests {
         )
         .unwrap();
         let port = server.bound[0].port();
-        let body = format!(r#"{{"code":"{}","dk":"SHA256:devicekey"}}"#, minted.code);
+        let body = format!(
+            r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#,
+            minted.code
+        );
         let (status, text) = post(port, &body);
         assert_eq!(status, 200, "{text}");
         let value: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(value["luvia1"].as_str().unwrap(), minted.luvia1);
+        assert_eq!(value["luvia2"].as_str().unwrap(), minted.pairing_code);
         let (status, text) = post(port, &body);
         assert_eq!(status, 404, "{text}");
         assert!(text.contains("invalid_code"));
@@ -1573,7 +1647,10 @@ mod tests {
             .unwrap()
             .mint(&grant(), &facts(), Duration::from_secs(90), unix_ms())
             .unwrap();
-        let body = format!(r#"{{"code":"{}","dk":"SHA256:devicekey"}}"#, minted.code);
+        let body = format!(
+            r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#,
+            minted.code
+        );
         let closed = serve_explicit(
             table.clone(),
             "127.0.0.1:0".parse().unwrap(),
@@ -1629,7 +1706,10 @@ mod tests {
         let server = serve_explicit(expired, "127.0.0.1:0".parse().unwrap(), true, &[]).unwrap();
         let (status, text) = post(
             server.bound[0].port(),
-            &format!(r#"{{"code":"{}","dk":"SHA256:devicekey"}}"#, minted.code),
+            &format!(
+                r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#,
+                minted.code
+            ),
         );
         assert_eq!(status, 410, "{text}");
         assert!(text.contains("expired"));
@@ -1651,7 +1731,9 @@ mod tests {
         for _ in 0..5 {
             let (status, text) = post(
                 port,
-                &format!(r#"{{"code":"{wrong}","dk":"SHA256:devicekey"}}"#),
+                &format!(
+                    r#"{{"code":"{wrong}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#
+                ),
             );
             assert!(status == 404 || status == 410, "{status} {text}");
             if text.contains("exhausted") {
@@ -1661,7 +1743,10 @@ mod tests {
         assert!(saw_exhausted);
         let (status, text) = post(
             port,
-            &format!(r#"{{"code":"{}","dk":"SHA256:devicekey"}}"#, minted.code),
+            &format!(
+                r#"{{"code":"{}","dk":"SHA256:cJ6AyISHokEeHuTfufIqhhSS0gxHZRUMDHlKvXD4FHw"}}"#,
+                minted.code
+            ),
         );
         assert_ne!(status, 200, "{text}");
         assert!(!text.contains("luvia1"));

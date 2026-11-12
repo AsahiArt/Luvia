@@ -89,14 +89,14 @@ fn reject_tty(stdin_is_tty: bool, stdout_is_tty: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn run(paths: &Paths, device_id: &str) -> Result<()> {
+pub fn run(paths: &Paths) -> Result<()> {
     let stdin = io::stdin();
     let stdout = io::stdout();
     reject_tty(stdin.is_terminal(), stdout.is_terminal())?;
-    let grant = crate::grant::load_grant(paths, device_id)?;
     let stdin_fd = stdin.as_raw_fd();
     let mut input = BufReader::new(IdleTimeout::new(stdin, stdin_fd, IDLE_TIMEOUT));
     let mut output = stdout;
+    let grant = crate::auth::handshake(paths, &mut input, &mut output)?;
     serve(&grant, paths, &mut input, &mut output)
 }
 
@@ -344,6 +344,7 @@ fn prepare_request(
         ));
     }
     let method = uhp::request_method(payload)?;
+    crate::auth::reject_observer_input(grant.role, Some(&method), false)?;
     let token_kind = caps.authorize(grant.role, &method)?;
     let secret = match token_kind {
         TokenKind::Session => tokens
@@ -490,7 +491,21 @@ fn copy_device_follow_ups(
         match frames::read_frame(input) {
             Ok(frame) => {
                 let payload = &frame[..frame.len() - 1];
-                if bidirectional && is_control_action(payload) {
+                let control = is_control_action(payload);
+                let method_owned = uhp::request_method(payload).ok();
+                if let Err(error) =
+                    crate::auth::reject_observer_input(grant.role, method_owned.as_deref(), control)
+                {
+                    let id = request_id(payload);
+                    let shown = method_owned.unwrap_or_else(|| "input".into());
+                    let _ = crate::audit::denied(paths, &grant.id, grant.role, &shown, error.code);
+                    let mut output = output
+                        .lock()
+                        .map_err(|_| Error::new("io", "bridge output lock failed"))?;
+                    write_request_error(&mut **output, &id, &error)?;
+                    continue;
+                }
+                if bidirectional && control {
                     local_write.write_all(&frame)?;
                     local_write.flush()?;
                     continue;

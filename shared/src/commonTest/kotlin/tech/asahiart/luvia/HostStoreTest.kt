@@ -1,14 +1,18 @@
 package tech.asahiart.luvia
 
 import kotlin.random.Random
+import androidx.datastore.core.CorruptionException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import okio.Buffer
 import okio.FileSystem
 import okio.Path.Companion.toPath
+import tech.asahiart.luvia.internal.HostCatalogOkioSerializer
 
 class HostStoreTest {
     @Test
@@ -18,15 +22,14 @@ class HostStoreTest {
         store.upsert(
             HostProfile(
                 id = "host-1",
-                alias = "studio",
-                addresses = listOf("studio.tailnet", "10.0.0.2"),
-                sshPort = 22,
-                username = "misaka",
-                hostKeyFingerprints = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+                hostId = "ab".repeat(16),
+                name = "studio",
+                user = "misaka",
+                hostKeys = setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+                bridgePath = "/usr/local/bin/luvia-host",
                 role = HostRole.Observer,
                 lastStatus = HostStatus.Reachable,
                 lastUpdatedEpochMs = 100,
-                lastConnectedAddress = null,
                 topology =
                     CachedTopology(
                         sessionName = "default",
@@ -37,19 +40,21 @@ class HostStoreTest {
                         tasks = listOf(TaskSummary("t1", "wire-up", "open")),
                         capturedAtEpochMs = 100,
                     ),
+                hints = listOf("studio.tailnet", "10.0.0.2"),
+                port = 22,
             ),
         )
         store.setLastConnectedAddress("host-1", "10.0.0.2")
         store.updateStatus("host-1", HostStatus.Stale, 200)
         val loaded = store.current().hosts.single()
-        assertEquals("studio", loaded.alias)
-        assertEquals(listOf("10.0.0.2", "studio.tailnet"), loaded.addresses)
-        assertEquals("misaka", loaded.username)
-        assertEquals(listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"), loaded.hostKeyFingerprints)
+        assertEquals("studio", loaded.name)
+        assertEquals(listOf("studio.tailnet", "10.0.0.2"), loaded.hints)
+        assertEquals("misaka", loaded.user)
+        assertEquals(setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"), loaded.hostKeys)
         assertEquals(HostRole.Observer, loaded.role)
         assertEquals(HostStatus.Stale, loaded.lastStatus)
         assertEquals(200, loaded.lastUpdatedEpochMs)
-        assertEquals("10.0.0.2", loaded.lastConnectedAddress)
+        assertEquals("10.0.0.2", loaded.lastGood)
         assertEquals("default", loaded.topology?.sessionName)
         assertNull(loaded.topology?.workspaces?.first()?.name?.takeIf { it == "secret-prompt" })
         val bytes = FileSystem.SYSTEM.read(path) { readUtf8() }
@@ -57,66 +62,141 @@ class HostStoreTest {
         assertFalse(bytes.contains("BEGIN OPENSSH"))
         assertFalse(bytes.contains("prompt"))
         assertTrue(bytes.contains("studio"))
-        assertTrue(bytes.contains("\"addresses\""))
-        assertTrue(bytes.contains("\"hostKeyFingerprints\""))
+        assertTrue(bytes.contains("\"hints\""))
+        assertTrue(bytes.contains("\"hostKeys\""))
+        assertFalse(bytes.contains("\"hostKeyFingerprints\""))
+        assertFalse(bytes.contains("\"alias\""))
+        assertFalse(bytes.contains("\"username\""))
         store.remove("host-1")
         assertTrue(store.current().hosts.isEmpty())
     }
 
     @Test
-    fun migratesLegacyHostJson() = runTest {
-        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-host-legacy-${Random.nextLong()}.json"
-        FileSystem.SYSTEM.write(path) {
-            writeUtf8(
-                """
-                {"version":1,"hosts":[{"id":"host-1","alias":"studio","address":"studio.tailnet","sshPort":22,"username":"misaka","hostKeySha256":"SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs","lastStatus":"Reachable","lastUpdatedEpochMs":100},{"id":"host-2","alias":"spare","address":"spare.local","sshPort":2222,"lastStatus":"Unknown","lastUpdatedEpochMs":0}],"updatedEpochMs":100}
-                """.trimIndent(),
-            )
-        }
-        val store = HostStore(path.toString(), backgroundScope)
-        val hosts = store.current().hosts.associateBy { it.id }
-        val studio = hosts.getValue("host-1")
-        assertEquals("studio", studio.alias)
-        assertEquals(listOf("studio.tailnet"), studio.addresses)
-        assertEquals("misaka", studio.username)
-        assertEquals(listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"), studio.hostKeyFingerprints)
-        assertEquals(HostRole.Controller, studio.role)
-        assertEquals(HostStatus.Reachable, studio.lastStatus)
-        assertNull(studio.lastConnectedAddress)
-        val spare = hosts.getValue("host-2")
-        assertEquals(listOf("spare.local"), spare.addresses)
-        assertEquals("", spare.username)
-        assertEquals(emptyList(), spare.hostKeyFingerprints)
-        assertEquals(HostRole.Controller, spare.role)
-        assertEquals(2222, spare.sshPort)
-    }
-
-    @Test
-    fun rememberSuccessfulAddressPrependsAndForgetDropsLiteralsOnly() = runTest {
+    fun rememberSuccessfulAddressSetsLastGoodWithoutRewritingHints() = runTest {
         val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-host-addr-${Random.nextLong()}.json"
         val store = HostStore(path.toString(), backgroundScope)
+        val hints = listOf("192.168.1.16", "Yui.local", "172.18.0.1")
         store.upsert(
             HostProfile(
                 id = "host-1",
-                alias = "Yui.local",
-                addresses = listOf("192.168.1.16", "Yui.local", "172.18.0.1"),
-                sshPort = 22,
-                username = "misaka",
-                hostKeyFingerprints = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+                hostId = "ab".repeat(16),
+                name = "Yui.local",
+                user = "misaka",
+                hostKeys = setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+                bridgePath = "/usr/local/bin/luvia-host",
                 role = HostRole.Controller,
                 lastStatus = HostStatus.Unknown,
                 lastUpdatedEpochMs = 1,
-                lastConnectedAddress = "Yui.local",
                 topology = null,
+                hints = hints,
+                port = 22,
+                lastGood = "Yui.local",
             ),
         )
-        store.forgetLiteralAddresses("host-1", listOf("192.168.1.16", "Yui.local"))
-        val afterDrop = store.current().hosts.single()
-        assertEquals(listOf("Yui.local", "172.18.0.1"), afterDrop.addresses)
-        assertEquals("Yui.local", afterDrop.lastConnectedAddress)
         store.setLastConnectedAddress("host-1", "192.168.1.33")
         val afterOk = store.current().hosts.single()
-        assertEquals(listOf("192.168.1.33", "Yui.local", "172.18.0.1"), afterOk.addresses)
-        assertEquals("192.168.1.33", afterOk.lastConnectedAddress)
+        assertEquals(hints, afterOk.hints)
+        assertEquals("192.168.1.33", afterOk.lastGood)
+    }
+
+    @Test
+    fun hostFileMissingRoleFailsToParse() = runTest {
+        val thrown =
+            assertFailsWith<CorruptionException> {
+                HostCatalogOkioSerializer.readFrom(
+                    Buffer().writeUtf8(
+                        """{"version":2,"hosts":[{"id":"host-1","name":"Yui","user":"misaka","port":22,"hostKeys":["SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"]}],"updatedEpochMs":1}""",
+                    ),
+                )
+            }
+        assertTrue(thrown.cause?.message?.contains("missing role") == true, thrown.toString())
+    }
+
+    @Test
+    fun hostFilePortZeroFailsToParse() = runTest {
+        val thrown =
+            assertFailsWith<CorruptionException> {
+                HostCatalogOkioSerializer.readFrom(
+                    Buffer().writeUtf8(
+                        """{"version":2,"hosts":[{"id":"host-1","role":"Controller","name":"Yui","user":"misaka","port":0,"hostKeys":["SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"]}],"updatedEpochMs":1}""",
+                    ),
+                )
+            }
+        assertTrue(thrown.cause?.message?.contains("port is 0") == true, thrown.toString())
+    }
+
+    @Test
+    fun hostFileInvalidRoleFailsToParse() = runTest {
+        val thrown =
+            assertFailsWith<CorruptionException> {
+                HostCatalogOkioSerializer.readFrom(
+                    Buffer().writeUtf8(
+                        """{"version":2,"hosts":[{"id":"host-1","hostId":"ab","role":"Admin","name":"Yui","user":"misaka","port":22,"bridgePath":"/usr/local/bin/luvia-host","hostKeys":["SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"]}],"updatedEpochMs":1}""",
+                    ),
+                )
+            }
+        assertTrue(thrown.cause?.message?.contains("role is invalid") == true, thrown.toString())
+    }
+
+    @Test
+    fun hostFileUnknownKeyIsCorrupt() = runTest {
+        assertFailsWith<CorruptionException> {
+            HostCatalogOkioSerializer.readFrom(
+                Buffer().writeUtf8(
+                    """{"version":2,"hosts":[{"id":"host-1","hostId":"ab","role":"Observer","alias":"old","name":"Yui","user":"misaka","port":22,"bridgePath":"/usr/local/bin/luvia-host","hostKeys":["SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"]}],"updatedEpochMs":1}""",
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun mainEraHostsFileOpensAsEmptyCatalogAndAcceptsANewHost() = runTest {
+        val mainEra =
+            """
+            {"version":2,"updatedEpochMs":10,"hosts":[{
+              "id":"host-1",
+              "alias":"Yui",
+              "addresses":["192.168.1.8","100.89.1.2"],
+              "address":"192.168.1.8",
+              "sshPort":22,
+              "username":"misaka",
+              "hostKeyFingerprints":["SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"],
+              "hostKeySha256":"SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs",
+              "role":"Controller",
+              "lastStatus":"Reachable",
+              "lastUpdatedEpochMs":10,
+              "lastConnectedAddress":"192.168.1.8"
+            }]}
+            """.trimIndent()
+        assertFailsWith<CorruptionException> {
+            HostCatalogOkioSerializer.readFrom(Buffer().writeUtf8(mainEra))
+        }
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-host-main-${Random.nextLong()}.json"
+        FileSystem.SYSTEM.write(path) { writeUtf8(mainEra) }
+        val store = HostStore(path.toString(), backgroundScope)
+        val opened = store.current()
+        assertTrue(opened.hosts.isEmpty(), "main-era catalog must not crash or surface old hosts")
+        assertEquals(0, opened.updatedEpochMs)
+        store.upsert(
+            HostProfile(
+                id = "host-2",
+                hostId = "cd".repeat(16),
+                name = "studio",
+                user = "misaka",
+                hostKeys = setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+                bridgePath = "/usr/local/bin/luvia-host",
+                role = HostRole.Controller,
+                lastStatus = HostStatus.Unknown,
+                lastUpdatedEpochMs = 20,
+                topology = null,
+                hints = listOf("10.0.0.2"),
+                port = 22,
+            ),
+        )
+        val loaded = store.current().hosts.single()
+        assertEquals("host-2", loaded.id)
+        assertEquals("studio", loaded.name)
+        assertEquals(listOf("10.0.0.2"), loaded.hints)
+        assertEquals(22, loaded.port)
     }
 }

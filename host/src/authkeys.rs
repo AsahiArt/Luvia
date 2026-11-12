@@ -4,7 +4,7 @@ use crate::error::{Error, Result};
 use crate::grant::Grant;
 use crate::paths::{self, Paths};
 
-const MARKER_PREFIX: &str = "luvia-host:";
+const MARKER_PREFIX: &str = "luvia:";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ManagedKeyLine {
@@ -18,7 +18,7 @@ impl ManagedKeyLine {
     pub fn from_grant(grant: &Grant, exe: &Path) -> Result<Self> {
         Ok(Self {
             device_id: grant.id.clone(),
-            command: forced_command(exe, &grant.id)?,
+            command: forced_command(exe)?,
             key_type: grant.key_type.clone(),
             blob: grant.key.clone(),
         })
@@ -40,7 +40,7 @@ impl ManagedKeyLine {
     }
 }
 
-pub fn forced_command(exe: &Path, device_id: &str) -> Result<String> {
+pub fn forced_command(exe: &Path) -> Result<String> {
     if !exe.is_absolute() {
         return Err(Error::new(
             "unsafe_path",
@@ -59,7 +59,7 @@ pub fn forced_command(exe: &Path, device_id: &str) -> Result<String> {
             "luvia-host path contains control characters",
         ));
     }
-    Ok(format!("{displayed} bridge --device {device_id}"))
+    Ok(format!("{displayed} bridge"))
 }
 
 fn escape_command(command: &str) -> String {
@@ -254,7 +254,9 @@ mod tests {
             .count();
         assert_eq!(count, 1);
         assert!(text.contains("restrict,command="));
-        assert!(text.contains("bridge --device"));
+        assert!(text.contains(&format!("luvia:{}", grant.id)));
+        assert!(text.contains(" bridge\""));
+        assert!(!text.contains("--device"));
     }
 
     #[test]

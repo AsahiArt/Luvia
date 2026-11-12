@@ -154,18 +154,18 @@ class LuviaViewModel(
 
     fun updateConnection(
         hostId: String,
-        alias: String,
+        name: String,
         hosts: String,
         port: String,
-        username: String,
+        user: String,
     ) {
         viewModelScope.launch {
             manager.updateConnection(
                 hostId,
-                alias,
+                name,
                 parseConnectionAddresses(hosts),
                 port.trim().toIntOrNull() ?: 0,
-                username,
+                user,
             )
         }
     }
@@ -236,7 +236,7 @@ class LuviaViewModel(
             _terminals.update {
                 it + (
                     hostId to TerminalUiModel(
-                        title = runtime.snapshot?.sessionName ?: runtime.profile.alias,
+                        title = runtime.snapshot?.sessionName ?: runtime.profile.name,
                         text = "",
                         isAnsi = false,
                         isTruncated = false,
@@ -275,7 +275,7 @@ class LuviaViewModel(
         identities[hostId] = identity
         val title = panes.firstOrNull { it.paneId == identity.paneId }?.title
             ?: runtime.snapshot?.sessionName
-            ?: runtime.profile.alias
+            ?: runtime.profile.name
         _terminals.update { current ->
             val previous = current[hostId]
             current + (
@@ -482,7 +482,7 @@ class LuviaViewModel(
             map + (
                 hostId to (
                     current ?: TerminalUiModel(
-                        title = runtime?.snapshot?.sessionName ?: runtime?.profile?.alias ?: "Terminal",
+                        title = runtime?.snapshot?.sessionName ?: runtime?.profile?.name ?: "Terminal",
                         text = "",
                         isAnsi = false,
                         isTruncated = false,
@@ -545,11 +545,11 @@ internal fun HostRuntime.toUi(): HostUiModel {
     }
     return HostUiModel(
         id = profile.id,
-        name = profile.alias,
-        address = profile.lastConnectedAddress ?: profile.addresses.firstOrNull().orEmpty(),
-        addresses = profile.addresses,
-        sshPort = profile.sshPort,
-        username = profile.username,
+        name = profile.name,
+        address = profile.lastGood ?: profile.hints.firstOrNull().orEmpty(),
+        addresses = profile.hints,
+        port = profile.port,
+        user = profile.user,
         sessionName = sessionName,
         connection = badge,
         workingAgents = agents.count { it.status == AgentStatus.Working },
@@ -558,6 +558,7 @@ internal fun HostRuntime.toUi(): HostUiModel {
         activeTask = taskList.firstOrNull { !it.status.equals("done", ignoreCase = true) }?.title,
         lastUpdatedEpochMs = profile.lastUpdatedEpochMs,
         errorMessage = (link as? HostLink.Failed)?.failure?.connectMessage(),
+        pairingRevoked = (link as? HostLink.Failed)?.failure is Failure.ProveRejected,
         isObserver = profile.role == HostRole.Observer,
         connected = connected,
         hasSnapshot = snapshot != null,
@@ -589,7 +590,7 @@ private fun pairingFailureCopy(failure: Failure, rawCode: String): String {
     if (failure.isPairingSetupFailure()) return failure.pairingMessage()
     val decoded = PairingCodes.decode(rawCode)
     return if (decoded is Outcome.Ok) {
-        pairingConnectMessage(failure, decoded.value.addresses, decoded.value.sshPort)
+        pairingConnectMessage(failure, decoded.value.hints, decoded.value.port)
     } else {
         failure.pairingMessage()
     }

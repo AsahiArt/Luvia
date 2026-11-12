@@ -3,6 +3,10 @@ package tech.asahiart.luvia.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import tech.asahiart.luvia.AgentStatus
+import tech.asahiart.luvia.HANDSHAKE_FAILED_EN
+import tech.asahiart.luvia.HANDSHAKE_FAILED_ZH
+import tech.asahiart.luvia.PROVE_REJECTED_EN
+import tech.asahiart.luvia.PROVE_REJECTED_ZH
 import tech.asahiart.luvia.R
 import tech.asahiart.luvia.thread.PanePiece
 import tech.asahiart.luvia.thread.ToolTrailKind
@@ -12,18 +16,20 @@ import tech.asahiart.luvia.thread.splitPaneTranscript
 internal fun localizeUiMessage(message: String): String {
     val lower = message.lowercase()
     return when {
-        lower.contains("not a luvia1") || lower.contains("must start with luvia1") ->
-            "这不是 luvia1: 配对码。再扫一次，或粘贴另一条码。草稿仍然有效。"
+        lower.contains("luvia1:") || lower.contains("old pairing code") ->
+            "这是旧版配对码，已不再支持。在电脑上更新 luvia-host，重新运行 pair，再扫新码。草稿仍然有效。"
+        lower.contains("not a luvia2") || lower.contains("must start with luvia2") ->
+            "这不是 luvia2: 配对码。再扫一次，或粘贴另一条码。草稿仍然有效。"
         lower.contains("short code expired") ->
-            "六位短码已过期。在电脑上重新运行 pair --short，或粘贴 luvia1: 码。草稿仍然有效。"
+            "六位短码已过期。在电脑上重新运行 pair --short，或粘贴 luvia2: 码。草稿仍然有效。"
         lower.contains("invalidated after failed") ->
-            "六位短码已因错误尝试作废。在电脑上重新运行 pair --short，或粘贴 luvia1: 码。草稿仍然有效。"
+            "六位短码已因错误尝试作废。在电脑上重新运行 pair --short，或粘贴 luvia2: 码。草稿仍然有效。"
         lower.contains("computer address shown next") || lower.contains("short code needs") ->
             "填写电脑上短码旁边的地址。草稿仍然有效。"
         lower.contains("could not reach the computer to redeem") || lower.contains("short code redeem failed") ->
-            "连不上电脑兑换短码。检查地址，或粘贴 luvia1: 码。草稿仍然有效。"
+            "连不上电脑兑换短码。检查地址，或粘贴 luvia2: 码。草稿仍然有效。"
         lower.contains("rejected this short code") || lower.contains("rejected for this device key") || lower.contains("short code was rejected") || lower.contains("short code device key") ->
-            "电脑拒绝了这个短码。核对数字和设备密钥，或粘贴 luvia1: 码。草稿仍然有效。"
+            "电脑拒绝了这个短码。核对数字和设备密钥，或粘贴 luvia2: 码。草稿仍然有效。"
         lower.contains("different device key") ->
             "这条配对码属于另一把设备密钥。请在电脑上运行本页的命令，再扫描它打印的码。草稿仍然有效。"
         lower.contains("no host key") || lower.contains("empty host") ->
@@ -34,8 +40,17 @@ internal fun localizeUiMessage(message: String): String {
         lower.contains("no longer available") -> "这个窗格已经不在了。换一个正在运行的窗格，或刷新。"
         lower.contains("still handling a previous message") -> "agent 还在处理上一条消息。等它完成。"
         lower.contains("screen changed") -> "agent 的画面变了。刷新后再发按键。"
-        lower.contains("host key changed") -> "主机密钥变了。请重新配对。"
-        lower.contains("no address reachable") -> "没有能连上的地址。检查网络或 Tailscale。"
+        lower.contains("host key changed") || lower.contains("host key mismatch") -> "主机密钥变了。请重新配对。"
+        message == PROVE_REJECTED_EN || lower.contains("no pairing grant") || lower.contains("no longer paired") ->
+            PROVE_REJECTED_ZH
+        message == HANDSHAKE_FAILED_EN || lower.contains("handshake with the host failed") ->
+            HANDSHAKE_FAILED_ZH
+        lower.contains("host refused the connection") || lower.contains("closed before banner") ->
+            "主机拒绝了连接"
+        lower.contains("name lookup timed out") || lower.contains("dns timeout") ->
+            "找不到这台电脑（主机名解析超时）。检查网络或 Tailscale。"
+        lower.contains("candidate timeout") || lower.contains("no address reachable") ->
+            "没有能连上的地址。检查网络或 Tailscale。"
         lower.contains("observe still works") -> message.substringBefore("Observe").trim() + " 观察仍然有效。"
         else -> message
     }
@@ -72,6 +87,14 @@ internal fun ConnectionBadge.label(): String =
         ConnectionBadge.Connecting -> stringResource(R.string.link_connecting)
         ConnectionBadge.Stale -> stringResource(R.string.link_stale)
         ConnectionBadge.Offline -> stringResource(R.string.link_offline)
+    }
+
+@Composable
+internal fun HostUiModel.connectionCopy(): String =
+    if (pairingRevoked) {
+        localizeUiMessage(errorMessage ?: PROVE_REJECTED_EN)
+    } else {
+        connection.chromeLabel()
     }
 
 @Composable

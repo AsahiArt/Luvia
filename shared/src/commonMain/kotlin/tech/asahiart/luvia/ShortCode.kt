@@ -59,7 +59,7 @@ public fun parseShortCodeHost(raw: String, defaultPort: Int = DEFAULT_SHORT_REDE
 }
 
 /**
- * Redeem a six-digit code at a known host. Returns the `luvia1:` payload the
+ * Redeem a six-digit code at a known host. Returns the `luvia2:` payload the
  * phone must pass to `completePairing`. The short code is not itself a pairing
  * code.
  */
@@ -102,7 +102,7 @@ internal suspend fun redeemShortCode(
                 ShortCodeHttp(0, error.message ?: "short code redeem failed")
             }
         if (http.status in 200..299) {
-            val luvia = jsonStringField(http.body, "luvia1")
+            val luvia = jsonStringField(http.body, "luvia2")
             if (luvia != null && PairingCodes.looksLikeCode(luvia)) {
                 return ok(luvia)
             }

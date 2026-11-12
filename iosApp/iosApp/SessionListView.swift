@@ -150,7 +150,7 @@ struct SessionListView: View {
                                     .frame(width: 10, height: 10)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(host.name).font(.headline)
-                                    Text(connectionLabel(host.connection))
+                                    Text(hostStatusLine(host))
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -199,7 +199,7 @@ struct SessionListView: View {
                 .foregroundStyle(.secondary)
             if let host = model.selectedHost {
                 Text(host.name).font(.title3.weight(.semibold))
-                Text(connectionLabel(host.connection)).foregroundStyle(.secondary)
+                Text(hostStatusLine(host)).foregroundStyle(.secondary)
                 Button("电脑设置", action: onSettings)
                     .buttonStyle(.borderedProminent)
                     .tint(.blue)
@@ -242,7 +242,12 @@ struct SessionListView: View {
             }
             .tint(.primary)
             Spacer()
-            if let host, host.connection != .live {
+            if let host, host.pairingRevoked {
+                Text(host.failureMessage ?? FailureMessagesKt.PROVE_REJECTED_ZH)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            } else if let host, host.connection != .live {
                 Button("重试") { model.connect(host.id) }
                     .buttonStyle(.bordered)
                     .tint(.blue)
@@ -833,8 +838,18 @@ func connectionLabel(_ badge: HostConnectionBadge) -> String {
     }
 }
 
+func hostStatusLine(_ host: HostViewState) -> String {
+    if host.pairingRevoked {
+        return host.failureMessage ?? FailureMessagesKt.PROVE_REJECTED_ZH
+    }
+    return connectionLabel(host.connection)
+}
+
 func hostSubtitle(_ host: HostViewState?) -> String {
     guard let host else { return "配对一台电脑" }
+    if host.pairingRevoked {
+        return host.failureMessage ?? FailureMessagesKt.PROVE_REJECTED_ZH
+    }
     if host.connection == .live {
         return host.address.isEmpty ? "在线" : host.address
     }

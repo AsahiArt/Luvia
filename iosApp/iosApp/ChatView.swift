@@ -13,6 +13,7 @@ struct ChatView: View {
     var glass: Namespace.ID
     var nextQuestion: String? = nil
     var nextAgent: String? = nil
+    var onPairAgain: () -> Void = {}
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var draft = ""
@@ -37,7 +38,7 @@ struct ChatView: View {
                     headerSubtitle.font(.caption).lineLimit(1)
                 }
                 Spacer()
-                if hostOffline, let host = model.selectedHost {
+                if hostOffline, let host = model.selectedHost, !host.pairingRevoked {
                     Button("重试") { model.connect(host.id) }
                         .buttonStyle(.bordered)
                         .tint(.blue)
@@ -53,7 +54,9 @@ struct ChatView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            if hostOffline, let host = model.selectedHost {
+            if model.selectedHost?.pairingRevoked == true {
+                pairingLostBanner
+            } else if hostOffline, let host = model.selectedHost {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(connectionLabel(host.connection)).font(.headline)
                     Text("缓存").font(.caption).foregroundStyle(.secondary)
@@ -98,6 +101,9 @@ struct ChatView: View {
     }
 
     private var headerSubtitle: Text {
+        if model.selectedHost?.pairingRevoked == true {
+            return Text("配对已失效").foregroundColor(errorColor)
+        }
         if hostOffline, let host = model.selectedHost {
             return Text("\(connectionLabel(host.connection)) · 缓存").foregroundColor(.secondary)
         }
@@ -273,8 +279,48 @@ struct ChatView: View {
         return result
     }
 
+    private var pairingRevoked: Bool {
+        model.selectedHost?.pairingRevoked == true
+    }
+
     private var canCompose: Bool {
-        model.selectedHost?.isController == true && !hostOffline
+        model.selectedHost?.isController == true && !hostOffline && !pairingRevoked
+    }
+
+    private var errorColor: Color {
+        colorScheme == .dark ? Color(hex: "FFB4AB") : Color(hex: "BA1A1A")
+    }
+
+    private var errorContainer: Color {
+        colorScheme == .dark ? Color(hex: "93000A") : Color(hex: "FFDAD6")
+    }
+
+    private var onErrorContainer: Color {
+        colorScheme == .dark ? Color(hex: "FFDAD6") : Color(hex: "410002")
+    }
+
+    private var pairingLostBanner: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(FailureMessagesKt.PROVE_REJECTED_ZH)
+                .font(.body)
+                .foregroundStyle(onErrorContainer)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: onPairAgain) {
+                Text("重新配对")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .frame(height: 40)
+                    .background(Color.blue, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(16)
+        .background(errorContainer, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
     }
 
     private func decision(_ ask: Ask) -> some View {
@@ -353,7 +399,7 @@ struct ChatView: View {
                     .buttonStyle(.plain)
                 }
                 HStack(alignment: .center, spacing: 10) {
-                    TextField("补充说明（可选）", text: $decisionNote, axis: .vertical)
+                    TextField(decisionNotePlaceholder, text: $decisionNote, axis: .vertical)
                         .lineLimit(1...3)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
@@ -382,6 +428,8 @@ struct ChatView: View {
         }
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
+        .opacity(model.selectedHost?.pairingRevoked == true ? 0.38 : 1)
+        .allowsHitTesting(model.selectedHost?.pairingRevoked != true)
     }
 
     private var peekLabel: String {
@@ -473,26 +521,65 @@ struct ChatView: View {
         decisionNote = ""
     }
 
+    private var decisionNotePlaceholder: String {
+        if pairingRevoked { return "重新配对后才能作答" }
+        if canCompose { return "补充说明（可选）" }
+        return "观察者不能代答"
+    }
+
     private var composer: some View {
         HStack {
-            TextField(composerPlaceholder, text: $draft, axis: .vertical)
+            composerField
                 .focused($composerFocused)
                 .disabled(!canCompose)
+            composerSendButton
+        }
+        .padding(12)
+        .luviaGlass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .opacity(pairingRevoked || canCompose ? 1 : 0.45)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    @ViewBuilder
+    private var composerField: some View {
+        if pairingRevoked {
+            TextField(
+                composerPlaceholder,
+                text: $draft,
+                prompt: Text(composerPlaceholder).foregroundStyle(Color.primary.opacity(0.38)),
+                axis: .vertical
+            )
+        } else {
+            TextField(composerPlaceholder, text: $draft, axis: .vertical)
+        }
+    }
+
+    @ViewBuilder
+    private var composerSendButton: some View {
+        let cannotSend = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !canCompose
+        if pairingRevoked {
+            Button {
+                send(draft)
+            } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(Color.primary.opacity(0.38))
+            }
+            .buttonStyle(RevokedComposerSendStyle())
+            .disabled(cannotSend)
+        } else {
             Button {
                 send(draft)
             } label: {
                 Image(systemName: "arrow.up.circle.fill").font(.title2)
             }
-            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !canCompose)
+            .disabled(cannotSend)
         }
-        .padding(12)
-        .luviaGlass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .opacity(canCompose ? 1 : 0.45)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
     }
 
     private var composerPlaceholder: String {
+        if pairingRevoked { return "配对已失效" }
         if hostOffline { return "离线，无法发送" }
         if model.selectedHost?.isController == true { return "消息" }
         return "观察者只能看，不能发"
@@ -930,6 +1017,15 @@ private struct TestBar: View {
                     .foregroundStyle(.red)
             }
         }
+    }
+}
+
+/// Keeps the revoked send icon at onSurface 38% without the default disabled fade.
+private struct RevokedComposerSendStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(Color.primary.opacity(0.38))
+            .environment(\.isEnabled, true)
     }
 }
 

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -50,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
 import tech.asahiart.luvia.R
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -112,11 +114,20 @@ fun ChatScreen(
     sending: Boolean,
     isObserver: Boolean,
     connection: ConnectionBadge? = null,
+    pairingRevoked: Boolean = false,
     onRetry: () -> Unit = {},
+    onPairAgain: () -> Unit = {},
 ) {
-    val offline = connection != null && connection != ConnectionBadge.Live
     val listState = rememberLazyListState()
     var draft by remember(thread.id) { mutableStateOf(initialDraft) }
+    val chrome = chatComposerChrome(
+        pairingRevoked = pairingRevoked,
+        connection = connection,
+        isObserver = isObserver,
+        sending = sending,
+        draftNonBlank = draft.isNotBlank(),
+    )
+    val offline = chrome.offline
     val visible = items.filterNot { it is TimelineItem.AskCard }
     LaunchedEffect(visible.size) {
         if (visible.isNotEmpty()) listState.animateScrollToItem(visible.lastIndex)
@@ -134,15 +145,20 @@ fun ChatScreen(
             }
             Column(Modifier.weight(1f)) {
                 Text(thread.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val detail = if (offline && connection != null) {
-                    connection.chromeLabel() + " · " + stringResource(R.string.cached)
-                } else {
+                val detail = chrome.headerSubtitle ?: when {
+                    offline && connection != null ->
+                        connection.chromeLabel() + " · " + stringResource(R.string.cached)
+                    else ->
                     listOfNotNull(thread.projectLabel, thread.status.sessionLabel()).joinToString(" · ")
                 }
                 Text(
-                    detail,
+                    if (chrome.showPairAgain) stringResource(R.string.pairing_revoked) else detail,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (chrome.showPairAgain) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                     maxLines = 1,
                 )
             }
@@ -155,7 +171,32 @@ fun ChatScreen(
                 modifier = terminalModifier.padding(end = 8.dp),
             )
         }
-        if (offline && connection != null) {
+        if (chrome.showPairAgain) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 8.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    localizeUiMessage(tech.asahiart.luvia.PROVE_REJECTED_EN),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Button(
+                    onClick = onPairAgain,
+                    modifier = Modifier.align(Alignment.End).height(40.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Text(stringResource(R.string.pair_again))
+                }
+            }
+        } else if (offline && connection != null) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(connection.chromeLabel(), style = MaterialTheme.typography.titleMedium)
                 Text(
@@ -195,17 +236,23 @@ fun ChatScreen(
             }
         }
         thread.ask?.let { ask ->
-            DecisionCard(
-                ask = ask,
-                agentType = thread.agentType,
-                sessionTitle = thread.title,
-                index = queueIndex,
-                total = queueTotal,
-                enabled = !isObserver && !sending && !offline,
-                onAnswer = onAnswer,
-            )
+            Box(Modifier.alpha(if (pairingRevoked) 0.38f else 1f)) {
+                DecisionCard(
+                    ask = ask,
+                    agentType = thread.agentType,
+                    sessionTitle = thread.title,
+                    index = queueIndex,
+                    total = queueTotal,
+                    enabled = chrome.decisionEnabled,
+                    noteHint = when (chrome.decisionNoteHint) {
+                        DecisionNoteHint.PairAgain -> stringResource(R.string.pair_again_to_answer)
+                        DecisionNoteHint.Observer -> stringResource(R.string.observer_cannot_answer)
+                        DecisionNoteHint.Note -> stringResource(R.string.note_hint)
+                    },
+                    onAnswer = onAnswer,
+                )
+            }
         }
-        val canType = !isObserver && !sending && !offline
         Composer(
             draft = draft,
             onDraft = { draft = it },
@@ -216,12 +263,14 @@ fun ChatScreen(
                     draft = ""
                 }
             },
-            canSend = canType && draft.isNotBlank(),
-            editable = canType,
-            hint = when {
-                offline -> stringResource(R.string.offline_cannot_send)
-                isObserver -> stringResource(R.string.observer_cannot_send)
-                else -> stringResource(R.string.message_hint)
+            canSend = chrome.sendEnabled,
+            editable = chrome.inputEnabled,
+            onSurface38 = chrome.composerOnSurface38,
+            hint = when (chrome.hint) {
+                ChatComposerHint.PairingRevoked -> stringResource(R.string.pairing_revoked)
+                ChatComposerHint.Offline -> stringResource(R.string.offline_cannot_send)
+                ChatComposerHint.Observer -> stringResource(R.string.observer_cannot_send)
+                ChatComposerHint.Message -> stringResource(R.string.message_hint)
             },
         )
     }
@@ -781,6 +830,7 @@ private fun DecisionCard(
     index: Int,
     total: Int,
     enabled: Boolean,
+    noteHint: String,
     onAnswer: (AskOption) -> Unit,
 ) {
     val agentName = agentType?.takeIf { it.isNotBlank() } ?: sessionTitle
@@ -900,7 +950,7 @@ private fun DecisionCard(
                     Box {
                         if (note.isEmpty()) {
                             Text(
-                                if (enabled) stringResource(R.string.note_hint) else stringResource(R.string.observer_cannot_answer),
+                                noteHint,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -945,8 +995,10 @@ private fun Composer(
     canSend: Boolean,
     editable: Boolean,
     hint: String,
+    onSurface38: Boolean,
 ) {
     val ink = if (editable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    val revokedInk = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
     Row(
         Modifier
             .fillMaxWidth()
@@ -973,7 +1025,10 @@ private fun Composer(
             decorationBox = { inner ->
                 Box {
                     if (draft.isEmpty()) {
-                        Text(hint, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            hint,
+                            color = if (onSurface38) revokedInk else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     inner()
                 }
@@ -983,7 +1038,11 @@ private fun Composer(
             Icon(
                 Icons.Filled.Send,
                 contentDescription = stringResource(R.string.send),
-                tint = if (canSend) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                tint = when {
+                    canSend -> MaterialTheme.colorScheme.primary
+                    onSurface38 -> revokedInk
+                    else -> MaterialTheme.colorScheme.outline
+                },
             )
         }
     }

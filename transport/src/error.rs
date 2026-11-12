@@ -26,6 +26,22 @@ pub enum TransportError {
     HostKeyMismatch { expected: String, actual: String },
     #[error("public-key authentication failed")]
     AuthenticationFailed,
+    #[error("host id mismatch")]
+    HostIdMismatch,
+    #[error("refusing to sign before host-key verification")]
+    HostKeyUnverified,
+    /// Host answered Prove with an error frame. [reason] is the host's message.
+    /// Not a successful proof.
+    #[error("{reason}")]
+    ProveRejected { code: String, reason: String },
+    /// TCP connected, then the peer closed before an SSH identification banner.
+    /// Not a session disconnect, not a connect timeout, and not a later handshake failure.
+    #[error("closed before banner")]
+    ClosedBeforeBanner,
+    /// A banner was received, or the failure is not a clean close before that line
+    /// (invalid version, key exchange, or generic transport IO).
+    #[error("handshake failed: {reason}")]
+    HandshakeFailed { reason: String },
     #[error("disconnected: {reason}")]
     Disconnected { reason: String },
     #[error("channel closed")]
@@ -94,6 +110,28 @@ impl From<russh::Error> for TransportError {
             | russh::Error::InactivityTimeout => Self::disconnected("disconnected"),
             russh::Error::RecvError | russh::Error::WrongChannel => Self::ChannelClosed,
             russh::Error::SendError | russh::Error::Pending => Self::disconnected("session closed"),
+            russh::Error::Version => Self::HandshakeFailed {
+                reason: "invalid version".into(),
+            },
+            russh::Error::Kex | russh::Error::KexInit => Self::HandshakeFailed {
+                reason: "key exchange failed".into(),
+            },
+            russh::Error::NoCommonAlgo { .. } | russh::Error::UnknownAlgo => {
+                Self::HandshakeFailed {
+                    reason: "no common algorithm".into(),
+                }
+            }
+            russh::Error::PacketAuth
+            | russh::Error::DecryptionError
+            | russh::Error::WrongServerSig
+            | russh::Error::Inconsistent
+            | russh::Error::PacketSize(_)
+            | russh::Error::StrictKeyExchangeViolation { .. } => Self::HandshakeFailed {
+                reason: "ssh handshake failed".into(),
+            },
+            // `Error::IO` still carries a std::io::Error, but the kind does not
+            // say whether read_ssh_id or a later packet read failed. Callers
+            // that know they are inside the identification handshake decide.
             _ => Self::io("ssh transport failure"),
         }
     }

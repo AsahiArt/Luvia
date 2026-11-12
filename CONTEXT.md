@@ -19,7 +19,7 @@ A Host's durable record that a Device may connect, with its Role. Created by `lu
 _Avoid_: Pairing record, registration
 
 **Pairing code**:
-The `luvia1:` payload a Host emits once per Grant. It pins the Host's SSH key fingerprints and names the Device key it belongs to.
+The `luvia2:` payload a Host emits once per Grant. It pins the Host's SSH key fingerprints and names the Device key it belongs to. A `luvia1:` code is rejected.
 _Avoid_: QR, token, invite
 
 **Role**:
