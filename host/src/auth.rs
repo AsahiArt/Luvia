@@ -252,15 +252,6 @@ pub enum AuthReply {
     Error { code: String, message: String },
 }
 
-/// Success frame written after Prove verifies. Only `type` is allowed.
-pub fn ok_frame() -> Result<Vec<u8>> {
-    let mut bytes = serde_json::to_vec(&json!({
-        "type": "ok",
-    }))?;
-    bytes.push(b'\n');
-    Ok(bytes)
-}
-
 /// Parse the one frame the client reads after Prove. Unknown fields fail.
 pub fn parse_auth_reply(text: &str) -> Result<AuthReply> {
     let value = parse_unique_value(text.trim().as_bytes())?;
@@ -650,8 +641,8 @@ mod tests {
 
     #[test]
     fn ok_and_error_replies_reject_unknown_fields() {
-        let frame = ok_frame().unwrap();
-        let text = std::str::from_utf8(&frame).unwrap().trim();
+        let frame = b"{\"type\":\"ok\"}\n";
+        let text = std::str::from_utf8(frame).unwrap().trim();
         assert_eq!(parse_auth_reply(text).unwrap(), AuthReply::Ok);
         let err = parse_auth_reply(r#"{"type":"ok","extra":1}"#).unwrap_err();
         assert_eq!(err.code, "invalid_auth");
