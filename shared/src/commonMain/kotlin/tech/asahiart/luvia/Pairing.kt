@@ -21,14 +21,7 @@ public data class PairingCode(
     public val deviceId: String,
     public val deviceKey: String,
     public val role: HostRole,
-) {
-    public val hostLabel: String get() = name
-    public val username: String get() = user
-    public val sshPort: Int get() = port
-    public val addresses: List<String> get() = hints
-    public val hostKeyFingerprints: List<String> get() = hostKeys
-    public val deviceKeyFingerprint: String get() = deviceKey
-}
+)
 
 public object PairingCodes {
     public fun decode(raw: String): Outcome<PairingCode> {

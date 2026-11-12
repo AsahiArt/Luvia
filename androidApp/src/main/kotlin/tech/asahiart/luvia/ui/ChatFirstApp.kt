@@ -518,7 +518,7 @@ private fun HostSettingsSheet(
 ) {
     var alias by rememberSaveable(host.id) { mutableStateOf(host.name) }
     var addresses by rememberSaveable(host.id) { mutableStateOf(host.addresses.joinToString("\n")) }
-    var port by rememberSaveable(host.id) { mutableStateOf(host.sshPort.toString()) }
+    var port by rememberSaveable(host.id) { mutableStateOf(host.port.toString()) }
     var user by rememberSaveable(host.id) { mutableStateOf(host.username) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {

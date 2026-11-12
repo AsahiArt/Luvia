@@ -50,9 +50,9 @@ internal fun candidateAddresses(profile: HostProfile): List<String> {
         if (!seen.add(address.lowercase())) return
         out += address
     }
-    add(profile.lastGood?.trim()?.ifEmpty { null } ?: profile.lastConnectedAddress)
+    add(profile.lastGood)
     add(mdnsCandidate(profile))
-    val hints = profile.hints.ifEmpty { profile.addresses }
+    val hints = profile.hints
     val lan = ArrayList<String>()
     val tailnetNames = ArrayList<String>()
     val tailnetIps = ArrayList<String>()
@@ -228,7 +228,7 @@ internal class SshCandidateDial(
 }
 
 internal fun HostProfile.raceEndpoint(address: String): HostEndpoint {
-    val resolvedPort = if (port in 1..65535) port else sshPort
+    val resolvedPort = port
     val resolvedUser = user.trim().ifEmpty { username.trim() }
     val keys = hostKeys.ifEmpty { hostKeyFingerprints }
     return HostEndpoint(

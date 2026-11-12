@@ -258,10 +258,10 @@ private fun PairingRitual(
             looksLikeShortCode(pasted) -> pasted
             else -> pasted
         }
-    val fingerprintMatches = decoded?.deviceKeyFingerprint == draft.deviceKeyFingerprint
-    val hostName = decoded?.hostLabel?.takeIf { it.isNotBlank() }
+    val fingerprintMatches = decoded?.deviceKey == draft.deviceKeyFingerprint
+    val hostName = decoded?.name?.takeIf { it.isNotBlank() }
     val scanLabel = stringResource(R.string.scan_instead)
-    val address = decoded?.addresses?.firstOrNull().orEmpty()
+    val address = decoded?.hints?.firstOrNull().orEmpty()
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) scanning = true
     }

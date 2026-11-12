@@ -420,7 +420,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
     var name: String
     var address: String
     var addresses: [String]
-    var sshPort: Int32
+    var port: Int32
     var username: String
     var sessionName: String?
     var connection: HostConnectionBadge
@@ -444,7 +444,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         name: String,
         address: String,
         addresses: [String] = [],
-        sshPort: Int32 = 22,
+        port: Int32 = 22,
         username: String = "",
         sessionName: String? = nil,
         connection: HostConnectionBadge = .offline,
@@ -467,7 +467,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         self.name = name
         self.address = address
         self.addresses = addresses
-        self.sshPort = sshPort
+        self.port = port
         self.username = username
         self.sessionName = sessionName
         self.connection = connection
@@ -553,8 +553,8 @@ struct HostViewState: Identifiable, Hashable, Sendable {
             id: profile.id,
             name: profile.alias,
             address: link.address,
-            addresses: KotlinLists.array(profile.addresses as Any),
-            sshPort: profile.sshPort,
+            addresses: KotlinLists.array(profile.hints as Any),
+            port: profile.port,
             username: profile.username,
             sessionName: link.sessionName,
             connection: link.badge,
@@ -598,8 +598,8 @@ struct HostViewState: Identifiable, Hashable, Sendable {
 
     private static func linkPresentation(_ runtime: HostRuntime) -> LinkPresentation {
         let profile = runtime.profile
-        let fallbackAddress = profile.lastConnectedAddress
-            ?? KotlinLists.array(profile.addresses).first
+        let fallbackAddress = profile.lastGood
+            ?? KotlinLists.array(profile.hints).first
             ?? ""
         switch onEnum(of: runtime.link) {
         case .idle(_):
@@ -797,29 +797,29 @@ enum FailureText {
         if reason == "pairing code is for a different device key" {
             return "这条配对码属于另一把设备密钥。请在电脑上运行上一步的命令，再扫描它打印的码。" + draftNote
         }
-        if reason == "pairing code must start with luvia1:" {
-            return "这不是 luvia1: 配对码。请扫描或粘贴一条 luvia1: 码。" + draftNote
+        if reason.contains("luvia1:") || reason.contains("must start with luvia2") {
+            return "这不是 luvia2: 配对码。请扫描或粘贴一条 luvia2: 码。" + draftNote
         }
         if reason.contains("short code expired") {
-            return "六位短码已过期。在电脑上重新运行 pair --short，或粘贴 luvia1: 码。" + draftNote
+            return "六位短码已过期。在电脑上重新运行 pair --short，或粘贴 luvia2: 码。" + draftNote
         }
         if reason.contains("invalidated after failed") {
-            return "六位短码已因错误尝试作废。在电脑上重新运行 pair --short，或粘贴 luvia1: 码。" + draftNote
+            return "六位短码已因错误尝试作废。在电脑上重新运行 pair --short，或粘贴 luvia2: 码。" + draftNote
         }
         if reason.contains("short code needs") {
             return "填写电脑上短码旁边的地址。" + draftNote
         }
         if reason.contains("short code redeem failed") {
-            return "连不上电脑兑换短码。检查地址，或粘贴 luvia1: 码。" + draftNote
+            return "连不上电脑兑换短码。检查地址，或粘贴 luvia2: 码。" + draftNote
         }
         if reason.contains("short code") {
-            return "电脑拒绝了这个短码。核对数字，或粘贴 luvia1: 码。" + draftNote
+            return "电脑拒绝了这个短码。核对数字，或粘贴 luvia2: 码。" + draftNote
         }
         if reason == "pairing code has no host key fingerprints" {
             return "这条配对码没有主机密钥，不能信任。请在电脑上重新生成。" + draftNote
         }
         if reason.hasPrefix("pairing code") {
-            return "这条配对码格式不对。再扫一次，或粘贴另一条 luvia1: 码。" + draftNote
+            return "这条配对码格式不对。再扫一次，或粘贴另一条 luvia2: 码。" + draftNote
         }
         return reason
     }
@@ -845,6 +845,12 @@ enum FailureText {
             || lower.contains("permission denied")
         {
             return "SSH 拒绝了这台设备。请在主机上检查授权。"
+        }
+        if lower.contains("dns timeout") {
+            return "解析主机名超时。检查网络或 Tailscale。"
+        }
+        if lower.contains("candidate timeout") {
+            return "没有能连上的地址。检查网络或 Tailscale。"
         }
         if lower.contains("timed out")
             || lower.contains("timeout")

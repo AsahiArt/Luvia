@@ -577,7 +577,7 @@ private struct SettingsForm: View {
         guard let host = model.selectedHost else { return }
         alias = host.name
         addresses = host.addresses.joined(separator: "\n")
-        port = String(host.sshPort)
+        port = String(host.port)
         user = host.username
     }
 }

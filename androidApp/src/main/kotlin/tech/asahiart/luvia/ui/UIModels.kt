@@ -9,7 +9,7 @@ data class HostUiModel(
     val name: String,
     val address: String,
     val addresses: List<String> = emptyList(),
-    val sshPort: Int = 22,
+    val port: Int = 22,
     val username: String = "",
     val sessionName: String?,
     val connection: ConnectionBadge,

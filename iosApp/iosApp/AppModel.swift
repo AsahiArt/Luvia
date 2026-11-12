@@ -171,7 +171,7 @@ final class AppModel {
                 draft: draft,
                 rawCode: material,
                 addresses: [],
-                sshPort: nil,
+                port: nil,
                 username: nil
             )
             switch onEnum(of: outcome) {
@@ -220,7 +220,7 @@ final class AppModel {
                 hostId: hostID,
                 alias: alias,
                 addresses: addresses,
-                sshPort: parsedPort ?? 0,
+                port: parsedPort ?? 0,
                 username: username
             )
             switch onEnum(of: outcome) {
@@ -313,11 +313,11 @@ final class AppModel {
         switch onEnum(of: PairingCodes.shared.decode(raw: rawCode)) {
         case .ok(let ok):
             guard let code = ok.value else { return FailureText.describe(failure) }
-            let addresses: [String] = KotlinLists.array(code.addresses as Any)
+            let addresses: [String] = KotlinLists.array(code.hints as Any)
             return PairingConnectKt.pairingConnectMessage(
                 failure: failure,
                 addresses: addresses,
-                port: code.sshPort
+                port: code.port
             )
         case .err:
             return FailureText.describe(failure)

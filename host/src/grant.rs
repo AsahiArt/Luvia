@@ -100,7 +100,7 @@ impl Grant {
 
     fn from_wire(wire: WireGrant) -> Result<Self> {
         validate_device_id(&wire.device_id)?;
-        let key = sshkey::parse_openssh_public_key(&wire.pubkey)?;
+        let key = require_raw_pubkey(&wire.pubkey)?;
         let fingerprint = key.fingerprint()?;
         Ok(Self {
             id: wire.device_id,
@@ -158,6 +158,18 @@ fn new_device_id() -> Result<String> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| Error::new("io", "secure random is unavailable"))?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn require_raw_pubkey(line: &str) -> Result<PublicKey> {
+    let key = sshkey::parse_openssh_public_key(line)?;
+    if key.blob.is_empty() || key.key_type.is_empty() {
+        return Err(Error::new(
+            "invalid_key",
+            "grant is missing a raw public key",
+        ));
+    }
+    let _ = key.fingerprint()?;
+    Ok(key)
 }
 
 fn grants_path(paths: &Paths) -> PathBuf {
@@ -263,6 +275,7 @@ pub fn pair_device(
 
 pub fn save_grant(paths: &Paths, grant: &Grant) -> Result<()> {
     validate_device_id(&grant.id)?;
+    require_raw_pubkey(&grant.pubkey_line())?;
     paths.ensure_host_dirs()?;
     let _lock = LockFile::exclusive(&paths.lock_path)?;
     let mut grants = read_grants(paths)?;
@@ -432,5 +445,72 @@ mod tests {
         .unwrap();
         let grant = load_grant(&paths, &id).unwrap();
         assert!(grant.push.is_none());
+    }
+
+    #[test]
+    fn grant_without_raw_key_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("ssh")).unwrap();
+        let paths = test_paths(dir.path());
+        let exe = Path::new("/usr/local/bin/luvia-host");
+        let mut grant =
+            pair_device(&paths, "phone", Role::Controller, &sample_key("phone"), exe).unwrap();
+        grant.key.clear();
+        grant.key_type.clear();
+        let err = save_grant(&paths, &grant).unwrap_err();
+        assert_eq!(err.code, "invalid_key");
+
+        let id = "ab".repeat(16);
+        fs::write(
+            paths.config_dir.join("grants.json"),
+            format!(
+                r#"{{"devices":[{{
+                    "device_id": "{id}",
+                    "name": "phone",
+                    "fingerprint": "SHA256:not-a-stored-key",
+                    "role": "observer",
+                    "created": 1
+                }}]}}"#
+            ),
+        )
+        .unwrap();
+        let err = load_grant(&paths, &id).unwrap_err();
+        assert_eq!(err.code, "invalid_json");
+    }
+
+    #[test]
+    fn fingerprint_is_computed_from_the_raw_key_and_not_stored() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("ssh")).unwrap();
+        let paths = test_paths(dir.path());
+        paths.ensure_host_dirs().unwrap();
+        let key = sample_key("phone");
+        let id = "cd".repeat(16);
+        let line = if key.comment.is_empty() {
+            format!("{} {}", key.key_type, key.blob)
+        } else {
+            format!("{} {} {}", key.key_type, key.blob, key.comment)
+        };
+        fs::write(
+            paths.config_dir.join("grants.json"),
+            format!(
+                r#"{{"devices":[{{
+                    "device_id": "{id}",
+                    "name": "phone",
+                    "pubkey": "{line}",
+                    "fingerprint": "SHA256:wrong",
+                    "role": "controller",
+                    "created": 1
+                }}]}}"#
+            ),
+        )
+        .unwrap();
+        let loaded = load_grant(&paths, &id).unwrap();
+        assert_eq!(loaded.fingerprint, key.fingerprint().unwrap());
+        assert_ne!(loaded.fingerprint, "SHA256:wrong");
+        save_grant(&paths, &loaded).unwrap();
+        let text = fs::read_to_string(paths.config_dir.join("grants.json")).unwrap();
+        assert!(text.contains("ssh-ed25519"));
+        assert!(!text.contains("\"fingerprint\""));
     }
 }

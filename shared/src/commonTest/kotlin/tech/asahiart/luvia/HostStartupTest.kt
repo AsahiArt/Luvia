@@ -143,13 +143,13 @@ private fun profile(
     HostProfile(
         id = id,
         alias = alias,
-        addresses = listOf("192.168.1.70", "Yui.local"),
-        sshPort = 22,
         username = "misaka",
         hostKeyFingerprints = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
         role = HostRole.Controller,
         lastStatus = status,
         lastUpdatedEpochMs = updated,
-        lastConnectedAddress = lastConnected,
         topology = null,
+        hints = listOf("192.168.1.70", "Yui.local"),
+        port = 22,
+        lastGood = lastConnected,
     )

@@ -294,15 +294,14 @@ private fun sampleRuntime(): HostRuntime {
             HostProfile(
                 id = "host-1",
                 alias = "studio",
-                addresses = listOf("studio.tailnet"),
-                sshPort = 22,
                 username = "misaka",
                 hostKeyFingerprints = listOf("SHA256:abc"),
                 role = HostRole.Controller,
                 lastStatus = HostStatus.Unknown,
                 lastUpdatedEpochMs = 0L,
-                lastConnectedAddress = null,
                 topology = null,
+                hints = listOf("studio.tailnet"),
+                port = 22,
             ),
         link = HostLink.Idle,
         snapshot =

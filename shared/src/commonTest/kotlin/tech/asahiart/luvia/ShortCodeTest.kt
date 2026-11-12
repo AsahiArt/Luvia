@@ -112,7 +112,7 @@ class ShortCodeTest {
         assertTrue(seenBody.contains("\"code\":\"482197\""))
         assertTrue(seenBody.contains(fingerprint))
         assertEquals(luvia, (redeemed as Outcome.Ok).value)
-        assertEquals(fingerprint, (PairingCodes.decode(luvia) as Outcome.Ok).value.deviceKeyFingerprint)
+        assertEquals(fingerprint, (PairingCodes.decode(luvia) as Outcome.Ok).value.deviceKey)
     }
 
     @Test

@@ -89,6 +89,10 @@ public fun Failure.connectMessage(): String {
             lower.contains("authentication failed") ||
             lower.contains("permission denied") ->
             "SSH refused. Check the Grant on the Host."
+        lower.contains("dns timeout") ->
+            "Name lookup timed out. Check network or Tailscale."
+        lower.contains("candidate timeout") ->
+            "No address reachable. Check network or Tailscale."
         lower.contains("incomplete host endpoint") ||
             lower.contains("connect timeout") ||
             lower.contains("no route") ||

@@ -24,7 +24,6 @@ import tech.asahiart.luvia.HostStatus
 import tech.asahiart.luvia.HostStore
 import tech.asahiart.luvia.TaskSummary
 import tech.asahiart.luvia.WorkspaceSummary
-import tech.asahiart.luvia.isLiteralIp
 
 private val cacheJson: Json =
     Json {
@@ -48,16 +47,12 @@ internal data class HostFile(
     val id: String,
     val hostId: String = "",
     val alias: String,
-    val addresses: List<String> = emptyList(),
-    val address: String? = null,
-    val sshPort: Int = 22,
     val username: String? = null,
     val hostKeyFingerprints: List<String> = emptyList(),
     val hostKeySha256: String? = null,
     val role: String? = null,
     val lastStatus: String = HostStatus.Unknown.name,
     val lastUpdatedEpochMs: Long = 0,
-    val lastConnectedAddress: String? = null,
     val topology: TopologyFile? = null,
     val name: String = "",
     val tailnetFqdn: String? = null,
@@ -180,40 +175,11 @@ internal class DataStoreHostStore(
 
     override suspend fun setLastConnectedAddress(hostId: String, address: String) {
         val working = address.trim()
+        if (working.isEmpty()) return
         dataStore.updateData { current ->
             val hosts =
                 current.hosts.map { host ->
-                    if (host.id != hostId) {
-                        host
-                    } else {
-                        val rest = host.addresses.filterNot { it == working }
-                        host.copy(
-                            lastConnectedAddress = working,
-                            lastGood = working,
-                            addresses = listOf(working) + rest,
-                        )
-                    }
-                }
-            current.copy(version = HOST_CATALOG_VERSION, hosts = hosts)
-        }
-    }
-
-    override suspend fun forgetLiteralAddresses(hostId: String, addresses: List<String>) {
-        val drop = addresses.map { it.trim() }.filter { it.isNotEmpty() && isLiteralIp(it) }.toSet()
-        if (drop.isEmpty()) return
-        dataStore.updateData { current ->
-            val hosts =
-                current.hosts.map { host ->
-                    if (host.id != hostId) {
-                        host
-                    } else {
-                        val remaining = host.addresses.filterNot { it in drop }
-                        val kept = remaining.ifEmpty { host.addresses }
-                        val last = host.lastConnectedAddress
-                        val newLast =
-                            if (last != null && last in drop) kept.firstOrNull() else last
-                        host.copy(addresses = kept, lastConnectedAddress = newLast)
-                    }
+                    if (host.id != hostId) host else host.copy(lastGood = working)
                 }
             current.copy(version = HOST_CATALOG_VERSION, hosts = hosts)
         }
@@ -264,14 +230,11 @@ internal fun HostProfile.sanitized(): HostProfile =
         id = id,
         hostId = hostId,
         alias = alias,
-        addresses = addresses,
-        sshPort = sshPort,
         username = username,
         hostKeyFingerprints = hostKeyFingerprints,
         role = role,
         lastStatus = lastStatus,
         lastUpdatedEpochMs = lastUpdatedEpochMs,
-        lastConnectedAddress = lastConnectedAddress,
         topology = topology?.copy(
             sessionName = topology.sessionName,
             serverGeneration = topology.serverGeneration,
@@ -290,15 +253,13 @@ internal fun HostCatalogFile.migrated(): HostCatalogFile =
     )
 
 internal fun HostFile.migrated(): HostFile {
-    val migratedAddresses = addresses.ifEmpty { listOfNotNull(address) }
     val migratedFingerprints = hostKeyFingerprints.ifEmpty { listOfNotNull(hostKeySha256) }
     return copy(
-        addresses = migratedAddresses,
-        address = null,
         username = username ?: "",
         hostKeyFingerprints = migratedFingerprints,
         hostKeySha256 = null,
         role = hostRole(role).name,
+        port = if (port == 0) 22 else port,
     )
 }
 
@@ -314,23 +275,20 @@ private fun HostFile.toPublic(): HostProfile {
         id = migrated.id,
         hostId = migrated.hostId,
         alias = migrated.alias,
-        addresses = migrated.addresses,
-        sshPort = migrated.sshPort,
         username = migrated.username ?: "",
         hostKeyFingerprints = migrated.hostKeyFingerprints,
         role = hostRole(migrated.role),
         lastStatus = hostStatus(migrated.lastStatus),
         lastUpdatedEpochMs = migrated.lastUpdatedEpochMs,
-        lastConnectedAddress = migrated.lastConnectedAddress,
         topology = migrated.topology?.toPublic(),
         name = migrated.name.ifEmpty { migrated.alias },
         tailnetFqdn = migrated.tailnetFqdn,
         user = migrated.user.ifEmpty { migrated.username.orEmpty() },
-        port = if (migrated.port == 0) migrated.sshPort else migrated.port,
+        port = migrated.port,
         bridgePath = migrated.bridgePath,
         hostKeys = migrated.hostKeys.ifEmpty { migrated.hostKeyFingerprints },
-        hints = migrated.hints.ifEmpty { migrated.addresses },
-        lastGood = migrated.lastGood ?: migrated.lastConnectedAddress,
+        hints = migrated.hints,
+        lastGood = migrated.lastGood,
     )
 }
 
@@ -339,23 +297,20 @@ private fun HostProfile.toFile(): HostFile =
         id = id,
         hostId = hostId,
         alias = alias,
-        addresses = addresses,
-        sshPort = sshPort,
         username = username,
         hostKeyFingerprints = hostKeyFingerprints,
         role = role.name,
         lastStatus = lastStatus.name,
         lastUpdatedEpochMs = lastUpdatedEpochMs,
-        lastConnectedAddress = lastConnectedAddress,
         topology = topology?.toFile(),
         name = name.ifEmpty { alias },
         tailnetFqdn = tailnetFqdn,
         user = user.ifEmpty { username },
-        port = if (port == 0) sshPort else port,
+        port = port,
         bridgePath = bridgePath,
         hostKeys = hostKeys.ifEmpty { hostKeyFingerprints },
-        hints = hints.ifEmpty { addresses },
-        lastGood = lastGood ?: lastConnectedAddress,
+        hints = hints,
+        lastGood = lastGood,
     )
 
 private fun TopologyFile.toPublic(): CachedTopology =

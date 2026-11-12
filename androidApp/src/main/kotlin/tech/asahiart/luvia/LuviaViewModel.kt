@@ -546,9 +546,9 @@ internal fun HostRuntime.toUi(): HostUiModel {
     return HostUiModel(
         id = profile.id,
         name = profile.alias,
-        address = profile.lastConnectedAddress ?: profile.addresses.firstOrNull().orEmpty(),
-        addresses = profile.addresses,
-        sshPort = profile.sshPort,
+        address = profile.lastGood ?: profile.hints.firstOrNull().orEmpty(),
+        addresses = profile.hints,
+        port = profile.port,
         username = profile.username,
         sessionName = sessionName,
         connection = badge,
@@ -589,7 +589,7 @@ private fun pairingFailureCopy(failure: Failure, rawCode: String): String {
     if (failure.isPairingSetupFailure()) return failure.pairingMessage()
     val decoded = PairingCodes.decode(rawCode)
     return if (decoded is Outcome.Ok) {
-        pairingConnectMessage(failure, decoded.value.addresses, decoded.value.sshPort)
+        pairingConnectMessage(failure, decoded.value.hints, decoded.value.port)
     } else {
         failure.pairingMessage()
     }

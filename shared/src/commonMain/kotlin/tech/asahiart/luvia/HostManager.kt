@@ -148,7 +148,7 @@ public class HostManager(
         draft: PairingDraft,
         rawCode: String,
         addresses: List<String> = emptyList(),
-        sshPort: Int? = null,
+        port: Int? = null,
         username: String? = null,
     ): Outcome<HostProfile> {
         val code =
@@ -165,7 +165,7 @@ public class HostManager(
             if (!fqdn.isNullOrBlank() && fqdn !in this) add(fqdn)
         }
         val reachability =
-            when (val parsed = parseReachability(addresses, sshPort, username, fallbackAddresses, code.port, code.user)) {
+            when (val parsed = parseReachability(addresses, port, username, fallbackAddresses, code.port, code.user)) {
                 is Outcome.Err -> return fail(parsed.failure)
                 is Outcome.Ok -> parsed.value
             }
@@ -174,27 +174,25 @@ public class HostManager(
         } catch (error: Exception) {
             return fail(Failure.ProtocolError("Could not store the device key on this device."))
         }
+        val typedAddresses = addresses.any { it.isNotBlank() }
         val profile =
             HostProfile(
                 id = code.deviceId,
                 hostId = code.hostId,
                 alias = code.name,
-                addresses = reachability.addresses,
-                sshPort = reachability.sshPort,
                 username = reachability.username,
                 hostKeyFingerprints = code.hostKeys,
                 role = code.role,
                 lastStatus = HostStatus.Unknown,
                 lastUpdatedEpochMs = nowEpochMs(),
-                lastConnectedAddress = null,
                 topology = null,
                 name = code.name,
                 tailnetFqdn = code.tailnetFqdn,
                 user = reachability.username,
-                port = reachability.sshPort,
+                port = reachability.port,
                 bridgePath = code.bridgePath,
                 hostKeys = code.hostKeys,
-                hints = code.hints,
+                hints = if (typedAddresses) reachability.addresses else code.hints,
                 lastGood = null,
             )
         store.upsert(profile)
@@ -212,27 +210,29 @@ public class HostManager(
         hostId: String,
         alias: String,
         addresses: List<String>,
-        sshPort: Int,
+        port: Int,
         username: String,
     ): Outcome<HostProfile> {
         val current =
             store.current().hosts.firstOrNull { it.id == hostId }
                 ?: return fail(Failure.NotFound("host not found"))
         val reachability =
-            when (val parsed = parseReachability(addresses, sshPort, username, current.addresses, current.sshPort, current.username)) {
+            when (val parsed = parseReachability(addresses, port, username, current.hints, current.port, current.user.ifEmpty { current.username })) {
                 is Outcome.Err -> return fail(parsed.failure)
                 is Outcome.Ok -> parsed.value
             }
-        val name = alias.trim().ifEmpty { current.alias }
+        val name = alias.trim().ifEmpty { current.name.ifEmpty { current.alias } }
         val last =
-            current.lastConnectedAddress?.takeIf { it in reachability.addresses }
+            current.lastGood?.takeIf { it in reachability.addresses }
         val updated =
             current.copy(
                 alias = name,
-                addresses = reachability.addresses,
-                sshPort = reachability.sshPort,
+                name = name,
                 username = reachability.username,
-                lastConnectedAddress = last,
+                user = reachability.username,
+                port = reachability.port,
+                hints = reachability.addresses,
+                lastGood = last,
                 lastUpdatedEpochMs = nowEpochMs(),
             )
         store.upsert(updated)
@@ -462,9 +462,6 @@ public class HostManager(
                     ),
                 )
         val attempted = connectToProfile(profile, credential)
-        if (attempted.deadLiteralAddresses.isNotEmpty()) {
-            runCatching { store.forgetLiteralAddresses(hostId, attempted.deadLiteralAddresses) }
-        }
         val connected =
             when (val result = attempted.outcome) {
                 is Outcome.Err -> return fail(result.failure)
@@ -788,13 +785,13 @@ public class HostManager(
 
 private data class Reachability(
     val addresses: List<String>,
-    val sshPort: Int,
+    val port: Int,
     val username: String,
 )
 
 private fun parseReachability(
     addresses: List<String>,
-    sshPort: Int?,
+    port: Int?,
     username: String?,
     fallbackAddresses: List<String>,
     fallbackPort: Int,
@@ -808,7 +805,7 @@ private fun parseReachability(
             .ifEmpty {
                 fallbackAddresses.map { it.trim() }.filter { it.isNotEmpty() }
             }
-    val resolvedPort = sshPort ?: fallbackPort
+    val resolvedPort = port ?: fallbackPort
     val resolvedUser = username?.trim()?.takeIf { it.isNotEmpty() } ?: fallbackUser.trim()
     if (resolvedAddresses.isEmpty()) {
         return fail(Failure.Transport("Enter a host address."))

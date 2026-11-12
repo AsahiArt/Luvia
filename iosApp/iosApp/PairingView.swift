@@ -139,7 +139,7 @@ struct PairingView: View {
                 if let draft {
                     commandRow(draft.command)
                         .padding(.top, 12)
-                    Text("在电脑上运行这条命令。终端会显示六位短码和地址，也可以扫或粘贴 luvia1: 码。")
+                    Text("在电脑上运行这条命令。终端会显示六位短码和地址，也可以扫或粘贴 luvia2: 码。")
                         .font(.system(size: 13))
                         .foregroundStyle(PairColor.label2)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -149,10 +149,10 @@ struct PairingView: View {
                 }
                 darkField("电脑地址 · 短码旁边", text: $shortHost, focus: .host)
                     .padding(.top, 12)
-                darkField("粘贴 luvia1: 码", text: $longCode, focus: .code)
+                darkField("粘贴 luvia2: 码", text: $longCode, focus: .code)
                     .padding(.top, 8)
                 if remaining == 0 {
-                    Text("倒计时结束。仍可用粘贴的 luvia1: 码配对。")
+                    Text("倒计时结束。仍可用粘贴的 luvia2: 码配对。")
                         .font(.system(size: 13))
                         .foregroundStyle(PairColor.label2)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -171,7 +171,7 @@ struct PairingView: View {
     }
 
     private var pairTitle: String {
-        let host = decodedCode?.hostLabel.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let host = decodedCode?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return host.isEmpty ? "与电脑配对" : "与 \(host) 配对"
     }
 
@@ -329,7 +329,7 @@ struct PairingView: View {
                 .opacity(canSubmit || busy ? 1 : 0.78)
             }
             .buttonStyle(.plain)
-            .accessibilityHint(canSubmit ? "用当前配对码连接" : "先输入六位短码，或粘贴 luvia1: 码")
+            .accessibilityHint(canSubmit ? "用当前配对码连接" : "先输入六位短码，或粘贴 luvia2: 码")
             Button {
                 dismissKeyboard()
                 scanning = true
@@ -430,7 +430,7 @@ struct PairingView: View {
 
     private var fingerprintRow: some View {
         let fingerprint = draft.map { PairingKt.shortFingerprint(raw: $0.deviceKeyFingerprint) } ?? "···· ···· ····"
-        let matches = decodedCode?.deviceKeyFingerprint == draft?.deviceKeyFingerprint && decodedCode != nil
+        let matches = decodedCode?.deviceKey == draft?.deviceKeyFingerprint && decodedCode != nil
         return HStack(spacing: 10) {
             Image(systemName: "checkmark.shield.fill")
                 .font(.system(size: 20))
@@ -537,7 +537,7 @@ struct PairingView: View {
     }
 
     private func addresses(_ code: PairingCode) -> [String] {
-        KotlinLists.array(code.addresses as Any)
+        KotlinLists.array(code.hints as Any)
     }
 
     private var decodedCode: PairingCode? {
@@ -557,7 +557,7 @@ struct PairingView: View {
             return
         }
         guard canSubmit else {
-            error = "输入六位短码，或粘贴 luvia1: 码。"
+            error = "输入六位短码，或粘贴 luvia2: 码。"
             return
         }
         confirm(draft)

@@ -74,7 +74,7 @@ public fun shouldPresentPairing(
 }
 
 private fun startupRank(profile: HostProfile): Int {
-    val everConnected = !profile.lastConnectedAddress.isNullOrBlank()
+    val everConnected = !profile.lastGood.isNullOrBlank()
     return when (profile.lastStatus) {
         HostStatus.Reachable -> 3
         HostStatus.Stale -> if (everConnected) 2 else 1

@@ -205,7 +205,6 @@ class CandidateRaceTest {
         store.setLastConnectedAddress(profile.id, winner)
         val stored = store.current().hosts.single()
         assertEquals(winner, stored.lastGood)
-        assertEquals(winner, stored.lastConnectedAddress)
         assertEquals(winner, candidateAddresses(stored).first())
 
         val secondStarts = ArrayList<String>()
@@ -283,14 +282,11 @@ private fun raceProfile(
         id = "host-1",
         hostId = "ab".repeat(16),
         alias = name,
-        addresses = hints,
-        sshPort = 22,
         username = "misaka",
         hostKeyFingerprints = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
         role = HostRole.Controller,
         lastStatus = HostStatus.Unknown,
         lastUpdatedEpochMs = 1,
-        lastConnectedAddress = null,
         topology = null,
         name = name,
         tailnetFqdn = fqdn,
