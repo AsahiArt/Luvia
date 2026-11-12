@@ -184,9 +184,37 @@ class CandidateRaceTest {
                 ),
             )
         advanceUntilIdle()
-        val win = assertIs<Outcome.Ok<Pair<String, String>>>(result)
-        assertEquals("100.89.1.2", win.value.first)
-        assertFalse(win.value.first == "192.168.1.9")
+        val err = assertIs<Outcome.Err<Pair<String, String>>>(result)
+        val rejected = assertIs<Failure.ProveRejected>(err.failure)
+        assertEquals("unknown_device", rejected.code)
+        assertEquals("no pairing grant for host-1", rejected.message)
+        assertTrue(currentTime < CANDIDATE_STAGGER_MS, "later candidate must not be allowed to win")
+    }
+
+    @Test
+    fun proveRejectedAbortsBeforeALaterCandidateTimeout() = runTest {
+        val result =
+            raceCandidates(
+                listOf("192.168.1.9", "100.89.1.2"),
+                scriptDial(
+                    prove = { address ->
+                        if (address == "192.168.1.9") {
+                            fail(Failure.ProveRejected("unknown_device", "no pairing grant for host-1"))
+                        } else {
+                            delay(PROVE_BUDGET_MS)
+                            fail(Failure.Transport("candidate timeout"))
+                        }
+                    },
+                ),
+            )
+        advanceUntilIdle()
+        assertTrue(currentTime < PROVE_BUDGET_MS, "race waited ${currentTime}ms for the other candidate")
+        val err = assertIs<Outcome.Err<Pair<String, String>>>(result)
+        val rejected = assertIs<Failure.ProveRejected>(err.failure)
+        assertEquals("unknown_device", rejected.code)
+        assertEquals("no pairing grant for host-1", rejected.message)
+        assertFalse(rejected.raceReason().contains("candidate timeout"))
+        assertFalse(rejected.raceReason().contains("closed before banner"))
     }
 
     @Test

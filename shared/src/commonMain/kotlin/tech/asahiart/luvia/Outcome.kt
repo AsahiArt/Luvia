@@ -52,7 +52,8 @@ public sealed class Failure {
 
     /**
      * The host rejected Prove. [message] is the host's reason and is not shown.
-     * This candidate did not win and must not be stored as lastGood.
+     * Every in-flight candidate must stop; a reject is for this device, not one address.
+     * Do not store the attempt as lastGood.
      */
     public class ProveRejected(
         public val code: String,

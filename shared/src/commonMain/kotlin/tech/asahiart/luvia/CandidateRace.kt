@@ -106,7 +106,7 @@ internal suspend fun <T> raceCandidates(
     }
     return coroutineScope {
         val winner = CompletableDeferred<Pair<String, T>>()
-        val security = CompletableDeferred<Failure.HostKeyMismatch>()
+        val abort = CompletableDeferred<Failure>()
         val state = Mutex()
         val loserLines = ArrayList<String>()
         var lastFailure: Failure = Failure.Transport("incomplete host endpoint")
@@ -136,9 +136,9 @@ internal suspend fun <T> raceCandidates(
                         }
                         is Outcome.Err -> {
                             val failure = outcome.failure
-                            if (failure is Failure.HostKeyMismatch) {
+                            if (failure is Failure.HostKeyMismatch || failure is Failure.ProveRejected) {
                                 addLoser(address, failure.raceReason())
-                                security.complete(failure)
+                                abort.complete(failure)
                             } else {
                                 noteFailure(failure)
                                 addLoser(address, failure.raceReason())
@@ -160,17 +160,17 @@ internal suspend fun <T> raceCandidates(
         }
         select<Unit> {
             winner.onAwait { }
-            security.onAwait { }
+            abort.onAwait { }
             allDone.onAwait { }
         }
         coroutineContext.cancelChildren()
         jobs.forEach { it.join() }
 
-        val mismatch = if (security.isCompleted) security.getCompleted() else null
-        if (mismatch != null) {
+        val aborted = if (abort.isCompleted) abort.getCompleted() else null
+        if (aborted != null) {
             if (winner.isCompleted) dial.close(winner.getCompleted().second)
             state.withLock { loserLines.toList() }.forEach(log)
-            return@coroutineScope fail(mismatch)
+            return@coroutineScope fail(aborted)
         }
         if (winner.isCompleted) {
             val (address, value) = winner.getCompleted()

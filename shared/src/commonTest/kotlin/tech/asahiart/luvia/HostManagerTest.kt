@@ -7,6 +7,8 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import okio.ByteString.Companion.encodeUtf8
@@ -200,6 +202,71 @@ class HostManagerTest {
         assertFalse(stored.lastGood == "192.168.1.9")
         val link = assertIs<HostLink.Failed>(manager.hosts.value.single().link)
         assertIs<Failure.ProveRejected>(link.failure)
+        manager.close()
+    }
+
+    @Test
+    fun proveRejectedRaceIsNotRetried() = runTest {
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-hm-race-${Random.nextLong()}.json"
+        val store = HostStore(path.toString(), backgroundScope)
+        val vault = MemoryVault()
+        val profile =
+            sampleProfile().copy(
+                name = "Yui",
+                lastGood = "192.168.1.9",
+                hints = listOf("100.89.1.2"),
+            )
+        vault.save(profile.id, "not-a-real-key")
+        var attempts = 0
+        val manager =
+            HostManager(store, vault, backgroundScope) { current, credential ->
+                attempts += 1
+                raceConnect(
+                    current,
+                    credential,
+                    object : CandidateDial<ConnectedHost> {
+                        override suspend fun dns(address: String): Outcome<Unit> = ok(Unit)
+
+                        override suspend fun tcp(address: String): Outcome<Unit> = ok(Unit)
+
+                        override suspend fun prove(address: String): Outcome<ConnectedHost> {
+                            if (address == "192.168.1.9") {
+                                return fail(
+                                    Failure.ProveRejected(
+                                        "unknown_device",
+                                        "no pairing grant for ${current.id}",
+                                    ),
+                                )
+                            }
+                            delay(PROVE_BUDGET_MS)
+                            return fail(Failure.Transport("candidate timeout"))
+                        }
+
+                        override suspend fun close(value: ConnectedHost) {
+                            value.close()
+                        }
+                    },
+                )
+            }
+        store.upsert(profile)
+        advanceUntilIdle()
+        manager.connect(profile.id)
+        val reached = manager.awaitCurrentConnect(profile.id)
+        advanceUntilIdle()
+        val err = assertIs<Outcome.Err<Unit>>(reached)
+        val failure = assertIs<Failure.ProveRejected>(err.failure)
+        assertEquals("unknown_device", failure.code)
+        assertEquals("no pairing grant for ${profile.id}", failure.message)
+        assertFalse(failure.connectMessage().contains("candidate timeout"))
+        assertFalse(failure.connectMessage().contains("no pairing grant"))
+        val link = assertIs<HostLink.Failed>(manager.hosts.value.single().link)
+        assertIs<Failure.ProveRejected>(link.failure)
+        advanceTimeBy(60_000)
+        advanceUntilIdle()
+        assertEquals(1, attempts)
+        val stayed = assertIs<HostLink.Failed>(manager.hosts.value.single().link)
+        assertIs<Failure.ProveRejected>(stayed.failure)
+        assertEquals("192.168.1.9", store.current().hosts.single().lastGood)
         manager.close()
     }
 
