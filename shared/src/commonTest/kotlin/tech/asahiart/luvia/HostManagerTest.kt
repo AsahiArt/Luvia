@@ -74,9 +74,11 @@ class HostManagerTest {
                 privateKeyOpenssh = "SECRET",
             )
         val otherFp = "SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"
+        val hostId = "cd".repeat(16)
+        val deviceId = "ab".repeat(16)
         val body =
-            """{"v":1,"id":"grant-1","dk":"$otherFp","name":"studio","user":"misaka","port":22,"addrs":["studio.tailnet"],"hk":["$otherFp"],"role":"controller"}"""
-        val encoded = "luvia1:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
+            """{"name":"studio","fqdn":"studio.tailnet","user":"misaka","port":22,"bridge":"/usr/local/bin/luvia-host","hk":["$otherFp"],"hints":["10.0.0.2"],"host_id":"$hostId","device_id":"$deviceId","device_key":"$otherFp","role":"controller"}"""
+        val encoded = "luvia2:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
         val result = manager.completePairing(draft, encoded)
         val err = result as Outcome.Err
         assertEquals("pairing code is for a different device key", (err.failure as Failure.ProtocolError).reason)
@@ -98,9 +100,11 @@ class HostManagerTest {
                 command = "luvia-host pair",
                 privateKeyOpenssh = "SECRET",
             )
+        val hostId = "cd".repeat(16)
+        val deviceId = "ab".repeat(16)
         val body =
-            """{"v":1,"id":"grant-1","dk":"$fingerprint","name":"studio","user":"misaka","port":22,"addrs":["studio.tailnet"],"hk":["$fingerprint"],"role":"controller"}"""
-        val encoded = "luvia1:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
+            """{"name":"studio","fqdn":"studio.tailnet","user":"misaka","port":22,"bridge":"/usr/local/bin/luvia-host","hk":["$fingerprint"],"hints":["10.0.0.2"],"host_id":"$hostId","device_id":"$deviceId","device_key":"$fingerprint","role":"controller"}"""
+        val encoded = "luvia2:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
         val result = manager.completePairing(draft, encoded)
         val err = result as Outcome.Err
         assertEquals("Could not store the device key on this device.", (err.failure as Failure.ProtocolError).reason)
@@ -149,16 +153,18 @@ class HostManagerTest {
                 command = "luvia-host pair",
                 privateKeyOpenssh = "not-a-key",
             )
+        val hostId = "cd".repeat(16)
+        val deviceId = "ab".repeat(16)
         val body =
-            """{"v":1,"id":"fail-test","dk":"$fingerprint","name":"FailTest","user":"misaka","port":2222,"addrs":["192.168.1.70"],"hk":["$fingerprint"],"role":"controller"}"""
-        val encoded = "luvia1:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
+            """{"name":"FailTest","user":"misaka","port":2222,"bridge":"/usr/local/bin/luvia-host","hk":["$fingerprint"],"hints":["192.168.1.70"],"host_id":"$hostId","device_id":"$deviceId","device_key":"$fingerprint","role":"controller"}"""
+        val encoded = "luvia2:" + body.encodeUtf8().base64().trimEnd('=').replace('+', '-').replace('/', '_')
         val result = manager.completePairing(draft, encoded)
         advanceUntilIdle()
         val err = result as Outcome.Err
         assertFalse(err.failure.isPairingSetupFailure())
         assertTrue(store.current().hosts.isEmpty(), "failed pairing must not leave a host")
         assertTrue(vault.deviceIds().isEmpty(), "failed pairing must drop the device key")
-        assertTrue(manager.hosts.value.none { it.profile.id == "fail-test" })
+        assertTrue(manager.hosts.value.none { it.profile.id == "ab".repeat(16) })
         manager.close()
     }
 

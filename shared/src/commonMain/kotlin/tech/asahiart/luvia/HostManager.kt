@@ -156,11 +156,16 @@ public class HostManager(
                 is Outcome.Err -> return fail(decoded.failure)
                 is Outcome.Ok -> decoded.value
             }
-        if (code.deviceKeyFingerprint != draft.deviceKeyFingerprint) {
+        if (code.deviceKey != draft.deviceKeyFingerprint) {
             return fail(Failure.ProtocolError("pairing code is for a different device key"))
         }
+        val fallbackAddresses = buildList {
+            addAll(code.hints)
+            val fqdn = code.tailnetFqdn
+            if (!fqdn.isNullOrBlank() && fqdn !in this) add(fqdn)
+        }
         val reachability =
-            when (val parsed = parseReachability(addresses, sshPort, username, code.addresses, code.sshPort, code.username)) {
+            when (val parsed = parseReachability(addresses, sshPort, username, fallbackAddresses, code.port, code.user)) {
                 is Outcome.Err -> return fail(parsed.failure)
                 is Outcome.Ok -> parsed.value
             }
@@ -172,16 +177,25 @@ public class HostManager(
         val profile =
             HostProfile(
                 id = code.deviceId,
-                alias = code.hostLabel,
+                hostId = code.hostId,
+                alias = code.name,
                 addresses = reachability.addresses,
                 sshPort = reachability.sshPort,
                 username = reachability.username,
-                hostKeyFingerprints = code.hostKeyFingerprints,
+                hostKeyFingerprints = code.hostKeys,
                 role = code.role,
                 lastStatus = HostStatus.Unknown,
                 lastUpdatedEpochMs = nowEpochMs(),
                 lastConnectedAddress = null,
                 topology = null,
+                name = code.name,
+                tailnetFqdn = code.tailnetFqdn,
+                user = reachability.username,
+                port = reachability.sshPort,
+                bridgePath = code.bridgePath,
+                hostKeys = code.hostKeys,
+                hints = code.hints,
+                lastGood = null,
             )
         store.upsert(profile)
         connect(profile.id)

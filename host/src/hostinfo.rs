@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::fs;
-use std::net::ToSocketAddrs;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
@@ -17,17 +16,27 @@ pub struct HostFacts {
     pub name: String,
     pub user: String,
     pub port: u16,
+    /// LAN and 100.x addresses seen at pair time. Hostnames are not hints;
+    /// `name.local` is derived later and the tailnet FQDN is `fqdn`.
     pub addrs: Vec<String>,
     pub hk: Vec<String>,
+    pub fqdn: Option<String>,
+    pub bridge: String,
+    pub host_id: String,
 }
 
 impl HostFacts {
-    pub fn collect(address_override: &[String], port_override: Option<u16>) -> Result<Self> {
+    pub fn collect(
+        address_override: &[String],
+        port_override: Option<u16>,
+        tailnet_name: Option<String>,
+    ) -> Result<Self> {
         Self::collect_from(
             Path::new(HOST_KEY_DIR),
             Path::new(SSH_CONFIG),
             address_override,
             port_override,
+            tailnet_name,
         )
     }
 
@@ -36,6 +45,7 @@ impl HostFacts {
         sshd_config: &Path,
         address_override: &[String],
         port_override: Option<u16>,
+        tailnet_name: Option<String>,
     ) -> Result<Self> {
         let hk = host_key_fingerprints(host_key_dir)?;
         let name = hostname()?;
@@ -44,8 +54,9 @@ impl HostFacts {
         if port == 0 {
             return Err(Error::new("invalid_port", "SSH port must be non-zero"));
         }
+        let fqdn = normalize_fqdn(tailnet_name)?;
         let addrs = if address_override.is_empty() {
-            collect_addrs(&name)?
+            collect_ip_hints()
         } else {
             dedup(
                 address_override
@@ -54,10 +65,10 @@ impl HostFacts {
                     .collect(),
             )
         };
-        if addrs.is_empty() {
+        if addrs.is_empty() && fqdn.is_none() {
             return Err(Error::new(
                 "no_address",
-                "could not determine a reachable host address; pass --address",
+                "could not determine a reachable host address; pass --address or --tailnet-name",
             ));
         }
         Ok(Self {
@@ -66,8 +77,31 @@ impl HostFacts {
             port,
             addrs,
             hk,
+            fqdn,
+            bridge: String::new(),
+            host_id: String::new(),
         })
     }
+}
+
+pub fn normalize_fqdn(name: Option<String>) -> Result<Option<String>> {
+    let Some(name) = name else {
+        return Ok(None);
+    };
+    let name = name.trim().trim_end_matches('.').to_string();
+    if name.is_empty() {
+        return Err(Error::new("invalid_fqdn", "tailnet name is empty"));
+    }
+    if name
+        .chars()
+        .any(|ch| ch.is_whitespace() || ch.is_control() || ch == '/')
+    {
+        return Err(Error::new(
+            "invalid_fqdn",
+            "tailnet name must be a hostname",
+        ));
+    }
+    Ok(Some(name))
 }
 
 pub fn host_key_fingerprints(dir: &Path) -> Result<Vec<String>> {
@@ -159,29 +193,23 @@ fn hostname() -> Result<String> {
     Ok(name.to_string())
 }
 
-fn collect_addrs(hostname: &str) -> Result<Vec<String>> {
+/// IP hints only: LAN addresses plus utun/tailscale 100.64/10 (and v6)
+/// addresses. MagicDNS is not inferred; pass `--tailnet-name` for the FQDN.
+fn collect_ip_hints() -> Vec<String> {
     let mut addrs = Vec::new();
     if let Some(local) = ssh_connection_local_addr() {
         addrs.push(local);
     }
-    // Tailnet addresses are reachable from any network the phone is on, so they
-    // outrank LAN literals that only work at home.
-    addrs.extend(tailscale_addrs());
+    addrs.extend(
+        tailscale_addrs()
+            .into_iter()
+            .filter(|addr| addr.parse::<std::net::IpAddr>().is_ok()),
+    );
     let (lan_v4, overlay, lan_v6) = interface_addresses();
     addrs.extend(lan_v4);
     addrs.extend(overlay);
     addrs.extend(lan_v6);
-    if hostname_resolves(hostname) && !is_loopback_name(hostname) {
-        addrs.push(hostname.to_string());
-    }
-    let addrs = dedup(addrs);
-    if addrs.is_empty() {
-        return Err(Error::new(
-            "no_address",
-            "could not determine a reachable host address; pass --address",
-        ));
-    }
-    Ok(addrs)
+    dedup(addrs)
 }
 
 fn ssh_connection_local_addr() -> Option<String> {
@@ -275,10 +303,6 @@ pub fn is_tailnet_ip(text: &str) -> bool {
         }
         Err(_) => false,
     }
-}
-
-fn hostname_resolves(name: &str) -> bool {
-    (name, 0u16).to_socket_addrs().is_ok()
 }
 
 fn is_loopback_name(name: &str) -> bool {

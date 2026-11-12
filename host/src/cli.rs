@@ -51,6 +51,10 @@ pub enum Command {
         /// SSH port. Overrides sshd_config / default 22.
         #[arg(long)]
         port: Option<u16>,
+        /// MagicDNS name, for example `yui.java-tiyanki.ts.net`. sing-box has no
+        /// tailscale CLI, so this is the only way to put an FQDN in the pairing code.
+        #[arg(long = "tailnet-name", value_name = "FQDN")]
+        tailnet_name: Option<String>,
         /// Do not print the Unicode QR block
         #[arg(long)]
         no_qr: bool,
@@ -67,7 +71,7 @@ pub enum Command {
         #[arg(long, default_value_t = crate::shortcode::DEFAULT_SHORT_REDEEM_PORT)]
         short_port: u16,
     },
-    /// Re-print the pairing QR and luvia1: payload for an existing grant
+    /// Re-print the pairing QR and luvia2: payload for an existing grant
     PairCode {
         /// Device id printed by `pair`
         id: String,
@@ -77,6 +81,9 @@ pub enum Command {
         /// SSH port. Overrides sshd_config / default 22.
         #[arg(long)]
         port: Option<u16>,
+        /// MagicDNS name. Without it the code only carries 100.x and LAN hints.
+        #[arg(long = "tailnet-name", value_name = "FQDN")]
+        tailnet_name: Option<String>,
         /// Do not print the Unicode QR block
         #[arg(long)]
         no_qr: bool,
@@ -125,6 +132,7 @@ pub fn run() -> Result<()> {
             key,
             addresses,
             port,
+            tailnet_name,
             no_qr,
             json,
             short_code,
@@ -136,13 +144,14 @@ pub fn run() -> Result<()> {
             let exe = host_executable()?;
             let grant = grant::pair_device(&paths, &name, role, &key, &exe)?;
             let _ = crate::audit::paired(&paths, &grant);
-            let facts = HostFacts::collect(&addresses, port)?;
+            let facts = prepared_facts(&paths, &exe, &addresses, port, tailnet_name)?;
             emit_pairing(&grant, &facts, no_qr, json, short)
         }
         Command::PairCode {
             id,
             addresses,
             port,
+            tailnet_name,
             no_qr,
             json,
             short_code,
@@ -151,7 +160,8 @@ pub fn run() -> Result<()> {
         } => {
             let short = short_opts(short_code, short_ttl, short_port)?;
             let grant = grant::load_grant(&paths, &id)?;
-            let facts = HostFacts::collect(&addresses, port)?;
+            let exe = host_executable()?;
+            let facts = prepared_facts(&paths, &exe, &addresses, port, tailnet_name)?;
             emit_pairing(&grant, &facts, no_qr, json, short)
         }
         Command::Devices { json } => {
@@ -279,10 +289,11 @@ fn print_pairing(
         grant.id, grant.name, grant.role, grant.fingerprint
     );
     println!(
-        "host {} user {} port {} addresses {}",
+        "host {} user {} port {} fqdn {} hints {}",
         facts.name,
         facts.user,
         facts.port,
+        facts.fqdn.as_deref().unwrap_or("-"),
         facts.addrs.join(",")
     );
     if let Some(short) = short {
@@ -297,6 +308,19 @@ fn print_pairing(
     }
     println!("{code}");
     Ok(())
+}
+
+fn prepared_facts(
+    paths: &Paths,
+    exe: &std::path::Path,
+    addresses: &[String],
+    port: Option<u16>,
+    tailnet_name: Option<String>,
+) -> Result<HostFacts> {
+    let mut facts = HostFacts::collect(addresses, port, tailnet_name)?;
+    facts.bridge = exe.display().to_string();
+    facts.host_id = crate::auth::load_host_id(paths)?;
+    Ok(facts)
 }
 
 fn host_executable() -> Result<PathBuf> {
@@ -381,6 +405,36 @@ mod tests {
         match cli.command {
             Command::Watch { interval_secs } => assert_eq!(interval_secs, 5),
             other => panic!("expected watch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pair_accepts_tailnet_name_and_address() {
+        let cli = Cli::try_parse_from([
+            "luvia-host",
+            "pair",
+            "--name",
+            "phone",
+            "--role",
+            "observer",
+            "--key",
+            "ssh-ed25519 AAAA",
+            "--address",
+            "100.64.0.8",
+            "--tailnet-name",
+            "yui.java-tiyanki.ts.net",
+        ])
+        .expect("pair --tailnet-name must parse");
+        match cli.command {
+            Command::Pair {
+                tailnet_name,
+                addresses,
+                ..
+            } => {
+                assert_eq!(tailnet_name.as_deref(), Some("yui.java-tiyanki.ts.net"));
+                assert_eq!(addresses, ["100.64.0.8"]);
+            }
+            other => panic!("expected pair, got {other:?}"),
         }
     }
 

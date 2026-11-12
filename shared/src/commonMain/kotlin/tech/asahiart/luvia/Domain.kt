@@ -95,6 +95,14 @@ public data class HostProfile(
     public val lastUpdatedEpochMs: Long,
     public val lastConnectedAddress: String?,
     public val topology: CachedTopology?,
+    public val name: String = "",
+    public val tailnetFqdn: String? = null,
+    public val user: String = "",
+    public val port: Int = 22,
+    public val bridgePath: String = "",
+    public val hostKeys: List<String> = emptyList(),
+    public val hints: List<String> = emptyList(),
+    public val lastGood: String? = null,
 )
 
 public data class HostCatalog(

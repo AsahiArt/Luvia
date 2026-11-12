@@ -2,7 +2,7 @@
 //!
 //! The digits are not a credential. They only name a `PairingPayload` this
 //! process already built for an existing grant. The phone sends `{code, dk}`;
-//! a match returns the same `luvia1:` string `encode` would print, and the
+//! a match returns the same `luvia2:` string `encode` would print, and the
 //! phone still runs `completePairing`. Tickets live in memory and die with
 //! the process.
 
@@ -78,9 +78,9 @@ impl ShortEnd {
     pub fn message(self) -> &'static str {
         match self {
             Self::Redeemed => "short code redeemed",
-            Self::Expired => "short code expired; the luvia1: code above still works",
+            Self::Expired => "short code expired; the luvia2: code above still works",
             Self::Exhausted => {
-                "short code invalidated after failed attempts; paste the luvia1: code or run pair --short again"
+                "short code invalidated after failed attempts; paste the luvia2: code or run pair --short again"
             }
         }
     }
@@ -295,7 +295,7 @@ impl RunningShort {
 
     pub fn banner(&self) -> String {
         let mut text = format!(
-            "Short code · {}s · one time · LAN only\n\n{}\n\nOn the phone, enter these 6 digits and this computer's address.\nPaste or scan the luvia1: code if the short code expires.\n",
+            "Short code · {}s · one time · LAN only\n\n{}\n\nOn the phone, enter these 6 digits and this computer's address.\nPaste or scan the luvia2: code if the short code expires.\n",
             self.ttl_secs,
             render_short_code(&self.code)
         );
@@ -347,7 +347,7 @@ pub fn start_short(
         end: None,
     };
     let minted = table.mint(grant, facts, ttl, unix_ms())?;
-    debug_assert!(minted.luvia1.starts_with("luvia1:"));
+    debug_assert!(minted.luvia1.starts_with("luvia2:"));
     let shared = Arc::new(Mutex::new(table));
     // One wildcard listener. Binding each interface address misses same-host
     // connections to a LAN IP: macOS routes that destination out lo0, and an
@@ -644,8 +644,8 @@ fn error_body(code: &str) -> String {
     serde_json::json!({"error": code}).to_string()
 }
 
-fn ok_body(luvia1: &str) -> String {
-    serde_json::json!({"luvia1": luvia1}).to_string()
+fn ok_body(pairing_code: &str) -> String {
+    serde_json::json!({"luvia2": pairing_code}).to_string()
 }
 
 fn format_target(addr: SocketAddr) -> String {
@@ -1023,8 +1023,11 @@ mod tests {
             name: "studio".into(),
             user: "misaka".into(),
             port: 22,
-            addrs: vec!["192.168.1.4".into(), "studio.local".into()],
+            addrs: vec!["192.168.1.4".into(), "100.64.0.8".into()],
             hk: vec!["SHA256:hostkeyone".into(), "SHA256:hostkeytwo".into()],
+            fqdn: None,
+            bridge: "/usr/local/bin/luvia-host".into(),
+            host_id: "cd".repeat(16),
         }
     }
 
@@ -1079,7 +1082,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(got, expected);
-        assert_eq!(PairingPayload::decode(&got).unwrap().dk, "SHA256:devicekey");
+        assert_eq!(
+            PairingPayload::decode(&got).unwrap().device_key,
+            "SHA256:devicekey"
+        );
         let again = table
             .redeem(
                 &minted.code,
@@ -1199,7 +1205,7 @@ mod tests {
         };
         let first = table
             .mint(
-                &grant_with("aa", "SHA256:one"),
+                &grant_with(&"aa".repeat(16), "SHA256:one"),
                 &facts(),
                 Duration::from_secs(60),
                 now,
@@ -1207,7 +1213,7 @@ mod tests {
             .unwrap();
         let second = table
             .mint(
-                &grant_with("bb", "SHA256:two"),
+                &grant_with(&"bb".repeat(16), "SHA256:two"),
                 &facts(),
                 Duration::from_secs(60),
                 now,
@@ -1534,7 +1540,7 @@ mod tests {
             "redeem took {elapsed:?}; body {text}"
         );
         assert_eq!(status, 200, "{text}");
-        assert!(text.contains("luvia1"));
+        assert!(text.contains("luvia2"));
     }
 
     #[test]
@@ -1560,7 +1566,7 @@ mod tests {
         let (status, text) = post(port, &body);
         assert_eq!(status, 200, "{text}");
         let value: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(value["luvia1"].as_str().unwrap(), minted.luvia1);
+        assert_eq!(value["luvia2"].as_str().unwrap(), minted.luvia1);
         let (status, text) = post(port, &body);
         assert_eq!(status, 404, "{text}");
         assert!(text.contains("invalid_code"));

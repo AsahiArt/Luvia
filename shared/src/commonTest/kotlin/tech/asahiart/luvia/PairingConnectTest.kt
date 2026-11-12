@@ -39,7 +39,7 @@ class PairingConnectTest {
 
     @Test
     fun setupFailuresStayOnThePairingCopy() {
-        assertTrue(Failure.ProtocolError("pairing code must start with luvia1:").isPairingSetupFailure())
+        assertTrue(Failure.ProtocolError("luvia1: pairing codes are not accepted; use luvia2:").isPairingSetupFailure())
         assertTrue(Failure.ProtocolError("pairing code is for a different device key").isPairingSetupFailure())
         assertTrue(Failure.ProtocolError("Could not store the device key on this device.").isPairingSetupFailure())
         assertTrue(Failure.ProtocolError("short code expired").isPairingSetupFailure())

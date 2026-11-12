@@ -59,6 +59,14 @@ internal data class HostFile(
     val lastUpdatedEpochMs: Long = 0,
     val lastConnectedAddress: String? = null,
     val topology: TopologyFile? = null,
+    val name: String = "",
+    val tailnetFqdn: String? = null,
+    val user: String = "",
+    val port: Int = 0,
+    val bridgePath: String = "",
+    val hostKeys: List<String> = emptyList(),
+    val hints: List<String> = emptyList(),
+    val lastGood: String? = null,
 )
 
 @Serializable
@@ -314,6 +322,14 @@ private fun HostFile.toPublic(): HostProfile {
         lastUpdatedEpochMs = migrated.lastUpdatedEpochMs,
         lastConnectedAddress = migrated.lastConnectedAddress,
         topology = migrated.topology?.toPublic(),
+        name = migrated.name.ifEmpty { migrated.alias },
+        tailnetFqdn = migrated.tailnetFqdn,
+        user = migrated.user.ifEmpty { migrated.username.orEmpty() },
+        port = if (migrated.port == 0) migrated.sshPort else migrated.port,
+        bridgePath = migrated.bridgePath,
+        hostKeys = migrated.hostKeys.ifEmpty { migrated.hostKeyFingerprints },
+        hints = migrated.hints.ifEmpty { migrated.addresses },
+        lastGood = migrated.lastGood ?: migrated.lastConnectedAddress,
     )
 }
 
@@ -331,6 +347,14 @@ private fun HostProfile.toFile(): HostFile =
         lastUpdatedEpochMs = lastUpdatedEpochMs,
         lastConnectedAddress = lastConnectedAddress,
         topology = topology?.toFile(),
+        name = name.ifEmpty { alias },
+        tailnetFqdn = tailnetFqdn,
+        user = user.ifEmpty { username },
+        port = if (port == 0) sshPort else port,
+        bridgePath = bridgePath,
+        hostKeys = hostKeys.ifEmpty { hostKeyFingerprints },
+        hints = hints.ifEmpty { addresses },
+        lastGood = lastGood ?: lastConnectedAddress,
     )
 
 private fun TopologyFile.toPublic(): CachedTopology =

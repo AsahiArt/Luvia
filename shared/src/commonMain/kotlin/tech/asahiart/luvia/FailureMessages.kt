@@ -41,23 +41,23 @@ public fun Failure.userMessage(): String {
 
 public fun Failure.pairingMessage(): String {
     if (this is Failure.Transport && reason.contains("short code")) {
-        return "Could not reach the computer to redeem the short code. Check the address, or paste the luvia1: code. The draft is still valid."
+        return "Could not reach the computer to redeem the short code. Check the address, or paste the luvia2: code. The draft is still valid."
     }
     val reason = (this as? Failure.ProtocolError)?.reason ?: return userMessage()
     val draftStays = "The draft is still valid."
     return when {
-        reason.contains("must start with luvia1") ->
-            "This is not a luvia1: pairing code. Scan again or paste a different code. $draftStays"
+        reason.contains("must start with luvia2") || reason.contains("luvia1:") ->
+            "This is not a luvia2: pairing code. Scan again or paste a different code. $draftStays"
         reason.contains("short code expired") ->
-            "This short code expired. Run pair --short again, or paste the luvia1: code. $draftStays"
+            "This short code expired. Run pair --short again, or paste the luvia2: code. $draftStays"
         reason.contains("invalidated after failed") ->
-            "This short code was invalidated after failed attempts. Run pair --short again, or paste the luvia1: code. $draftStays"
+            "This short code was invalidated after failed attempts. Run pair --short again, or paste the luvia2: code. $draftStays"
         reason.contains("short code needs") ->
             "Enter the computer address shown next to the short code. $draftStays"
         reason.contains("short code device key") ->
             "This short code was rejected for this device key. Run the command shown in this app, then enter the new code. $draftStays"
         reason.contains("short code was rejected") ->
-            "The computer rejected this short code. Check the digits, or paste the luvia1: code. $draftStays"
+            "The computer rejected this short code. Check the digits, or paste the luvia2: code. $draftStays"
         reason.contains("different device key") ->
             "This pairing code is for a different Device key. Run the command shown in this app on the Host, then scan the QR it prints. $draftStays"
         reason.contains("no host key fingerprints") ->
