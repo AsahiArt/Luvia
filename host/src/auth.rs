@@ -34,14 +34,27 @@ pub struct Hello {
     pub host_id: String,
 }
 
-pub fn auth_message(host_id: &str, nonce: &[u8; 32], device_id: &str) -> Vec<u8> {
+/// Shared encoding for signing and verifying.
+/// `"luvia-auth-v1" ‖ u32be(len(host_id)) ‖ host_id ‖ nonce[32] ‖ u32be(len(device_id)) ‖ device_id`.
+/// Both ids are UTF-8 and must be 1–64 bytes.
+pub fn auth_message(host_id: &str, nonce: &[u8; 32], device_id: &str) -> Result<Vec<u8>> {
+    let host = host_id.as_bytes();
+    let device = device_id.as_bytes();
+    if !(1..=64).contains(&host.len()) || !(1..=64).contains(&device.len()) {
+        return Err(Error::new(
+            "invalid_id",
+            "host_id and device_id must be 1 to 64 UTF-8 bytes",
+        ));
+    }
     let mut message =
-        Vec::with_capacity(AUTH_LABEL.len() + host_id.len() + nonce.len() + device_id.len());
+        Vec::with_capacity(AUTH_LABEL.len() + 8 + host.len() + nonce.len() + device.len());
     message.extend_from_slice(AUTH_LABEL);
-    message.extend_from_slice(host_id.as_bytes());
+    message.extend_from_slice(&(host.len() as u32).to_be_bytes());
+    message.extend_from_slice(host);
     message.extend_from_slice(nonce);
-    message.extend_from_slice(device_id.as_bytes());
-    message
+    message.extend_from_slice(&(device.len() as u32).to_be_bytes());
+    message.extend_from_slice(device);
+    Ok(message)
 }
 
 pub fn openssh_pubkey_from_raw(raw: &[u8; 32]) -> String {
@@ -290,7 +303,7 @@ fn verify_grant(
         .map_err(|_| Error::new("auth_failed", "device public key is not ed25519"))?;
     let signature = Signature::from_slice(sig)
         .map_err(|_| Error::new("auth_failed", "signature is malformed"))?;
-    let message = auth_message(host_id, nonce, device_id);
+    let message = auth_message(host_id, nonce, device_id)?;
     verifying
         .verify(&message, &signature)
         .map_err(|_| Error::new("auth_failed", "device signature was rejected"))?;
@@ -404,7 +417,7 @@ mod tests {
 
     fn sign_for(signing: &SigningKey, host_id: &str, nonce: &[u8; 32], device_id: &str) -> Vec<u8> {
         signing
-            .sign(&auth_message(host_id, nonce, device_id))
+            .sign(&auth_message(host_id, nonce, device_id).unwrap())
             .to_bytes()
             .to_vec()
     }
@@ -528,18 +541,45 @@ mod tests {
         assert_eq!(first.len(), 32);
     }
 
+    fn prefixed(host_id: &str, nonce: &[u8; 32], device_id: &str) -> Vec<u8> {
+        let host = host_id.as_bytes();
+        let device = device_id.as_bytes();
+        let mut message = b"luvia-auth-v1".to_vec();
+        message.extend_from_slice(&(host.len() as u32).to_be_bytes());
+        message.extend_from_slice(host);
+        message.extend_from_slice(nonce);
+        message.extend_from_slice(&(device.len() as u32).to_be_bytes());
+        message.extend_from_slice(device);
+        message
+    }
+
     #[test]
-    fn message_is_raw_concatenation() {
+    fn length_prefix_splits_id_boundary() {
         let nonce = [0x11u8; 32];
-        let device = "ab".repeat(16);
-        let message = auth_message("Yui", &nonce, &device);
-        assert!(message.starts_with(b"luvia-auth-v1"));
-        assert_eq!(&message[AUTH_LABEL.len()..AUTH_LABEL.len() + 3], b"Yui");
-        assert_eq!(&message[message.len() - device.len()..], device.as_bytes());
-        let mut expected = b"luvia-auth-v1".to_vec();
-        expected.extend_from_slice(b"Yui");
-        expected.extend_from_slice(&nonce);
-        expected.extend_from_slice(device.as_bytes());
-        assert_eq!(message, expected);
+        let left = auth_message("ab", &nonce, "c").unwrap();
+        let right = auth_message("a", &nonce, "bc").unwrap();
+        assert_ne!(left, right);
+        assert_eq!(left, prefixed("ab", &nonce, "c"));
+        assert_eq!(right, prefixed("a", &nonce, "bc"));
+        let signed_left = sign_for(&SigningKey::from_bytes(&[1u8; 32]), "ab", &nonce, "c");
+        let signed_right = sign_for(&SigningKey::from_bytes(&[1u8; 32]), "a", &nonce, "bc");
+        assert_ne!(signed_left, signed_right);
+    }
+
+    #[test]
+    fn out_of_range_id_lengths_are_rejected() {
+        let nonce = [0x22u8; 32];
+        let long = "x".repeat(65);
+        for (host_id, device_id) in [
+            ("", "ab"),
+            ("ab", ""),
+            (long.as_str(), "ab"),
+            ("ab", long.as_str()),
+        ] {
+            let err = auth_message(host_id, &nonce, device_id).unwrap_err();
+            assert_eq!(err.code, "invalid_id");
+        }
+        assert!(auth_message(&"y".repeat(1), &nonce, &"z".repeat(64)).is_ok());
+        assert!(auth_message(&"y".repeat(64), &nonce, &"z".repeat(1)).is_ok());
     }
 }

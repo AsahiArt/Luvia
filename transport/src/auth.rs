@@ -15,14 +15,30 @@ pub struct Hello {
     pub host_id: String,
 }
 
-pub fn auth_message(host_id: &str, nonce: &[u8; 32], device_id: &str) -> Vec<u8> {
+/// Shared encoding for signing and verifying.
+/// `"luvia-auth-v1" ‖ u32be(len(host_id)) ‖ host_id ‖ nonce[32] ‖ u32be(len(device_id)) ‖ device_id`.
+/// Both ids are UTF-8 and must be 1–64 bytes.
+pub fn auth_message(
+    host_id: &str,
+    nonce: &[u8; 32],
+    device_id: &str,
+) -> Result<Vec<u8>, TransportError> {
+    let host = host_id.as_bytes();
+    let device = device_id.as_bytes();
+    if !(1..=64).contains(&host.len()) || !(1..=64).contains(&device.len()) {
+        return Err(TransportError::io(
+            "host_id and device_id must be 1 to 64 UTF-8 bytes",
+        ));
+    }
     let mut message =
-        Vec::with_capacity(AUTH_LABEL.len() + host_id.len() + nonce.len() + device_id.len());
+        Vec::with_capacity(AUTH_LABEL.len() + 8 + host.len() + nonce.len() + device.len());
     message.extend_from_slice(AUTH_LABEL);
-    message.extend_from_slice(host_id.as_bytes());
+    message.extend_from_slice(&(host.len() as u32).to_be_bytes());
+    message.extend_from_slice(host);
     message.extend_from_slice(nonce);
-    message.extend_from_slice(device_id.as_bytes());
-    message
+    message.extend_from_slice(&(device.len() as u32).to_be_bytes());
+    message.extend_from_slice(device);
+    Ok(message)
 }
 
 pub fn sign_message(seed: &[u8; 32], message: &[u8]) -> [u8; 64] {
@@ -45,7 +61,7 @@ pub fn client_prove(
     if hello.host_id != expected_host_id {
         return Err(TransportError::HostIdMismatch);
     }
-    let message = auth_message(&hello.host_id, &hello.nonce, device_id);
+    let message = auth_message(&hello.host_id, &hello.nonce, device_id)?;
     let sig = sign(&message)?;
     let mut frame = serde_json::to_vec(&json!({
         "type": "prove",
@@ -149,7 +165,7 @@ mod tests {
             },
         )
         .unwrap();
-        let expected = auth_message("paired-host", &[0x11u8; 32], "dev");
+        let expected = auth_message("paired-host", &[0x11u8; 32], "dev").unwrap();
         assert_eq!(seen, expected);
         assert!(frame.ends_with(b"\n"));
         let value: Value = serde_json::from_slice(&frame[..frame.len() - 1]).unwrap();
@@ -159,5 +175,36 @@ mod tests {
             .decode(value["sig"].as_str().unwrap().as_bytes())
             .unwrap();
         assert_eq!(sig.len(), 64);
+    }
+
+    #[test]
+    fn length_prefix_splits_id_boundary() {
+        let nonce = [0x11u8; 32];
+        let left = auth_message("ab", &nonce, "c").unwrap();
+        let right = auth_message("a", &nonce, "bc").unwrap();
+        assert_ne!(left, right);
+        assert_eq!(
+            &left[AUTH_LABEL.len()..AUTH_LABEL.len() + 4],
+            &2u32.to_be_bytes()
+        );
+        assert_eq!(
+            &right[AUTH_LABEL.len()..AUTH_LABEL.len() + 4],
+            &1u32.to_be_bytes()
+        );
+        let key = [9u8; 32];
+        assert_ne!(sign_message(&key, &left), sign_message(&key, &right),);
+    }
+
+    #[test]
+    fn out_of_range_id_lengths_are_rejected() {
+        let nonce = [0x22u8; 32];
+        let long = "x".repeat(65);
+        assert!(auth_message("", &nonce, "ab").is_err());
+        assert!(auth_message("ab", &nonce, "").is_err());
+        assert!(auth_message(&long, &nonce, "ab").is_err());
+        assert!(auth_message("ab", &nonce, &long).is_err());
+        let err = client_prove(true, "", "dev", &hello(""), |_| Ok([0u8; 64])).unwrap_err();
+        assert!(err.to_string().contains("1 to 64"));
+        assert!(auth_message(&"y".repeat(64), &nonce, "z").is_ok());
     }
 }

@@ -51,7 +51,7 @@ fn bridge_piped_stdin_does_not_fail_enotsock() {
     assert_eq!(parsed.host_id, host_id);
     assert_eq!(parsed.nonce.len(), 32);
     let sig = signing
-        .sign(&auth_message(&parsed.host_id, &parsed.nonce, &id))
+        .sign(&auth_message(&parsed.host_id, &parsed.nonce, &id).unwrap())
         .to_bytes();
     stdin
         .write_all(&auth::prove_frame(&id, &sig).unwrap())
