@@ -293,9 +293,11 @@ private fun sampleRuntime(): HostRuntime {
         profile =
             HostProfile(
                 id = "host-1",
+                hostId = "ab".repeat(16),
                 name = "studio",
                 user = "misaka",
-                hostKeys = listOf("SHA256:abc"),
+                hostKeys = setOf("SHA256:abc"),
+                bridgePath = "/usr/local/bin/luvia-host",
                 role = HostRole.Controller,
                 lastStatus = HostStatus.Unknown,
                 lastUpdatedEpochMs = 0L,

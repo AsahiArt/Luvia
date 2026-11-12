@@ -37,14 +37,22 @@ public sealed class Failure {
     ) : Failure()
 
     /**
-     * The peer accepted TCP and closed before the SSH banner. The candidate
-     * race treats this like a timeout: that attempt fails, the others continue.
+     * The peer accepted TCP and closed before the SSH identification banner.
+     * The candidate race treats this like a timeout: that attempt fails, the others continue.
      */
     public class ClosedBeforeBanner : Failure()
 
     /**
-     * The host rejected Prove. [message] is the host's reason. This candidate
-     * did not win and must not be stored as lastGood.
+     * The SSH identification line arrived, or the handshake failed some other
+     * way (version, key exchange, generic transport IO). Not ClosedBeforeBanner.
+     */
+    public class HandshakeFailed(
+        public val reason: String,
+    ) : Failure()
+
+    /**
+     * The host rejected Prove. [message] is the host's reason and is not shown.
+     * This candidate did not win and must not be stored as lastGood.
      */
     public class ProveRejected(
         public val code: String,

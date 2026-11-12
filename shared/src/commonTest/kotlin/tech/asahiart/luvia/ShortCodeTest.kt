@@ -93,8 +93,8 @@ class ShortCodeTest {
     }
 
     @Test
-    fun redeemShortCodeReturnsLuvia1FromAKnownHost() = runTest {
-        val luvia = sampleLuvia1()
+    fun redeemShortCodeReturnsLegacyFormatRejectionFromAKnownHost() = runTest {
+        val luvia = sampleLegacyFormatRejection()
         var seenUrl = ""
         var seenBody = ""
         val redeemed =
@@ -172,8 +172,8 @@ class ShortCodeTest {
 
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun redeemedLuvia1CompletesPairingThroughTheExistingPath() = runTest {
-        val luvia = sampleLuvia1()
+    fun redeemedLegacyFormatRejectionCompletesPairingThroughTheExistingPath() = runTest {
+        val luvia = sampleLegacyFormatRejection()
         val redeemed =
             redeemShortCode(
                 "482197",
@@ -203,7 +203,7 @@ class ShortCodeTest {
         manager.close()
     }
 
-    private fun sampleLuvia1(): String {
+    private fun sampleLegacyFormatRejection(): String {
         val hostId = "cd".repeat(16)
         val deviceId = "ab".repeat(16)
         val body =

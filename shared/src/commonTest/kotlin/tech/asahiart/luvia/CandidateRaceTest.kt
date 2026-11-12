@@ -336,7 +336,8 @@ private fun raceProfile(
         tailnetFqdn = fqdn,
         user = "misaka",
         port = 22,
-        hostKeys = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+        bridgePath = "/usr/local/bin/luvia-host",
+        hostKeys = setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
         hints = hints,
         lastGood = lastGood,
     )

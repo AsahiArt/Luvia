@@ -22,9 +22,11 @@ class HostStoreTest {
         store.upsert(
             HostProfile(
                 id = "host-1",
+                hostId = "ab".repeat(16),
                 name = "studio",
                 user = "misaka",
-                hostKeys = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+                hostKeys = setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+                bridgePath = "/usr/local/bin/luvia-host",
                 role = HostRole.Observer,
                 lastStatus = HostStatus.Reachable,
                 lastUpdatedEpochMs = 100,
@@ -48,7 +50,7 @@ class HostStoreTest {
         assertEquals("studio", loaded.name)
         assertEquals(listOf("studio.tailnet", "10.0.0.2"), loaded.hints)
         assertEquals("misaka", loaded.user)
-        assertEquals(listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"), loaded.hostKeys)
+        assertEquals(setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"), loaded.hostKeys)
         assertEquals(HostRole.Observer, loaded.role)
         assertEquals(HostStatus.Stale, loaded.lastStatus)
         assertEquals(200, loaded.lastUpdatedEpochMs)
@@ -77,9 +79,11 @@ class HostStoreTest {
         store.upsert(
             HostProfile(
                 id = "host-1",
+                hostId = "ab".repeat(16),
                 name = "Yui.local",
                 user = "misaka",
-                hostKeys = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+                hostKeys = setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+                bridgePath = "/usr/local/bin/luvia-host",
                 role = HostRole.Controller,
                 lastStatus = HostStatus.Unknown,
                 lastUpdatedEpochMs = 1,
@@ -119,5 +123,29 @@ class HostStoreTest {
                 )
             }
         assertTrue(thrown.cause?.message?.contains("port is 0") == true, thrown.toString())
+    }
+
+    @Test
+    fun hostFileInvalidRoleFailsToParse() = runTest {
+        val thrown =
+            assertFailsWith<CorruptionException> {
+                HostCatalogOkioSerializer.readFrom(
+                    Buffer().writeUtf8(
+                        """{"version":2,"hosts":[{"id":"host-1","hostId":"ab","role":"Admin","name":"Yui","user":"misaka","port":22,"bridgePath":"/usr/local/bin/luvia-host","hostKeys":["SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"]}],"updatedEpochMs":1}""",
+                    ),
+                )
+            }
+        assertTrue(thrown.cause?.message?.contains("role is invalid") == true, thrown.toString())
+    }
+
+    @Test
+    fun hostFileUnknownKeyIsCorrupt() = runTest {
+        assertFailsWith<CorruptionException> {
+            HostCatalogOkioSerializer.readFrom(
+                Buffer().writeUtf8(
+                    """{"version":2,"hosts":[{"id":"host-1","hostId":"ab","role":"Observer","alias":"old","name":"Yui","user":"misaka","port":22,"bridgePath":"/usr/local/bin/luvia-host","hostKeys":["SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"]}],"updatedEpochMs":1}""",
+                ),
+            )
+        }
     }
 }

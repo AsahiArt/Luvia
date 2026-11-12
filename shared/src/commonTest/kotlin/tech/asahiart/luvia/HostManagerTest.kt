@@ -191,6 +191,10 @@ class HostManagerTest {
         val failure = assertIs<Failure.ProveRejected>(err.failure)
         assertEquals("unknown_device", failure.code)
         assertEquals("no pairing grant for ${profile.id}", failure.message)
+        assertEquals(PROVE_REJECTED_EN, failure.connectMessage())
+        assertEquals(PROVE_REJECTED_EN, failure.userMessage())
+        assertFalse(failure.connectMessage().contains("no pairing grant"))
+        assertFalse(failure.userMessage().contains(profile.id))
         val stored = store.current().hosts.single()
         assertEquals("10.0.0.2", stored.lastGood)
         assertFalse(stored.lastGood == "192.168.1.9")
@@ -262,12 +266,15 @@ private class MemoryVault : DeviceKeyVault {
 private fun sampleProfile(): HostProfile =
     HostProfile(
         id = "host-1",
+        hostId = "ab".repeat(16),
         name = "studio",
         user = "misaka",
-        hostKeys = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+        hostKeys = setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+        bridgePath = "/usr/local/bin/luvia-host",
         role = HostRole.Controller,
         lastStatus = HostStatus.Unknown,
         lastUpdatedEpochMs = 1,
+        port = 22,
         topology =
             CachedTopology(
                 sessionName = "default",

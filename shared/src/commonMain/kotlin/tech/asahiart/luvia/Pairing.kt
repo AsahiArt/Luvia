@@ -155,7 +155,7 @@ private fun decodeObject(obj: JsonObject): Outcome<PairingCode> {
         return fail(Failure.ProtocolError("pairing code device_id must be 32 lowercase hex characters"))
     }
     if (!isOpensshSha256Fingerprint(deviceKey)) {
-        return fail(Failure.ProtocolError("pairing code has an invalid host key fingerprint"))
+        return fail(Failure.ProtocolError("pairing code has an invalid device key fingerprint"))
     }
     for (fingerprint in hostKeys) {
         if (!isOpensshSha256Fingerprint(fingerprint)) {

@@ -174,6 +174,8 @@ internal fun mapTransport(error: Throwable): Failure {
                 return Failure.HostKeyMismatch(current.expected, current.actual)
             is TransportException.ClosedBeforeBanner ->
                 return Failure.ClosedBeforeBanner()
+            is TransportException.HandshakeFailed ->
+                return Failure.HandshakeFailed(current.reason)
             is TransportException.ProveRejected ->
                 return Failure.ProveRejected(current.code, current.reason)
         }

@@ -84,7 +84,7 @@ public enum class TerminalKey {
 
 public data class HostProfile(
     public val id: String,
-    public val hostId: String = "",
+    public val hostId: String,
     public val role: HostRole,
     public val lastStatus: HostStatus,
     public val lastUpdatedEpochMs: Long,
@@ -92,9 +92,9 @@ public data class HostProfile(
     public val name: String = "",
     public val tailnetFqdn: String? = null,
     public val user: String = "",
-    public val port: Int = 22,
-    public val bridgePath: String = "",
-    public val hostKeys: List<String> = emptyList(),
+    public val port: Int,
+    public val bridgePath: String,
+    public val hostKeys: Set<String> = emptySet(),
     public val hints: List<String> = emptyList(),
     public val lastGood: String? = null,
 )

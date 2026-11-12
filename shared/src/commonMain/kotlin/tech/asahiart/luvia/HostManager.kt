@@ -195,7 +195,7 @@ public class HostManager internal constructor(
                 user = reachability.user,
                 port = reachability.port,
                 bridgePath = code.bridgePath,
-                hostKeys = code.hostKeys,
+                hostKeys = code.hostKeys.toSet(),
                 hints = if (typedAddresses) reachability.addresses else code.hints,
                 lastGood = null,
             )

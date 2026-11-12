@@ -68,6 +68,15 @@ class PairingConnectTest {
             "The host refused the connection.",
             Failure.ClosedBeforeBanner().connectMessage(),
         )
+        assertEquals(HANDSHAKE_FAILED_EN, Failure.HandshakeFailed("key exchange failed").connectMessage())
+        assertEquals(HANDSHAKE_FAILED_ZH, "与主机握手失败")
+        val rejected = Failure.ProveRejected("unknown_device", "no pairing grant for host-1")
+        assertEquals(PROVE_REJECTED_EN, rejected.connectMessage())
+        assertEquals(PROVE_REJECTED_EN, rejected.userMessage())
+        assertEquals(PROVE_REJECTED_ZH, "这台设备的配对已失效。在电脑上重新运行 pair，再扫新码。")
+        assertFalse(rejected.connectMessage().contains("no pairing grant"))
+        assertFalse(rejected.userMessage().contains("unknown_device"))
+        assertFalse(rejected.userMessage().contains("host-1"))
     }
 
     @Test

@@ -17,7 +17,8 @@ public fun Failure.userMessage(): String {
             is Failure.HostKeyMismatch ->
                 "host key mismatch: expected $expected, actual $actual"
             is Failure.ClosedBeforeBanner -> "closed before banner"
-            is Failure.ProveRejected -> message
+            is Failure.HandshakeFailed -> HANDSHAKE_FAILED_EN
+            is Failure.ProveRejected -> PROVE_REJECTED_EN
             is Failure.Bridge -> reason
             is Failure.Remote -> message
             is Failure.Frame -> reason
@@ -75,7 +76,12 @@ public fun Failure.pairingMessage(): String {
 }
 
 public fun Failure.refusedOutcomeZh(): String =
-    if (isClosedBeforeBanner()) "主机拒绝了连接" else connectMessage()
+    when {
+        isClosedBeforeBanner() -> "主机拒绝了连接"
+        this is Failure.HandshakeFailed -> HANDSHAKE_FAILED_ZH
+        this is Failure.ProveRejected -> PROVE_REJECTED_ZH
+        else -> connectMessage()
+    }
 
 public fun Failure.connectMessage(): String {
     if (this is Failure.HostKeyMismatch) {
@@ -83,6 +89,12 @@ public fun Failure.connectMessage(): String {
     }
     if (this.isClosedBeforeBanner()) {
         return "The host refused the connection."
+    }
+    if (this is Failure.HandshakeFailed) {
+        return HANDSHAKE_FAILED_EN
+    }
+    if (this is Failure.ProveRejected) {
+        return PROVE_REJECTED_EN
     }
     val raw =
         when (this) {
@@ -130,6 +142,16 @@ public fun Failure.isLostMutation(): Boolean =
         this is Failure.Transport ||
         this is Failure.Bridge ||
         this is Failure.Closed
+
+public const val HANDSHAKE_FAILED_EN: String = "Handshake with the host failed."
+
+public const val HANDSHAKE_FAILED_ZH: String = "与主机握手失败"
+
+public const val PROVE_REJECTED_EN: String =
+    "This device is no longer paired. Run pair on the computer again, then scan the new code."
+
+public const val PROVE_REJECTED_ZH: String =
+    "这台设备的配对已失效。在电脑上重新运行 pair，再扫新码。"
 
 internal fun String.sanitizeHostError(): String =
     when {

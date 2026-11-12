@@ -142,9 +142,11 @@ private fun profile(
 ): HostProfile =
     HostProfile(
         id = id,
+        hostId = "ab".repeat(16),
         name = name,
         user = "misaka",
-        hostKeys = listOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+        hostKeys = setOf("SHA256:ypeBEsobvcr6wjGzmiPcTaeG7/gUfE5yuYB3ha/uSLs"),
+        bridgePath = "/usr/local/bin/luvia-host",
         role = HostRole.Controller,
         lastStatus = status,
         lastUpdatedEpochMs = updated,

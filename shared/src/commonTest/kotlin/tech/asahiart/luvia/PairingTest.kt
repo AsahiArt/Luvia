@@ -112,7 +112,7 @@ class PairingTest {
     fun rejectsInvalidFingerprintShape() {
         assertReason(
             PairingCodes.decode(encode(compactJson(deviceKey = "SHA256:abc"))),
-            "pairing code has an invalid host key fingerprint",
+            "pairing code has an invalid device key fingerprint",
         )
         assertReason(
             PairingCodes.decode(encode(compactJson(hk = "[\"md5:aa:bb\"]"))),

@@ -236,7 +236,7 @@ internal fun HostProfile.raceEndpoint(address: String): HostEndpoint =
         address = address,
         port = port,
         username = user.trim(),
-        hostKeyFingerprints = hostKeys,
+        hostKeyFingerprints = hostKeys.toList(),
         hostId = hostId,
         deviceId = id,
     )
@@ -245,7 +245,7 @@ internal fun Failure.raceReason(): String =
     when (this) {
         is Failure.HostKeyMismatch -> "host key mismatch: expected $expected, actual $actual"
         is Failure.ClosedBeforeBanner -> "closed before banner"
-        is Failure.ProveRejected -> message
+        is Failure.ProveRejected -> userMessage()
         is Failure.Transport -> reason
         else -> userMessage()
     }
