@@ -37,7 +37,7 @@ impl PairingPayload {
             port: facts.port,
             bridge: facts.bridge.clone(),
             hk: facts.hk.clone(),
-            hints: facts.addrs.clone(),
+            hints: facts.hints.clone(),
             host_id: facts.host_id.clone(),
             device_id: grant.id.clone(),
             device_key: grant.fingerprint.clone(),
@@ -171,7 +171,7 @@ mod tests {
             name: "studio".into(),
             user: "misaka".into(),
             port: 22,
-            addrs: vec!["192.168.1.4".into(), "100.64.0.8".into()],
+            hints: vec!["192.168.1.4".into(), "100.64.0.8".into()],
             hk: vec!["SHA256:hostkeyone".into(), "SHA256:hostkeytwo".into()],
             fqdn: None,
             bridge: "/usr/local/bin/luvia-host".into(),
@@ -195,7 +195,7 @@ mod tests {
         assert_eq!(decoded.fqdn.as_deref(), Some("yui.java-tiyanki.ts.net"));
         assert_eq!(decoded.role, Role::Observer);
         assert_eq!(decoded.hk.len(), 2);
-        assert_eq!(decoded.hints, facts.addrs);
+        assert_eq!(decoded.hints, facts.hints);
         assert_eq!(decoded.host_id, facts.host_id);
         assert_eq!(decoded.bridge, facts.bridge);
     }
@@ -230,7 +230,7 @@ mod tests {
         let payload = PairingPayload::decode(&from_pair).unwrap();
         assert_eq!(payload.device_id, grant.id);
         assert_eq!(payload.device_key, grant.fingerprint);
-        assert_eq!(payload.hints, facts.addrs);
+        assert_eq!(payload.hints, facts.hints);
         assert_eq!(payload.hk, facts.hk);
         assert_eq!(payload.user, facts.user);
         assert_eq!(payload.port, facts.port);

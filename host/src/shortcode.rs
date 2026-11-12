@@ -353,9 +353,9 @@ pub fn start_short(
     // One wildcard listener. Binding each interface address misses same-host
     // connections to a LAN IP: macOS routes that destination out lo0, and an
     // IP-specific socket never accepts it. Public peers are still rejected.
-    let server = serve_wildcard(shared.clone(), port, &facts.addrs, true)?;
+    let server = serve_wildcard(shared.clone(), port, &facts.hints, true)?;
     let bound_port = server.bound.first().map(|addr| addr.port()).unwrap_or(port);
-    let targets = banner_targets(&local_bind_candidates(), &facts.addrs, bound_port);
+    let targets = banner_targets(&local_bind_candidates(), &facts.hints, bound_port);
     Ok(RunningShort {
         table: shared,
         server,
@@ -1027,7 +1027,7 @@ mod tests {
             name: "studio".into(),
             user: "misaka".into(),
             port: 22,
-            addrs: vec!["192.168.1.4".into(), "100.64.0.8".into()],
+            hints: vec!["192.168.1.4".into(), "100.64.0.8".into()],
             hk: vec!["SHA256:hostkeyone".into(), "SHA256:hostkeytwo".into()],
             fqdn: None,
             bridge: "/usr/local/bin/luvia-host".into(),

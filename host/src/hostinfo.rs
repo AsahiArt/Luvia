@@ -18,7 +18,7 @@ pub struct HostFacts {
     pub port: u16,
     /// LAN and 100.x addresses seen at pair time. Hostnames are not hints;
     /// `name.local` is derived later and the tailnet FQDN is `fqdn`.
-    pub addrs: Vec<String>,
+    pub hints: Vec<String>,
     pub hk: Vec<String>,
     pub fqdn: Option<String>,
     pub bridge: String,
@@ -75,7 +75,7 @@ impl HostFacts {
             name,
             user,
             port,
-            addrs,
+            hints: addrs,
             hk,
             fqdn,
             bridge: String::new(),

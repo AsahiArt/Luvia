@@ -294,7 +294,7 @@ fn print_pairing(
         facts.user,
         facts.port,
         facts.fqdn.as_deref().unwrap_or("-"),
-        facts.addrs.join(",")
+        facts.hints.join(",")
     );
     if let Some(short) = short {
         println!("{}", short.banner());
