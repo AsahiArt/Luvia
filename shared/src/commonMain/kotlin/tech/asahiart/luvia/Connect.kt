@@ -107,7 +107,8 @@ public suspend fun connectToHost(
 
 /**
  * SSH publickey auth plus the bridge signature proof. The returned host keeps
- * the session; the probe channel is closed after Prove so a loser can drop it.
+ * the session; the probe channel is closed after the host's ok frame so a loser
+ * can drop it. An error frame is a loss, not a win.
  */
 internal suspend fun connectAndProve(
     endpoint: HostEndpoint,
@@ -173,6 +174,8 @@ internal fun mapTransport(error: Throwable): Failure {
                 return Failure.HostKeyMismatch(current.expected, current.actual)
             is TransportException.ClosedBeforeBanner ->
                 return Failure.ClosedBeforeBanner()
+            is TransportException.ProveRejected ->
+                return Failure.ProveRejected(current.code, current.reason)
         }
         current = current.cause
     }

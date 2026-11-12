@@ -169,6 +169,37 @@ class HostManagerTest {
     }
 
     @Test
+    fun deletedGrantIsNotWrittenToLastGood() = runTest {
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-hm-grant-${Random.nextLong()}.json"
+        val store = HostStore(path.toString(), backgroundScope)
+        val vault = MemoryVault()
+        val profile = sampleProfile().copy(lastGood = "10.0.0.2", hints = listOf("192.168.1.9"))
+        vault.save(profile.id, "not-a-real-key")
+        val manager =
+            HostManager(store, vault, backgroundScope) { _, _ ->
+                ProfileConnectResult(
+                    fail(Failure.ProveRejected("unknown_device", "no pairing grant for ${profile.id}")),
+                )
+            }
+        store.upsert(profile)
+        advanceUntilIdle()
+        assertEquals(listOf("host-1"), manager.hosts.value.map { it.profile.id })
+        manager.connect(profile.id)
+        val reached = manager.awaitCurrentConnect(profile.id)
+        advanceUntilIdle()
+        val err = assertIs<Outcome.Err<Unit>>(reached)
+        val failure = assertIs<Failure.ProveRejected>(err.failure)
+        assertEquals("unknown_device", failure.code)
+        assertEquals("no pairing grant for ${profile.id}", failure.message)
+        val stored = store.current().hosts.single()
+        assertEquals("10.0.0.2", stored.lastGood)
+        assertFalse(stored.lastGood == "192.168.1.9")
+        val link = assertIs<HostLink.Failed>(manager.hosts.value.single().link)
+        assertIs<Failure.ProveRejected>(link.failure)
+        manager.close()
+    }
+
+    @Test
     fun parseConnectionAddressesSplitsHostList() {
         assertEquals(
             listOf("192.168.1.8", "studio.local"),

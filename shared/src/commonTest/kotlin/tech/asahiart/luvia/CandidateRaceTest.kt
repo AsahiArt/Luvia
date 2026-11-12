@@ -169,6 +169,27 @@ class CandidateRaceTest {
     }
 
     @Test
+    fun deletedGrantDoesNotWinTheRace() = runTest {
+        val result =
+            raceCandidates(
+                listOf("192.168.1.9", "100.89.1.2"),
+                scriptDial(
+                    prove = { address ->
+                        if (address == "192.168.1.9") {
+                            fail(Failure.ProveRejected("unknown_device", "no pairing grant for host-1"))
+                        } else {
+                            ok(address)
+                        }
+                    },
+                ),
+            )
+        advanceUntilIdle()
+        val win = assertIs<Outcome.Ok<Pair<String, String>>>(result)
+        assertEquals("100.89.1.2", win.value.first)
+        assertFalse(win.value.first == "192.168.1.9")
+    }
+
+    @Test
     fun hostKeyMismatchAbortsACandidateThatWouldSucceed() = runTest {
         val cancelled = ArrayList<String>()
         val result =

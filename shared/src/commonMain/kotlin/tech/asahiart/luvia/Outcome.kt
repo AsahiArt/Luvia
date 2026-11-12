@@ -42,6 +42,15 @@ public sealed class Failure {
      */
     public class ClosedBeforeBanner : Failure()
 
+    /**
+     * The host rejected Prove. [message] is the host's reason. This candidate
+     * did not win and must not be stored as lastGood.
+     */
+    public class ProveRejected(
+        public val code: String,
+        public val message: String,
+    ) : Failure()
+
     public class Closed : Failure()
 
     /**

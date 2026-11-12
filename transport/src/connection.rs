@@ -36,7 +36,10 @@ use crate::BRIDGE_COMMAND;
 
 const DNS_TIMEOUT: Duration = Duration::from_millis(1_500);
 const TCP_TIMEOUT: Duration = Duration::from_secs(3);
+/// Race probe only: TCP connect start through the first Prove+ack.
 const PROVE_BUDGET: Duration = Duration::from_secs(10);
+/// Each channel opened after the probe: open + Prove + ack, from that open.
+const CHANNEL_PROVE_BUDGET: Duration = Duration::from_secs(10);
 
 struct PinnedHostKey {
     accepted: Vec<[u8; 32]>,
@@ -83,8 +86,12 @@ pub struct SshConnection {
     expected_host_id: String,
     device_id: String,
     signing_seed: [u8; 32],
-    /// TCP connect start plus [`PROVE_BUDGET`]. Prove must finish by then.
-    prove_deadline: Instant,
+    /// TCP connect start plus the probe budget. Only the first Prove+ack uses it.
+    probe_deadline: Instant,
+    /// Per-channel open+Prove+ack budget for every channel after the probe.
+    channel_budget: Duration,
+    /// Set after the first Prove+ack succeeds. Later channels ignore [`Self::probe_deadline`].
+    probe_done: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for SshConnection {
@@ -129,20 +136,30 @@ impl SshConnection {
                     signing_seed,
                 },
                 PROVE_BUDGET,
+                CHANNEL_PROVE_BUDGET,
             )
             .await
         })
         .await?
     }
 
-    /// Exec `luvia-host bridge`, then sign Hello only if the SSH host key matched
-    /// the pairing record's host id.
+    /// Exec `luvia-host bridge`, sign Hello only after the SSH host key matched
+    /// the pairing record's host id, and wait for the host's ok frame.
+    ///
+    /// The first call is the race probe and must finish by the TCP-start deadline.
+    /// Later calls each get [`CHANNEL_PROVE_BUDGET`] measured from that open.
     pub async fn open_authenticated_bridge(&self) -> Result<Arc<BridgeChannel>, TransportError> {
         let verified = self.host_key_verified.load(Ordering::SeqCst);
         let expected_host_id = self.expected_host_id.clone();
         let device_id = self.device_id.clone();
         let signing_seed = self.signing_seed;
-        let prove_deadline = self.prove_deadline;
+        let probe_done = self.probe_done.load(Ordering::SeqCst);
+        let deadline = if probe_done {
+            Instant::now() + self.channel_budget
+        } else {
+            self.probe_deadline
+        };
+        let probe_flag = Arc::clone(&self.probe_done);
         let slots = Arc::clone(&self.handle);
         spawn_on_runtime(async move {
             let guard = slots.lock().await;
@@ -155,7 +172,8 @@ impl SshConnection {
                 &expected_host_id,
                 &device_id,
                 &signing_seed,
-                prove_deadline,
+                deadline,
+                probe_flag,
             )
             .await
         })
@@ -183,6 +201,54 @@ impl SshConnection {
             .await?;
         }
         Ok(())
+    }
+}
+
+impl SshConnection {
+    /// Same as [`SshConnection::connect`], with an explicit probe budget and
+    /// per-channel budget. Not exported over UniFFI. Production `connect`
+    /// keeps both at 10s.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn connect_with_budgets(
+        address: String,
+        port: u16,
+        username: String,
+        accepted_host_key_fingerprints: Vec<String>,
+        private_key_openssh: String,
+        expected_host_id: String,
+        device_id: String,
+        probe_budget: Duration,
+        channel_budget: Duration,
+    ) -> Result<Arc<Self>, TransportError> {
+        if accepted_host_key_fingerprints.is_empty() {
+            return Err(TransportError::invalid_fingerprint(
+                "no accepted host-key fingerprints",
+            ));
+        }
+        let mut accepted = Vec::with_capacity(accepted_host_key_fingerprints.len());
+        for fingerprint in &accepted_host_key_fingerprints {
+            accepted.push(parse_sha256_fingerprint(fingerprint)?);
+        }
+        let key = parse_private_key(private_key_openssh)?;
+        let signing_seed = ed25519_seed(&key)?;
+        spawn_on_runtime(async move {
+            connect_inner(
+                address,
+                port,
+                username,
+                accepted,
+                key,
+                ConnectIdentity {
+                    expected_host_id,
+                    device_id,
+                    signing_seed,
+                },
+                probe_budget,
+                channel_budget,
+            )
+            .await
+        })
+        .await?
     }
 }
 
@@ -246,6 +312,7 @@ fn ed25519_seed(key: &PrivateKey) -> Result<[u8; 32], TransportError> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn connect_inner(
     host: String,
     port: u16,
@@ -254,6 +321,7 @@ async fn connect_inner(
     key: PrivateKey,
     identity: ConnectIdentity,
     prove_budget: Duration,
+    channel_budget: Duration,
 ) -> Result<Arc<SshConnection>, TransportError> {
     if host.is_empty() || user.is_empty() {
         return Err(TransportError::io("host and user are required"));
@@ -261,10 +329,10 @@ async fn connect_inner(
 
     let resolved = lookup_host(&host, port).await?;
 
-    // Production budget is 10s from TCP start through Prove, not from DNS.
-    // Tests pass a shorter budget; the public connect path does not.
+    // The probe budget runs from TCP start through the first Prove+ack, not
+    // from DNS, and not for later channels. Tests pass a shorter budget.
     let tcp_started = Instant::now();
-    let prove_deadline = tcp_started + prove_budget;
+    let probe_deadline = tcp_started + prove_budget;
     let stream = match tokio::time::timeout(TCP_TIMEOUT, TcpStream::connect(resolved)).await {
         Ok(Ok(stream)) => stream,
         Ok(Err(err)) => return Err(TransportError::from_connect_io(err)),
@@ -280,7 +348,7 @@ async fn connect_inner(
     };
 
     let host_key_verified = Arc::new(AtomicBool::new(false));
-    let handshake_budget = remaining_until(prove_deadline);
+    let handshake_budget = remaining_until(probe_deadline);
     if handshake_budget.is_zero() {
         return Err(TransportError::io("candidate timeout"));
     }
@@ -305,7 +373,7 @@ async fn connect_inner(
         Err(_) => return Err(TransportError::io("candidate timeout")),
     };
 
-    let auth_budget = remaining_until(prove_deadline);
+    let auth_budget = remaining_until(probe_deadline);
     if auth_budget.is_zero() {
         let _ = session.disconnect(Disconnect::ByApplication, "", "").await;
         return Err(TransportError::io("candidate timeout"));
@@ -336,7 +404,9 @@ async fn connect_inner(
         expected_host_id: identity.expected_host_id,
         device_id: identity.device_id,
         signing_seed: identity.signing_seed,
-        prove_deadline,
+        probe_deadline,
+        channel_budget,
+        probe_done: Arc::new(AtomicBool::new(false)),
     }))
 }
 
@@ -399,30 +469,73 @@ async fn open_authenticated_inner(
     expected_host_id: &str,
     device_id: &str,
     signing_seed: &[u8; 32],
-    prove_deadline: Instant,
+    deadline: Instant,
+    probe_done: Arc<AtomicBool>,
 ) -> Result<Arc<BridgeChannel>, TransportError> {
     if !host_key_verified {
         return Err(TransportError::HostKeyUnverified);
     }
-    let (mut channel, mut initial) = exec_bridge(handle).await?;
-    let prove_budget = remaining_until(prove_deadline);
-    if prove_budget.is_zero() {
-        let _ = channel.close().await;
+    let open_budget = remaining_until(deadline);
+    if open_budget.is_zero() {
         return Err(TransportError::io("candidate timeout"));
     }
-    let frame =
-        match tokio::time::timeout(prove_budget, read_lf_frame(&mut channel, &mut initial)).await {
-            Ok(frame) => frame?,
-            Err(_) => return Err(TransportError::io("candidate timeout")),
-        };
-    let prove = auth::client_prove(true, expected_host_id, device_id, &frame, |message| {
-        Ok(auth::sign_message(signing_seed, message))
-    })?;
-    channel
-        .data_bytes(Bytes::from(prove))
-        .await
-        .map_err(TransportError::from)?;
-    Ok(BridgeChannel::spawn(channel, initial))
+    let opened = tokio::time::timeout(open_budget, exec_bridge(handle)).await;
+    let (mut channel, mut initial) = match opened {
+        Ok(Ok(opened)) => opened,
+        Ok(Err(err)) => return Err(err),
+        Err(_) => return Err(TransportError::io("candidate timeout")),
+    };
+    let seed = *signing_seed;
+    let hello = match read_frame_until(&mut channel, &mut initial, deadline).await {
+        Ok(frame) => frame,
+        Err(err) => return fail_channel(channel, err).await,
+    };
+    let prove = match auth::client_prove(true, expected_host_id, device_id, &hello, |message| {
+        Ok(auth::sign_message(&seed, message))
+    }) {
+        Ok(frame) => frame,
+        Err(err) => return fail_channel(channel, err).await,
+    };
+    if let Err(err) = channel.data_bytes(Bytes::from(prove)).await {
+        return fail_channel(channel, TransportError::from(err)).await;
+    }
+    let ack = match read_frame_until(&mut channel, &mut initial, deadline).await {
+        Ok(frame) => frame,
+        Err(err) => return fail_channel(channel, err).await,
+    };
+    match auth::parse_auth_ack(&ack) {
+        Ok(auth::AuthAck::Ok) => {
+            probe_done.store(true, Ordering::SeqCst);
+            Ok(BridgeChannel::spawn(channel, initial))
+        }
+        Ok(auth::AuthAck::Rejected { code, reason }) => {
+            fail_channel(channel, TransportError::ProveRejected { code, reason }).await
+        }
+        Err(err) => fail_channel(channel, err).await,
+    }
+}
+
+async fn read_frame_until(
+    channel: &mut russh::Channel<client::Msg>,
+    buffered: &mut Vec<u8>,
+    deadline: Instant,
+) -> Result<Vec<u8>, TransportError> {
+    let budget = remaining_until(deadline);
+    if budget.is_zero() {
+        return Err(TransportError::io("candidate timeout"));
+    }
+    match tokio::time::timeout(budget, read_lf_frame(channel, buffered)).await {
+        Ok(frame) => frame,
+        Err(_) => Err(TransportError::io("candidate timeout")),
+    }
+}
+
+async fn fail_channel<T>(
+    channel: russh::Channel<client::Msg>,
+    err: TransportError,
+) -> Result<T, TransportError> {
+    let _ = channel.close().await;
+    Err(err)
 }
 
 #[cfg(test)]
@@ -435,6 +548,7 @@ mod tests {
         assert_eq!(DNS_TIMEOUT, Duration::from_millis(1_500));
         assert_eq!(TCP_TIMEOUT, Duration::from_secs(3));
         assert_eq!(PROVE_BUDGET, Duration::from_secs(10));
+        assert_eq!(CHANNEL_PROVE_BUDGET, Duration::from_secs(10));
     }
 
     #[test]
@@ -552,6 +666,7 @@ mod tests {
                 signing_seed,
             },
             budget,
+            CHANNEL_PROVE_BUDGET,
         ))
     }
 

@@ -245,6 +245,7 @@ internal fun Failure.raceReason(): String =
     when (this) {
         is Failure.HostKeyMismatch -> "host key mismatch: expected $expected, actual $actual"
         is Failure.ClosedBeforeBanner -> "closed before banner"
+        is Failure.ProveRejected -> message
         is Failure.Transport -> reason
         else -> userMessage()
     }

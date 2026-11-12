@@ -57,11 +57,18 @@ public data class PairingDraft(
     internal val privateKeyOpenssh: String,
 )
 
-public class HostManager(
+public class HostManager internal constructor(
     store: HostStore,
     vault: DeviceKeyVault,
     scope: CoroutineScope,
+    private val openProfile: suspend (HostProfile, DeviceCredential) -> ProfileConnectResult,
 ) {
+    public constructor(
+        store: HostStore,
+        vault: DeviceKeyVault,
+        scope: CoroutineScope,
+    ) : this(store, vault, scope, ::connectToProfile)
+
     private val store: HostStore = store
     private val vault: DeviceKeyVault = vault
     private val job: Job = SupervisorJob(scope.coroutineContext[Job])
@@ -456,7 +463,7 @@ public class HostManager(
                         "Device key for this host is gone. Re-pair the host to restore access.",
                     ),
                 )
-        val attempted = connectToProfile(profile, credential)
+        val attempted = openProfile(profile, credential)
         val connected =
             when (val result = attempted.outcome) {
                 is Outcome.Err -> return fail(result.failure)
@@ -835,6 +842,7 @@ private fun isRetryable(failure: Failure): Boolean {
         is Failure.Forbidden -> false
         is Failure.NotFound -> false
         is Failure.HostKeyMismatch -> false
+        is Failure.ProveRejected -> false
         is Failure.ProtocolError -> !failure.reason.contains("Re-pair")
         is Failure.Transport -> !failure.reason.contains("host key mismatch")
         else -> true

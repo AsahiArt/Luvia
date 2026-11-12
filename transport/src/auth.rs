@@ -105,6 +105,66 @@ pub fn parse_hello(frame: &[u8]) -> Result<Hello, TransportError> {
     Ok(Hello { nonce, host_id })
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum AuthAck {
+    Ok,
+    Rejected { code: String, reason: String },
+}
+
+/// One frame after Prove. Only `ok` is a win. `error` carries the host reason.
+/// Unknown fields are rejected, same as Hello and Prove.
+pub(crate) fn parse_auth_ack(frame: &[u8]) -> Result<AuthAck, TransportError> {
+    let text = std::str::from_utf8(frame)
+        .map_err(|_| TransportError::io("auth ack is not utf-8"))?
+        .trim_end_matches(['\n', '\r'])
+        .trim();
+    let value: Value =
+        serde_json::from_str(text).map_err(|_| TransportError::io("auth ack is not json"))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| TransportError::io("auth ack must be an object"))?;
+    let kind = object
+        .get("type")
+        .and_then(Value::as_str)
+        .ok_or_else(|| TransportError::io("auth ack type must be a string"))?;
+    match kind {
+        "ok" => {
+            for key in object.keys() {
+                if key != "type" {
+                    return Err(TransportError::io(format!(
+                        "auth ack contains unknown field {key}"
+                    )));
+                }
+            }
+            Ok(AuthAck::Ok)
+        }
+        "error" => {
+            for key in object.keys() {
+                if !matches!(key.as_str(), "type" | "code" | "message") {
+                    return Err(TransportError::io(format!(
+                        "auth ack contains unknown field {key}"
+                    )));
+                }
+            }
+            let code = object
+                .get("code")
+                .and_then(Value::as_str)
+                .ok_or_else(|| TransportError::io("auth ack code must be a string"))?
+                .to_string();
+            let reason = object
+                .get("message")
+                .and_then(Value::as_str)
+                .ok_or_else(|| TransportError::io("auth ack message must be a string"))?
+                .to_string();
+            if code.is_empty() {
+                return Err(TransportError::io("auth ack code is empty"));
+            }
+            Ok(AuthAck::Rejected { code, reason })
+        }
+        _ => Err(TransportError::io("auth ack type must be ok or error")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,5 +266,34 @@ mod tests {
         let err = client_prove(true, "", "dev", &hello(""), |_| Ok([0u8; 64])).unwrap_err();
         assert!(err.to_string().contains("1 to 64"));
         assert!(auth_message(&"y".repeat(64), &nonce, "z").is_ok());
+    }
+
+    #[test]
+    fn ok_ack_is_the_only_win_and_unknown_fields_fail() {
+        let ok = parse_auth_ack(b"{\"type\":\"ok\"}\n").unwrap();
+        assert_eq!(ok, AuthAck::Ok);
+        let extra = parse_auth_ack(b"{\"type\":\"ok\",\"extra\":1}\n").unwrap_err();
+        assert!(extra.to_string().contains("unknown field"));
+        assert!(!matches!(
+            parse_auth_ack(b"{\"type\":\"error\",\"code\":\"unknown_device\",\"message\":\"no pairing grant for dev\"}\n").unwrap(),
+            AuthAck::Ok
+        ));
+        let rejected = parse_auth_ack(
+            b"{\"type\":\"error\",\"code\":\"unknown_device\",\"message\":\"no pairing grant for dev\"}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            rejected,
+            AuthAck::Rejected {
+                code: "unknown_device".into(),
+                reason: "no pairing grant for dev".into(),
+            }
+        );
+        let noisy = parse_auth_ack(
+            b"{\"type\":\"error\",\"code\":\"unknown_device\",\"message\":\"no pairing grant for dev\",\"extra\":true}\n",
+        )
+        .unwrap_err();
+        assert!(noisy.to_string().contains("unknown field"));
+        assert!(parse_auth_ack(b"{\"type\":\"hello\"}\n").is_err());
     }
 }

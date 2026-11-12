@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use luvia_transport::{
     generate_device_key, import_device_key, SshConnection, TransportError, BRIDGE_COMMAND,
@@ -200,6 +201,227 @@ fn pin_auth_bounds_and_concurrent_bridges() {
 
         a.shutdown().await.unwrap();
         a.shutdown().await.unwrap();
+        conn.shutdown().await.unwrap();
+    });
+}
+
+struct AuthServer {
+    client_key: PublicKey,
+    host_id: String,
+    reject_device: Option<String>,
+    pending: HashMap<ChannelId, Vec<u8>>,
+}
+
+impl Handler for AuthServer {
+    type Error = russh::Error;
+
+    async fn auth_publickey(
+        &mut self,
+        _user: &str,
+        public_key: &PublicKey,
+    ) -> Result<Auth, Self::Error> {
+        if public_key.fingerprint(HashAlg::Sha256) == self.client_key.fingerprint(HashAlg::Sha256) {
+            Ok(Auth::Accept)
+        } else {
+            Ok(Auth::reject())
+        }
+    }
+
+    async fn channel_open_session(
+        &mut self,
+        _channel: Channel<Msg>,
+        reply: server::ChannelOpenHandle,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        reply.accept().await;
+        Ok(())
+    }
+
+    async fn exec_request(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        if data == BRIDGE_COMMAND.as_bytes() {
+            session.channel_success(channel)?;
+            session.data(channel, hello_frame(&self.host_id))?;
+        } else {
+            session.channel_failure(channel)?;
+        }
+        Ok(())
+    }
+
+    async fn data(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        let buf = self.pending.entry(channel).or_default();
+        buf.extend_from_slice(data);
+        let Some(pos) = buf.iter().position(|byte| *byte == b'\n') else {
+            return Ok(());
+        };
+        let frame: Vec<u8> = buf.drain(..=pos).collect();
+        let text = String::from_utf8_lossy(&frame);
+        let device = json_string_field(&text, "device_id");
+        let reply = match device {
+            Some(device) if self.reject_device.as_deref() == Some(device.as_str()) => {
+                error_frame("unknown_device", &format!("no pairing grant for {device}"))
+            }
+            Some(_) => ok_frame(),
+            None => error_frame("invalid_prove", "prove device_id must be a string"),
+        };
+        session.data(channel, reply)?;
+        Ok(())
+    }
+}
+
+fn hello_frame(host_id: &str) -> Vec<u8> {
+    format!(
+        "{{\"type\":\"hello\",\"nonce\":\"ERERERERERERERERERERERERERERERERERERERERERE\",\"host_id\":\"{host_id}\"}}\n"
+    )
+    .into_bytes()
+}
+
+fn ok_frame() -> Vec<u8> {
+    b"{\"type\":\"ok\"}\n".to_vec()
+}
+
+fn error_frame(code: &str, message: &str) -> Vec<u8> {
+    format!("{{\"type\":\"error\",\"code\":\"{code}\",\"message\":\"{message}\"}}\n").into_bytes()
+}
+
+fn json_string_field(frame: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{key}\":\"");
+    let start = frame.find(&needle)? + needle.len();
+    let end = frame[start..].find('"')? + start;
+    Some(frame[start..end].to_string())
+}
+
+async fn start_auth(
+    host_key: PrivateKey,
+    client_key: PublicKey,
+    host_id: &str,
+    reject_device: Option<String>,
+) -> u16 {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    let config = Arc::new(server::Config {
+        auth_rejection_time: Duration::from_millis(1),
+        auth_rejection_time_initial: Some(Duration::ZERO),
+        inactivity_timeout: None,
+        keys: vec![host_key],
+        ..Default::default()
+    });
+    let host_id = host_id.to_string();
+    tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                break;
+            };
+            let config = Arc::clone(&config);
+            let handler = AuthServer {
+                client_key: client_key.clone(),
+                host_id: host_id.clone(),
+                reject_device: reject_device.clone(),
+                pending: HashMap::new(),
+            };
+            tokio::spawn(async move {
+                let _ = server::run_stream(config, stream, handler).await;
+            });
+        }
+    });
+    port
+}
+
+#[test]
+fn second_bridge_opens_after_probe_budget_expires() {
+    block_on(async {
+        let host = generate_device_key().unwrap();
+        let host_key = PrivateKey::from_openssh(&host.private_key_openssh).unwrap();
+        let device = generate_device_key().unwrap();
+        let client_pub = PublicKey::from_openssh(&device.public_key.authorized_keys).unwrap();
+        let host_id = "ab".repeat(16);
+        let port = start_auth(host_key, client_pub, &host_id, None).await;
+        let probe_budget = Duration::from_millis(800);
+        let started = Instant::now();
+        let conn = SshConnection::connect_with_budgets(
+            "127.0.0.1".into(),
+            port,
+            "luvia".into(),
+            vec![fingerprint(
+                &PrivateKey::from_openssh(&host.private_key_openssh).unwrap(),
+            )],
+            device.private_key_openssh,
+            host_id,
+            "phone-1".into(),
+            probe_budget,
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+        let first = conn.open_authenticated_bridge().await.unwrap();
+        assert!(
+            started.elapsed() < probe_budget,
+            "probe finished late: {:?}",
+            started.elapsed()
+        );
+        tokio::time::sleep(probe_budget).await;
+        assert!(started.elapsed() > probe_budget);
+        let second = conn
+            .open_authenticated_bridge()
+            .await
+            .expect("later channel must not use the probe deadline");
+        first.shutdown().await.unwrap();
+        second.shutdown().await.unwrap();
+        conn.shutdown().await.unwrap();
+    });
+}
+
+#[test]
+fn deleted_grant_bridge_fails_with_the_host_reason() {
+    block_on(async {
+        let host = generate_device_key().unwrap();
+        let host_key = PrivateKey::from_openssh(&host.private_key_openssh).unwrap();
+        let device = generate_device_key().unwrap();
+        let client_pub = PublicKey::from_openssh(&device.public_key.authorized_keys).unwrap();
+        let host_id = "cd".repeat(16);
+        let device_id = "deleted-device";
+        let port = start_auth(
+            host_key.clone(),
+            client_pub,
+            &host_id,
+            Some(device_id.into()),
+        )
+        .await;
+        let conn = SshConnection::connect(
+            "127.0.0.1".into(),
+            port,
+            "luvia".into(),
+            vec![fingerprint(&host_key)],
+            device.private_key_openssh,
+            host_id,
+            device_id.into(),
+        )
+        .await
+        .unwrap();
+        let opened = conn.open_authenticated_bridge().await;
+        let err = match opened {
+            Ok(_) => panic!("deleted grant must not win"),
+            Err(err) => err,
+        };
+        match err {
+            TransportError::ProveRejected { code, reason } => {
+                assert_eq!(code, "unknown_device");
+                assert_eq!(reason, format!("no pairing grant for {device_id}"));
+                assert!(!reason.is_empty());
+            }
+            other => panic!("deleted grant must not win: {other:?}"),
+        }
         conn.shutdown().await.unwrap();
     });
 }

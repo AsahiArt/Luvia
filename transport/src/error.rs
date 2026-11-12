@@ -30,6 +30,10 @@ pub enum TransportError {
     HostIdMismatch,
     #[error("refusing to sign before host-key verification")]
     HostKeyUnverified,
+    /// Host answered Prove with an error frame. [reason] is the host's message.
+    /// Not a successful proof.
+    #[error("{reason}")]
+    ProveRejected { code: String, reason: String },
     /// TCP connected, then the peer closed before an SSH banner.
     /// Not a session disconnect and not a connect timeout.
     #[error("closed before banner")]

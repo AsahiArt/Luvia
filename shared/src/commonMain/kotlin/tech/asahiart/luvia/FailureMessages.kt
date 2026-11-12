@@ -17,6 +17,7 @@ public fun Failure.userMessage(): String {
             is Failure.HostKeyMismatch ->
                 "host key mismatch: expected $expected, actual $actual"
             is Failure.ClosedBeforeBanner -> "closed before banner"
+            is Failure.ProveRejected -> message
             is Failure.Bridge -> reason
             is Failure.Remote -> message
             is Failure.Frame -> reason

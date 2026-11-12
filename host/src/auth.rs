@@ -246,6 +246,74 @@ pub fn parse_prove(text: &str) -> Result<(String, Vec<u8>)> {
     Ok((device_id, sig))
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AuthReply {
+    Ok,
+    Error { code: String, message: String },
+}
+
+/// Success frame written after Prove verifies. Only `type` is allowed.
+pub fn ok_frame() -> Result<Vec<u8>> {
+    let mut bytes = serde_json::to_vec(&json!({
+        "type": "ok",
+    }))?;
+    bytes.push(b'\n');
+    Ok(bytes)
+}
+
+/// Parse the one frame the client reads after Prove. Unknown fields fail.
+pub fn parse_auth_reply(text: &str) -> Result<AuthReply> {
+    let value = parse_unique_value(text.trim().as_bytes())?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| Error::new("invalid_auth", "auth reply must be a JSON object"))?;
+    let kind = object
+        .get("type")
+        .and_then(Value::as_str)
+        .ok_or_else(|| Error::new("invalid_auth", "auth reply type must be a string"))?;
+    match kind {
+        "ok" => {
+            for key in object.keys() {
+                if key != "type" {
+                    return Err(Error::new(
+                        "invalid_auth",
+                        format!("auth reply contains unknown field {key}"),
+                    ));
+                }
+            }
+            Ok(AuthReply::Ok)
+        }
+        "error" => {
+            for key in object.keys() {
+                if !matches!(key.as_str(), "type" | "code" | "message") {
+                    return Err(Error::new(
+                        "invalid_auth",
+                        format!("auth reply contains unknown field {key}"),
+                    ));
+                }
+            }
+            let code = object
+                .get("code")
+                .and_then(Value::as_str)
+                .ok_or_else(|| Error::new("invalid_auth", "auth reply code must be a string"))?
+                .to_string();
+            let message = object
+                .get("message")
+                .and_then(Value::as_str)
+                .ok_or_else(|| Error::new("invalid_auth", "auth reply message must be a string"))?
+                .to_string();
+            if code.is_empty() {
+                return Err(Error::new("invalid_auth", "auth reply code is empty"));
+            }
+            Ok(AuthReply::Error { code, message })
+        }
+        _ => Err(Error::new(
+            "invalid_auth",
+            "auth reply type must be ok or error",
+        )),
+    }
+}
+
 fn decode_nonce(text: &str) -> Result<[u8; 32]> {
     let bytes = URL_SAFE_NO_PAD
         .decode(text.as_bytes())
@@ -336,12 +404,19 @@ pub fn handshake(
         }
     };
     match accept_prove(paths, &host_id, &nonce, &device_id, &sig) {
-        Ok(grant) => Ok(grant),
+        Ok(grant) => {
+            write_auth_ok(output)?;
+            Ok(grant)
+        }
         Err(error) => {
             let _ = write_auth_error(output, &error);
             Err(error)
         }
     }
+}
+
+fn write_auth_ok(output: &mut impl Write) -> Result<()> {
+    frames::write_json_frame(output, &json!({"type": "ok"}))
 }
 
 fn write_auth_error(output: &mut impl Write, error: &Error) -> Result<()> {
@@ -527,8 +602,65 @@ mod tests {
         let sig = sign_for(&signing, &hello.host_id, &hello.nonce, &grant.id);
         let frame = prove_frame(&grant.id, &sig).unwrap();
         client_write.write_all(&frame).unwrap();
+        let reply = frames::read_text_frame(&mut client_read, "auth").unwrap();
+        assert_eq!(parse_auth_reply(&reply).unwrap(), AuthReply::Ok);
         let accepted = host.join().unwrap().unwrap();
         assert_eq!(accepted.id, grant.id);
+    }
+
+    #[test]
+    fn deleted_grant_handshake_fails_with_the_host_reason() {
+        let (_dir, paths, grant, signing) = paired(7, Role::Controller);
+        grant::remove_grant(&paths, &grant.id).unwrap();
+        let expected_host = load_host_id(&paths).unwrap();
+        let (host_io, client_io) = UnixStream::pair().unwrap();
+        host_io
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        client_io
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let host_paths = paths.clone();
+        let host = thread::spawn(move || {
+            let mut read = BufReader::new(host_io.try_clone().unwrap());
+            let mut write = host_io;
+            handshake(&host_paths, &mut read, &mut write)
+        });
+        let mut client_read = BufReader::new(client_io.try_clone().unwrap());
+        let mut client_write = client_io;
+        let hello_text = frames::read_text_frame(&mut client_read, "hello").unwrap();
+        let hello = parse_hello(&hello_text).unwrap();
+        assert_eq!(hello.host_id, expected_host);
+        let sig = sign_for(&signing, &hello.host_id, &hello.nonce, &grant.id);
+        client_write
+            .write_all(&prove_frame(&grant.id, &sig).unwrap())
+            .unwrap();
+        let reply = frames::read_text_frame(&mut client_read, "auth").unwrap();
+        let parsed = parse_auth_reply(&reply).unwrap();
+        let AuthReply::Error { code, message } = parsed else {
+            panic!("deleted grant must not ack ok: {reply}");
+        };
+        let err = host.join().unwrap().unwrap_err();
+        assert_eq!(err.code, "unknown_device");
+        assert_eq!(code, "unknown_device");
+        assert!(message.contains("no pairing grant"), "{message}");
+        assert_eq!(message, err.message);
+        assert!(message.contains(&grant.id), "{message}");
+    }
+
+    #[test]
+    fn ok_and_error_replies_reject_unknown_fields() {
+        let frame = ok_frame().unwrap();
+        let text = std::str::from_utf8(&frame).unwrap().trim();
+        assert_eq!(parse_auth_reply(text).unwrap(), AuthReply::Ok);
+        let err = parse_auth_reply(r#"{"type":"ok","extra":1}"#).unwrap_err();
+        assert_eq!(err.code, "invalid_auth");
+        assert!(err.message.contains("unknown field"));
+        let err = parse_auth_reply(
+            r#"{"type":"error","code":"unknown_device","message":"no pairing grant for x","extra":true}"#,
+        )
+        .unwrap_err();
+        assert!(err.message.contains("unknown field"));
     }
 
     #[test]
