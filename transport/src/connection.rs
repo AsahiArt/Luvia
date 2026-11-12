@@ -180,18 +180,6 @@ impl SshConnection {
         .await?
     }
 
-    pub async fn open_bridge(&self) -> Result<Arc<BridgeChannel>, TransportError> {
-        let slots = Arc::clone(&self.handle);
-        spawn_on_runtime(async move {
-            let guard = slots.lock().await;
-            let handle = guard
-                .as_ref()
-                .ok_or_else(|| TransportError::disconnected("closed"))?;
-            open_bridge_inner(handle).await
-        })
-        .await?
-    }
-
     pub async fn shutdown(&self) -> Result<(), TransportError> {
         let handle = self.handle.lock().await.take();
         if let Some(handle) = handle {
@@ -276,12 +264,18 @@ fn remaining_until(deadline: Instant) -> Duration {
 
 fn map_handshake_error(err: TransportError) -> TransportError {
     match err {
-        // EOF is `Disconnected`. A RST or a dropped socket is the generic IO
-        // failure: russh does not keep the std::io kind. Both mean the peer
-        // never produced a banner. Timeouts and host-key mismatches stay as-is.
+        // `read_ssh_id` returns Disconnect on a clean FIN before a valid
+        // SSH identification line. That is ClosedBeforeBanner.
+        // russh also synthesizes Disconnect when the session task returns Ok
+        // after the banner (SSH DISCONNECT) and `connect_stream` replaces it.
+        // Those two Disconnects are the same variant here.
         TransportError::Disconnected { .. } => TransportError::ClosedBeforeBanner,
+        // Version and kex are already HandshakeFailed. Generic IO is not
+        // "no banner": after the identification line, russh uses `read_exact`
+        // (UnexpectedEof or a reset). A RST before the banner is the same
+        // `Error::IO`, and this mapping does not pretend to split that kind.
         TransportError::Io { reason } if reason == "ssh transport failure" => {
-            TransportError::ClosedBeforeBanner
+            TransportError::HandshakeFailed { reason }
         }
         other => other,
     }
@@ -410,18 +404,22 @@ async fn connect_inner(
     }))
 }
 
-async fn exec_bridge(
+async fn open_session_channel(
     handle: &client::Handle<PinnedHostKey>,
-) -> Result<(russh::Channel<client::Msg>, Vec<u8>), TransportError> {
-    let mut channel = handle.channel_open_session().await?;
+) -> Result<russh::Channel<client::Msg>, TransportError> {
+    Ok(handle.channel_open_session().await?)
+}
+
+async fn finish_bridge_exec(
+    channel: &mut russh::Channel<client::Msg>,
+) -> Result<Vec<u8>, TransportError> {
     channel.exec(true, BRIDGE_COMMAND).await?;
 
     let mut initial = Vec::new();
     loop {
         match channel.wait().await {
-            Some(ChannelMsg::Success) => break,
+            Some(ChannelMsg::Success) => return Ok(initial),
             Some(ChannelMsg::Failure) => {
-                let _ = channel.close().await;
                 return Err(TransportError::io("bridge exec rejected"));
             }
             Some(ChannelMsg::Data { ref data }) => {
@@ -433,7 +431,6 @@ async fn exec_bridge(
             _ => {}
         }
     }
-    Ok((channel, initial))
 }
 
 async fn read_lf_frame(
@@ -456,13 +453,6 @@ async fn read_lf_frame(
     }
 }
 
-async fn open_bridge_inner(
-    handle: &client::Handle<PinnedHostKey>,
-) -> Result<Arc<BridgeChannel>, TransportError> {
-    let (channel, initial) = exec_bridge(handle).await?;
-    Ok(BridgeChannel::spawn(channel, initial))
-}
-
 async fn open_authenticated_inner(
     handle: &client::Handle<PinnedHostKey>,
     host_key_verified: bool,
@@ -479,11 +469,24 @@ async fn open_authenticated_inner(
     if open_budget.is_zero() {
         return Err(TransportError::io("candidate timeout"));
     }
-    let opened = tokio::time::timeout(open_budget, exec_bridge(handle)).await;
-    let (mut channel, mut initial) = match opened {
-        Ok(Ok(opened)) => opened,
+    // `channel_open_session` does not yield a Channel until the server
+    // confirms the open. A timeout there drops the wait; there is no handle
+    // to close. Once the channel exists, a later timeout closes it.
+    let opened = tokio::time::timeout(open_budget, open_session_channel(handle)).await;
+    let mut channel = match opened {
+        Ok(Ok(channel)) => channel,
         Ok(Err(err)) => return Err(err),
         Err(_) => return Err(TransportError::io("candidate timeout")),
+    };
+    let exec_budget = remaining_until(deadline);
+    if exec_budget.is_zero() {
+        return fail_channel(channel, TransportError::io("candidate timeout")).await;
+    }
+    let finished = tokio::time::timeout(exec_budget, finish_bridge_exec(&mut channel)).await;
+    let mut initial = match finished {
+        Ok(Ok(initial)) => initial,
+        Ok(Err(err)) => return fail_channel(channel, err).await,
+        Err(_) => return fail_channel(channel, TransportError::io("candidate timeout")).await,
     };
     let seed = *signing_seed;
     let hello = match read_frame_until(&mut channel, &mut initial, deadline).await {
@@ -565,7 +568,18 @@ mod tests {
         assert!(matches!(mismatch, TransportError::HostKeyMismatch { .. }));
         assert!(!matches!(mismatch, TransportError::ClosedBeforeBanner));
         let reset = map_handshake_error(TransportError::io("ssh transport failure"));
-        assert!(matches!(reset, TransportError::ClosedBeforeBanner));
+        assert!(
+            matches!(reset, TransportError::HandshakeFailed { ref reason } if reason == "ssh transport failure")
+        );
+        assert!(!matches!(reset, TransportError::ClosedBeforeBanner));
+        let version = map_handshake_error(TransportError::from(russh::Error::Version));
+        assert!(
+            matches!(version, TransportError::HandshakeFailed { ref reason } if reason == "invalid version")
+        );
+        let kex = map_handshake_error(TransportError::from(russh::Error::Kex));
+        assert!(
+            matches!(kex, TransportError::HandshakeFailed { ref reason } if reason == "key exchange failed")
+        );
         let timed_out = map_handshake_error(TransportError::io("connect timeout"));
         assert!(
             matches!(timed_out, TransportError::Io { ref reason } if reason == "connect timeout")
@@ -675,7 +689,11 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let server = std::thread::spawn(move || {
-            if let Ok((stream, _)) = listener.accept() {
+            if let Ok((mut stream, _)) = listener.accept() {
+                // Read the client identification so the close is an EOF on the
+                // banner read, not a reset of the client's own write.
+                let mut buf = [0u8; 64];
+                let _ = std::io::Read::read(&mut stream, &mut buf);
                 drop(stream);
             }
         });
@@ -689,6 +707,44 @@ mod tests {
             started.elapsed()
         );
         assert!(matches!(err, TransportError::ClosedBeforeBanner), "{err:?}");
+        let _ = server.join();
+    }
+
+    #[test]
+    fn connect_banner_then_garbage_is_handshake_failed() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let server = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                use std::io::Write;
+                // A valid identification line, then a packet length russh rejects.
+                // Hold the socket so this is not a race with BrokenPipe.
+                let _ = stream.write_all(b"SSH-2.0-luvia-test\r\n");
+                let _ = stream.write_all(&[0xff, 0xff, 0xff, 0xff]);
+                let _ = stream.flush();
+                let _ = release_rx.recv_timeout(Duration::from_secs(2));
+                drop(stream);
+            }
+        });
+        let key = generate_device_key().unwrap();
+        let started = std::time::Instant::now();
+        let err =
+            dial_local(port, key.private_key_openssh, Duration::from_millis(800)).unwrap_err();
+        let _ = release_tx.send(());
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(
+            matches!(err, TransportError::HandshakeFailed { .. }),
+            "{err:?}"
+        );
+        assert!(
+            !matches!(err, TransportError::ClosedBeforeBanner),
+            "{err:?}"
+        );
         let _ = server.join();
     }
 
