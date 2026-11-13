@@ -9,6 +9,7 @@ struct UserFacingError: Error, Equatable {
 enum HostRoute: String, Hashable, Sendable {
     case lan
     case tailnet
+    case unknown
 }
 
 enum HostConnectionBadge: String, Sendable {
@@ -609,6 +610,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         }
         if route == .lan { return .lan }
         if route == .tailnet { return .tailnet }
+        if route == .unknown { return .unknown }
         return nil
     }
 

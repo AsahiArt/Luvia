@@ -88,7 +88,8 @@ class CandidateRaceTest {
             )
         advanceUntilIdle()
         val win = result as Outcome.Ok
-        assertEquals("yui.java-tiyanki.ts.net", win.value.first)
+        assertEquals("yui.java-tiyanki.ts.net", win.value.candidate)
+        assertEquals("yui.java-tiyanki.ts.net", win.value.dialed)
         assertTrue(cancelled.contains("Yui.local"), "loser must be cancelled, got $cancelled")
         assertTrue(lines.any { it == "winner yui.java-tiyanki.ts.net" })
         assertTrue(lines.any { it.contains("192.168.1.8") && it.contains("connect timeout") })
@@ -159,7 +160,7 @@ class CandidateRaceTest {
                 ),
             )
         advanceUntilIdle()
-        val err = assertIs<Outcome.Err<Pair<String, String>>>(result)
+        val err = assertIs<Outcome.Err<RacedCandidate<String>>>(result)
         assertIs<Failure.ClosedBeforeBanner>(err.failure)
         assertEquals("The host refused the connection.", err.failure.connectMessage())
         assertEquals("主机拒绝了连接", err.failure.refusedOutcomeZh())
@@ -184,7 +185,7 @@ class CandidateRaceTest {
                 ),
             )
         advanceUntilIdle()
-        val err = assertIs<Outcome.Err<Pair<String, String>>>(result)
+        val err = assertIs<Outcome.Err<RacedCandidate<String>>>(result)
         val rejected = assertIs<Failure.ProveRejected>(err.failure)
         assertEquals("unknown_device", rejected.code)
         assertEquals("no pairing grant for host-1", rejected.message)
@@ -209,7 +210,7 @@ class CandidateRaceTest {
             )
         advanceUntilIdle()
         assertTrue(currentTime < PROVE_BUDGET_MS, "race waited ${currentTime}ms for the other candidate")
-        val err = assertIs<Outcome.Err<Pair<String, String>>>(result)
+        val err = assertIs<Outcome.Err<RacedCandidate<String>>>(result)
         val rejected = assertIs<Failure.ProveRejected>(err.failure)
         assertEquals("unknown_device", rejected.code)
         assertEquals("no pairing grant for host-1", rejected.message)
@@ -261,7 +262,7 @@ class CandidateRaceTest {
                 ),
             )
         advanceUntilIdle()
-        val err = assertIs<Outcome.Err<Pair<String, String>>>(result)
+        val err = assertIs<Outcome.Err<RacedCandidate<String>>>(result)
         val rejected = assertIs<Failure.AuthRejected>(err.failure)
         assertEquals("ssh publickey authentication rejected", rejected.reason)
         assertTrue(rejected.raceReason().startsWith("AuthRejected"))
@@ -285,8 +286,9 @@ class CandidateRaceTest {
                 ),
             )
         advanceUntilIdle()
-        val won = assertIs<Outcome.Ok<Pair<String, String>>>(result)
-        assertEquals("100.89.1.2", won.value.first)
+        val won = assertIs<Outcome.Ok<RacedCandidate<String>>>(result)
+        assertEquals("100.89.1.2", won.value.candidate)
+        assertEquals("100.89.1.2", won.value.dialed)
         assertTrue(currentTime >= CANDIDATE_STAGGER_MS, "rejected candidate must not abort the race")
         assertTrue(currentTime < PROVE_BUDGET_MS)
     }
@@ -309,7 +311,7 @@ class CandidateRaceTest {
             )
         advanceUntilIdle()
         assertTrue(currentTime >= PROVE_BUDGET_MS, "race returned early at ${currentTime}ms")
-        val err = assertIs<Outcome.Err<Pair<String, String>>>(laterTimeout)
+        val err = assertIs<Outcome.Err<RacedCandidate<String>>>(laterTimeout)
         val rejected = assertIs<Failure.AuthRejected>(err.failure)
         assertEquals("ssh publickey authentication rejected", rejected.reason)
         assertTrue(rejected.raceReason().startsWith("AuthRejected"))
@@ -330,7 +332,7 @@ class CandidateRaceTest {
                 ),
             )
         advanceUntilIdle()
-        val second = assertIs<Outcome.Err<Pair<String, String>>>(earlierTimeout)
+        val second = assertIs<Outcome.Err<RacedCandidate<String>>>(earlierTimeout)
         assertIs<Failure.AuthRejected>(second.failure)
         assertFalse(second.failure.raceReason().contains("candidate timeout"))
     }
@@ -362,7 +364,9 @@ class CandidateRaceTest {
                 ),
             )
         advanceUntilIdle()
-        val winner = (first as Outcome.Ok).value.first
+        val won = assertIs<Outcome.Ok<RacedCandidate<String>>>(first)
+        val winner = won.value.candidate
+        assertEquals(winner, won.value.dialed)
         store.setLastConnectedAddress(profile.hostId, winner)
         val stored = store.current().hosts.single()
         assertEquals(winner, stored.lastGood)
@@ -385,14 +389,78 @@ class CandidateRaceTest {
         assertEquals(winner, secondStarts.first())
         job.cancel()
     }
+
+    @Test
+    fun customNameResolvingToTailnetIpStaysTheCandidateAndIsTailnet() = runTest {
+        val path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY / "luvia-race-studio-${Random.nextLong()}.json"
+        val store = HostStore(path.toString(), backgroundScope)
+        val profile = raceProfile(hints = listOf("studio.example"), fqdn = "yui.java-tiyanki.ts.net")
+        store.upsert(profile)
+        val result =
+            raceCandidates(
+                listOf("studio.example"),
+                scriptDial(
+                    dns = { address ->
+                        assertEquals("studio.example", address)
+                        ok("100.64.0.8")
+                    },
+                    prove = { address ->
+                        assertEquals("studio.example", address)
+                        ok(address)
+                    },
+                ),
+            )
+        advanceUntilIdle()
+        val won = assertIs<Outcome.Ok<RacedCandidate<String>>>(result)
+        assertEquals("studio.example", won.value.candidate)
+        assertEquals("100.64.0.8", won.value.dialed)
+        assertEquals("studio.example", won.value.value)
+        val link = HostLink.Online(won.value.candidate, "default", won.value.dialed)
+        assertEquals("studio.example", link.address)
+        assertEquals(ConnectionRoute.Tailnet, connectionRouteOf(link, profile.tailnetFqdn))
+        store.setLastConnectedAddress(profile.hostId, won.value.candidate)
+        val stored = store.current().hosts.single()
+        assertEquals("studio.example", stored.lastGood)
+        assertEquals(
+            listOf("studio.example", "Yui.local", "yui.java-tiyanki.ts.net"),
+            candidateAddresses(stored),
+        )
+    }
+
+    @Test
+    fun tailnetNameResolvingToLanIpIsLan() = runTest {
+        val fqdn = "yui.java-tiyanki.ts.net"
+        val result =
+            raceCandidates(
+                listOf(fqdn),
+                scriptDial(
+                    dns = { address ->
+                        assertEquals(fqdn, address)
+                        ok("192.168.1.83")
+                    },
+                    prove = { address ->
+                        assertEquals(fqdn, address)
+                        ok(address)
+                    },
+                ),
+            )
+        advanceUntilIdle()
+        val won = assertIs<Outcome.Ok<RacedCandidate<String>>>(result)
+        assertEquals(fqdn, won.value.candidate)
+        assertEquals("192.168.1.83", won.value.dialed)
+        val link = HostLink.Online(won.value.candidate, "default", won.value.dialed)
+        assertEquals(fqdn, link.address)
+        assertEquals(ConnectionRoute.Lan, connectionRouteOf(link, fqdn))
+        assertEquals(ConnectionRoute.Unknown, connectionRouteOf(HostLink.Online(fqdn, "default"), fqdn))
+    }
 }
 
 private class ScriptDial(
-    private val dnsStep: suspend (String) -> Outcome<Unit> = { ok(Unit) },
+    private val dnsStep: suspend (String) -> Outcome<String> = { ok(it) },
     private val tcpStep: suspend (String) -> Outcome<Unit> = { ok(Unit) },
     private val proveStep: suspend (String) -> Outcome<String>,
 ) : CandidateDial<String> {
-    override suspend fun dns(address: String): Outcome<Unit> = dnsStep(address)
+    override suspend fun dns(address: String): Outcome<String> = dnsStep(address)
 
     override suspend fun tcp(address: String): Outcome<Unit> = tcpStep(address)
 
@@ -402,7 +470,7 @@ private class ScriptDial(
 }
 
 private fun scriptDial(
-    dns: suspend (String) -> Outcome<Unit> = { ok(Unit) },
+    dns: suspend (String) -> Outcome<String> = { ok(it) },
     tcp: suspend (String) -> Outcome<Unit> = { ok(Unit) },
     prove: suspend (String) -> Outcome<String> = { ok(it) },
 ): ScriptDial = ScriptDial(dns, tcp, prove)
@@ -412,7 +480,7 @@ private suspend fun kotlinx.coroutines.test.TestScope.assertTimeout(
     dial: ScriptDial,
     reason: String,
 ) {
-    val raced: Deferred<Outcome<Pair<String, String>>> =
+    val raced: Deferred<Outcome<RacedCandidate<String>>> =
         async { raceCandidates(listOf("slow.local"), dial) }
     runCurrent()
     advanceTimeBy(limit - 1)

@@ -25,18 +25,30 @@ import tech.asahiart.luvia.R
 @Composable
 internal fun RouteChip(route: ConnectionRoute, modifier: Modifier = Modifier) {
     val tailnet = route == ConnectionRoute.Tailnet
-    val background = if (tailnet) {
-        MaterialTheme.colorScheme.tertiaryContainer
-    } else {
-        MaterialTheme.colorScheme.secondaryContainer
+    val background = when (route) {
+        ConnectionRoute.Tailnet -> MaterialTheme.colorScheme.tertiaryContainer
+        ConnectionRoute.Lan -> MaterialTheme.colorScheme.secondaryContainer
+        ConnectionRoute.Unknown -> MaterialTheme.colorScheme.surfaceVariant
     }
-    val foreground = if (tailnet) {
-        MaterialTheme.colorScheme.onTertiaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSecondaryContainer
+    val foreground = when (route) {
+        ConnectionRoute.Tailnet -> MaterialTheme.colorScheme.onTertiaryContainer
+        ConnectionRoute.Lan -> MaterialTheme.colorScheme.onSecondaryContainer
+        ConnectionRoute.Unknown -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val label = stringResource(if (tailnet) R.string.route_tailnet else R.string.route_lan)
-    val description = stringResource(if (tailnet) R.string.route_tailnet_cd else R.string.route_lan_cd)
+    val label = stringResource(
+        when (route) {
+            ConnectionRoute.Tailnet -> R.string.route_tailnet
+            ConnectionRoute.Lan -> R.string.route_lan
+            ConnectionRoute.Unknown -> R.string.route_unknown
+        },
+    )
+    val description = stringResource(
+        when (route) {
+            ConnectionRoute.Tailnet -> R.string.route_tailnet_cd
+            ConnectionRoute.Lan -> R.string.route_lan_cd
+            ConnectionRoute.Unknown -> R.string.route_unknown_cd
+        },
+    )
     Row(
         modifier
             .height(24.dp)

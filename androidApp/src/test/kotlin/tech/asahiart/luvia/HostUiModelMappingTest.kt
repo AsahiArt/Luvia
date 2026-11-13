@@ -14,9 +14,17 @@ class HostUiModelMappingTest {
         assertEquals("192.168.1.83", lan.address)
         assertEquals(ConnectionRoute.Lan, lan.route)
 
-        val tailnet = runtime(HostLink.Online("yui.java-tiyanki.ts.net", "luvia")).toUi()
+        val namedOnly = runtime(HostLink.Online("yui.java-tiyanki.ts.net", "luvia")).toUi()
+        assertEquals(ConnectionRoute.Unknown, namedOnly.route)
+        assertEquals("yui.java-tiyanki.ts.net", namedOnly.address)
+
+        val tailnet = runtime(HostLink.Online("studio.example", "luvia", "100.64.0.8")).toUi()
         assertEquals(ConnectionRoute.Tailnet, tailnet.route)
-        assertEquals("yui.java-tiyanki.ts.net", tailnet.address)
+        assertEquals("studio.example", tailnet.address)
+
+        val namedLan = runtime(HostLink.Online("yui.java-tiyanki.ts.net", "luvia", "192.168.1.83")).toUi()
+        assertEquals(ConnectionRoute.Lan, namedLan.route)
+        assertEquals("yui.java-tiyanki.ts.net", namedLan.address)
 
         val connecting = runtime(HostLink.Connecting).toUi()
         assertEquals(ConnectionBadge.Connecting, connecting.connection)

@@ -239,7 +239,7 @@ class HostManagerTest {
                     current,
                     credential,
                     object : CandidateDial<ConnectedHost> {
-                        override suspend fun dns(address: String): Outcome<Unit> = ok(Unit)
+                        override suspend fun dns(address: String): Outcome<String> = ok(address)
 
                         override suspend fun tcp(address: String): Outcome<Unit> = ok(Unit)
 
@@ -305,7 +305,7 @@ class HostManagerTest {
                     current,
                     credential,
                     object : CandidateDial<ConnectedHost> {
-                        override suspend fun dns(address: String): Outcome<Unit> = ok(Unit)
+                        override suspend fun dns(address: String): Outcome<String> = ok(address)
 
                         override suspend fun tcp(address: String): Outcome<Unit> = ok(Unit)
 

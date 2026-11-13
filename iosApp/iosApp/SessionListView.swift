@@ -235,6 +235,8 @@ struct SessionListView: View {
                             Label("在线 · Tailnet", systemImage: "network")
                         } else if item.route == .lan {
                             Text("在线 · 局域网")
+                        } else if item.route == .unknown {
+                            Text("在线 · 未知")
                         } else if item.connection != .live && item.connection != .connecting {
                             Text("离线")
                         }
@@ -883,12 +885,14 @@ struct RouteChip: View {
 
     var body: some View {
         let tailnet = route == .tailnet
+        let label = route == .tailnet ? "Tailnet" : (route == .lan ? "局域网" : "未知")
+        let description = route == .tailnet ? "经 Tailnet 连接" : (route == .lan ? "经局域网连接" : "目的地址类别未知")
         HStack(spacing: tailnet ? 3 : 0) {
             if tailnet {
                 Image(systemName: "network")
                     .font(.system(size: 11, weight: .semibold))
             }
-            Text(tailnet ? "Tailnet" : "局域网")
+            Text(label)
                 .font(.caption2.weight(.semibold))
                 .contentTransition(.opacity)
         }
@@ -900,7 +904,7 @@ struct RouteChip: View {
             in: Capsule()
         )
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(tailnet ? "经 Tailnet 连接" : "经局域网连接")
+        .accessibilityLabel(description)
         .animation(.easeInOut(duration: 0.2), value: route)
     }
 }
