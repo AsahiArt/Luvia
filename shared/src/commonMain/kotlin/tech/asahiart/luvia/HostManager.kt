@@ -31,6 +31,8 @@ public sealed class HostLink {
     public data class Online(
         public val address: String,
         public val sessionName: String?,
+        /** IP the winner actually dialed. [address] stays the original candidate. */
+        public val dialedAddress: String = address,
     ) : HostLink()
 
     public data class Failed(
@@ -567,6 +569,7 @@ public class HostManager internal constructor(
                     connection = connected,
                     session = opened,
                     address = connected.address,
+                    dialedAddress = connected.dialedAddress,
                     sessionName = openedName,
                     backend = backend,
                 )
@@ -581,7 +584,7 @@ public class HostManager internal constructor(
         syncPushAfterConnect(opened)
 
         store.updateStatus(hostId, HostStatus.Reachable, nowEpochMs())
-        setLink(hostId, HostLink.Online(connected.address, openedName))
+        setLink(hostId, HostLink.Online(connected.address, openedName, connected.dialedAddress))
         return ok(opened)
     }
 
@@ -753,7 +756,7 @@ public class HostManager internal constructor(
                 val link = links[profile.hostId]
                     ?: session?.forcedLink
                     ?: if (session != null) {
-                        HostLink.Online(session.address, session.sessionName)
+                        HostLink.Online(session.address, session.sessionName, session.dialedAddress)
                     } else {
                         HostLink.Idle
                     }
@@ -782,6 +785,7 @@ public class HostManager internal constructor(
         val connection: HostConnection,
         val session: LuviaSession,
         val address: String,
+        val dialedAddress: String = address,
         val sessionName: String?,
         val backend: String = "luvus",
     ) {

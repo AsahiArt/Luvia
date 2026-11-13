@@ -6,6 +6,12 @@ struct UserFacingError: Error, Equatable {
     let message: String
 }
 
+enum HostRoute: String, Hashable, Sendable {
+    case lan
+    case tailnet
+    case unknown
+}
+
 enum HostConnectionBadge: String, Sendable {
     case live = "Live"
     case connecting = "Connecting"
@@ -432,6 +438,8 @@ struct HostViewState: Identifiable, Hashable, Sendable {
     var isController: Bool
     var failureMessage: String?
     var pairingRevoked: Bool
+    /// Nil unless the live link is Online.
+    var route: HostRoute?
     var agents: [AgentViewState]
     var tasks: [TaskViewState]
     var terminalLocator: TerminalLocator?
@@ -457,6 +465,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         isController: Bool = false,
         failureMessage: String? = nil,
         pairingRevoked: Bool = false,
+        route: HostRoute? = nil,
         agents: [AgentViewState] = [],
         tasks: [TaskViewState] = [],
         terminalLocator: TerminalLocator? = nil,
@@ -481,6 +490,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
         self.isController = isController
         self.failureMessage = failureMessage
         self.pairingRevoked = pairingRevoked
+        self.route = route
         self.agents = agents
         self.tasks = tasks
         self.terminalLocator = terminalLocator
@@ -571,6 +581,7 @@ struct HostViewState: Identifiable, Hashable, Sendable {
             isController: profile.role == HostRole.controller,
             failureMessage: link.failure,
             pairingRevoked: link.pairingRevoked,
+            route: HostViewState.presentedRoute(runtime),
             agents: agents,
             tasks: tasks,
             terminalLocator: locator,
@@ -591,6 +602,16 @@ struct HostViewState: Identifiable, Hashable, Sendable {
             sensitiveSnippet: nil,
             updatedAt: lastUpdated ?? Date()
         )
+    }
+
+    private static func presentedRoute(_ runtime: HostRuntime) -> HostRoute? {
+        guard let route = ConnectionRouteKt.connectionRouteOf(link: runtime.link, tailnetFqdn: runtime.profile.tailnetFqdn) else {
+            return nil
+        }
+        if route == .lan { return .lan }
+        if route == .tailnet { return .tailnet }
+        if route == .unknown { return .unknown }
+        return nil
     }
 
     private struct LinkPresentation {

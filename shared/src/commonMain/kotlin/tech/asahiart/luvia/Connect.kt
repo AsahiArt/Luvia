@@ -30,7 +30,10 @@ public data class GeneratedDeviceKey(
 
 public data class HostConnection(
     public val host: ConnectedHost,
+    /** Original winning candidate. Display and lastGood keep this string. */
     public val address: String,
+    /** Normalized destination of the dial. Defaults to [address] for a literal candidate. */
+    public val dialedAddress: String = address,
 )
 
 public data class ProfileConnectResult(
