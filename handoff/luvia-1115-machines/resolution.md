@@ -32,6 +32,15 @@ Not changed, on purpose:
 - B, C, mux D, d474 after, and merged-filter proposals were not implemented.
 - Android `MachinesBody` was not rewritten.
 
+## Resulting commits
+
+| Commit | Tree | Role |
+|---|---|---|
+| `b89c4e00e983c5f9dce58bb631d61d93f04f8ea7` | machines fix on `11d42366` | `MachinesHome` plus this handoff |
+| `c396fb979e29cb2ed63c85e12351c42ba070137d` | `1468b9b7871f1105180b9e78e3630f9af325ad34` | Ordinary merge. Parents `b89c4e00e983c5f9dce58bb631d61d93f04f8ea7` and `ca46e3fdeeb8e4f9aa64e461fd256594d710b945`. |
+
+The merge changed `ChatFirstApp.kt` and `ContentView.swift` only. It did not change `MachinesHome.swift`. `host.username` is gone from those three call sites. `pair_help` and `pair_role_note` are not in the merged tree.
+
 ## Tests and logs
 
 | Check | Log |
