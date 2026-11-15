@@ -613,9 +613,9 @@ struct MachinesHome: View {
     private func statusDot(_ host: HostViewState) -> Color {
         if host.pairingRevoked { return Color(.systemGray) }
         switch shownConnection(host) {
-        case .live: Color(hex: "34C759")
-        case .connecting: Color.secondary
-        case .stale, .offline: Color(.systemGray)
+        case .live: return Color(hex: "34C759")
+        case .connecting: return Color.secondary
+        case .stale, .offline: return Color(.systemGray)
         }
     }
 
@@ -792,10 +792,10 @@ struct MachinesHome: View {
     private func spokenAgent(_ thread: AgentThread) -> String {
         let logo = SessionListKt.agentBrandLogo(agentType: thread.agentType, title: thread.title)
         switch logo?.assetId {
-        case "claude": "Claude Code"
-        case "openai": "Codex"
-        case "lobe-grok": "Grok"
-        case "pi": "pi"
+        case "claude": return "Claude Code"
+        case "openai": return "Codex"
+        case "lobe-grok": return "Grok"
+        case "pi": return "pi"
         default:
             let avatar = SessionListKt.sessionAvatar(agentType: thread.agentType, name: thread.title)
             let mark = avatar.mark.trimmingCharacters(in: .whitespacesAndNewlines)
