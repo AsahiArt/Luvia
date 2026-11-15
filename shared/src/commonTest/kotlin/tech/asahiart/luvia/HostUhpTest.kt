@@ -348,10 +348,9 @@ class HostUhpTest {
 
 
     @Test
-    fun retainedSessionIsLiveOnlyWhileOnlineAndFresh() = runTest {
-        val recorded = mutableListOf<String>()
-        val session = openSession(backgroundScope, recorded = recorded)
-        var runtime = sampleRuntime().copy(
+    fun failedOfflineSessionDoesNotSendAfterOpen() = runTest {
+        val (session, recorded) = openSessionAfterCapabilities(backgroundScope)
+        val runtime = sampleRuntime().copy(
             link = HostLink.Failed(Failure.Transport("down")),
             freshness = ConnectionFreshness.Offline,
         )
@@ -363,21 +362,37 @@ class HostUhpTest {
         assertEquals(emptyList(), recorded)
         assertEquals(false, uhp.askFix("boom", "7"))
         assertEquals(emptyList(), recorded)
+        assertEquals(false, recorded.contains(Methods.AGENT_PROMPT))
         val offline = uhp.state.value.threads("h").single()
         assertNull(offline.ask?.question)
         assertEquals(true, offline.needsYou)
+        uhp.close()
+        session.close()
+    }
 
-        runtime = sampleRuntime().copy(
+    @Test
+    fun connectingStaleSessionDoesNotSendAfterOpen() = runTest {
+        val (session, recorded) = openSessionAfterCapabilities(backgroundScope)
+        val runtime = sampleRuntime().copy(
             link = HostLink.Connecting,
             freshness = ConnectionFreshness.Stale,
         )
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
         uhp.applyRuntime(runtime)
         uhp.shown()
         advanceUntilIdle()
         assertEquals(false, uhp.state.value.connected)
         assertEquals(emptyList(), recorded)
+        assertEquals(false, recorded.contains(Methods.AGENT_PROMPT))
+        uhp.close()
+        session.close()
+    }
 
-        runtime = sampleRuntime()
+    @Test
+    fun onlineLiveSessionKeepsTheFallbackCard() = runTest {
+        val (session, recorded) = openSessionAfterCapabilities(backgroundScope)
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
         uhp.applyRuntime(runtime)
         uhp.shown()
         advanceUntilIdle()
@@ -435,6 +450,20 @@ private fun sampleRuntime(
         tasks = emptyList(),
         freshness = ConnectionFreshness.Live,
     )
+}
+
+/**
+ * `SessionEngine.open` sends `uhp.capabilities` before it returns the session.
+ * That handshake is setup. Callers measure only what happens after it.
+ */
+private suspend fun openSessionAfterCapabilities(
+    scope: kotlinx.coroutines.CoroutineScope,
+): Pair<LuviaSession, MutableList<String>> {
+    val recorded = mutableListOf<String>()
+    val session = openSession(scope, recorded = recorded)
+    assertEquals(listOf(Methods.CAPABILITIES), recorded.toList())
+    recorded.clear()
+    return session to recorded
 }
 
 private suspend fun openSession(
