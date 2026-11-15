@@ -22,6 +22,8 @@
     <string name="device_name">设备名称</string>
     <string name="role_controller">控制者</string>
     <string name="role_observer">观察者</string>
+    <string name="pair_help">设备名称和角色</string>
+    <string name="pair_role_note">名称和角色会写进配对命令。改完后，重新复制命令到电脑。</string>
     <string name="pair_intro">这台手机会生成设备密钥。在电脑上运行命令。终端会显示六位短码，也可以扫或粘贴 luvia2: 码。</string>
     <string name="handshake">端到端加密握手</string>
     <string name="pair_code_caption">电脑终端显示的配对码</string>
