@@ -1,6 +1,8 @@
 package tech.asahiart.luvia.ui
 
 import android.graphics.Bitmap
+import android.os.SystemClock
+import android.view.MotionEvent
 import android.view.View.MeasureSpec
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -119,16 +121,34 @@ class ProductionComposeCaptureTest {
         var switched = !machines
         if (machines) {
             val tabs = composeRule.onAllNodes(hasText("机器") and hasClickAction())
-            note("machineClickTargets=${tabs.fetchSemanticsNodes().size}\n")
+            val node = tabs[0].fetchSemanticsNode()
+            val bounds = node.boundsInRoot
+            note(
+                "machineClickTargets=${tabs.fetchSemanticsNodes().size} " +
+                    "bounds=${bounds.left},${bounds.top},${bounds.right},${bounds.bottom}\n",
+            )
             tabs[0].performClick()
             composeRule.mainClock.advanceTimeBy(300)
             composeRule.waitForIdle()
-            switched = composeRule.onAllNodes(hasText("已配对的电脑", substring = true))
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-            note("placeholderShown=$switched\n")
+            switched = placeholderVisible()
+            note("placeholderAfterSemanticsClick=$switched\n")
+            if (!switched) {
+                val centerX = (bounds.left + bounds.right) / 2f
+                val centerY = (bounds.top + bounds.bottom) / 2f
+                dispatchTap(centerX, centerY)
+                composeRule.mainClock.advanceTimeBy(300)
+                composeRule.waitForIdle()
+                switched = placeholderVisible()
+                note("placeholderAfterPointer=$switched x=$centerX y=$centerY\n")
+            }
         }
-        writeFrame(if (machines && !switched) "$name-tab-not-switched.png" else "$name.png")
+        val frame = when {
+            machines && !switched -> "$name-tab-not-switched.png"
+            // Pointer reached MachinesBody. performClick did not, so this is not a semantics navigation pass.
+            machines -> "$name-pointer.png"
+            else -> "$name.png"
+        }
+        writeFrame(frame)
     }
 
     private fun show(dark: Boolean, content: @Composable () -> Unit) {
@@ -154,6 +174,22 @@ class ProductionComposeCaptureTest {
         }
         composeRule.mainClock.advanceTimeBy(32)
         composeRule.waitForIdle()
+    }
+
+    private fun placeholderVisible(): Boolean =
+        composeRule.onAllNodes(hasText("已配对的电脑", substring = true))
+            .fetchSemanticsNodes()
+            .isNotEmpty()
+
+    private fun dispatchTap(x: Float, y: Float) {
+        val view = composeRule.activity.window.decorView
+        val downTime = SystemClock.uptimeMillis()
+        val down = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0)
+        val up = MotionEvent.obtain(downTime, downTime + 40, MotionEvent.ACTION_UP, x, y, 0)
+        view.dispatchTouchEvent(down)
+        view.dispatchTouchEvent(up)
+        down.recycle()
+        up.recycle()
     }
 
     private fun writeFrame(name: String) {
