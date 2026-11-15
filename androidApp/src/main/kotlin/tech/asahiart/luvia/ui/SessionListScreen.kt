@@ -28,8 +28,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
@@ -67,14 +68,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
@@ -83,8 +88,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -209,7 +212,7 @@ fun SessionListScreen(
                 scrollBehavior = scroll,
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
                 ),
             )
         },
@@ -350,6 +353,7 @@ private fun HostChip(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SessionsBody(
     padding: PaddingValues,
@@ -382,6 +386,22 @@ private fun SessionsBody(
         val current = selected
         if (current != null && current.connection == ConnectionBadge.Live) setOf(current.id) else emptySet()
     }
+    val showCards = pending.isNotEmpty() &&
+        filter.status != SessionFilter.Idle &&
+        filter.status != SessionFilter.Running
+    var deckCount by remember { mutableIntStateOf(pending.size) }
+    if (pending.isNotEmpty()) deckCount = pending.size
+    val listState = rememberLazyListState()
+    val filtersStuck by remember {
+        derivedStateOf { filtersAreStuck(listState, headerIndex = 1) }
+    }
+    val cardsLocked = selected != null &&
+        (selected.pairingRevoked || selected.connection != ConnectionBadge.Live)
+    val lockedLabel = when {
+        selected?.pairingRevoked == true -> stringResource(R.string.decision_locked_revoked)
+        cardsLocked -> stringResource(R.string.decision_locked_offline)
+        else -> null
+    }
     Column(Modifier.fillMaxSize().padding(padding)) {
         StatsRow(
             roster,
@@ -403,77 +423,87 @@ private fun SessionsBody(
                 },
             )
         }
-        SessionFilterRow(
-            filter = filter,
-            hostName = selected?.name,
-            choices = scopeChoices,
-            roster = roster,
-            pathTexts = pathTexts,
-            homeDir = homeDir,
-            onFilter = onFilter,
-        )
-        val showCards = pending.isNotEmpty() &&
-            filter.status != SessionFilter.Idle &&
-            filter.status != SessionFilter.Running
-        if (showCards) {
-            val cardsLocked = selected != null &&
-                (selected.pairingRevoked || selected.connection != ConnectionBadge.Live)
-            val lockedLabel = when {
-                selected?.pairingRevoked == true -> stringResource(R.string.decision_locked_revoked)
-                cardsLocked -> stringResource(R.string.decision_locked_offline)
-                else -> null
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            state = listState,
+            contentPadding = PaddingValues(bottom = 12.dp),
+        ) {
+            item(key = "decision-deck") {
+                AnimatedVisibility(
+                    visible = showCards,
+                    enter = fadeIn(tween(DecisionDeckMath.COLLAPSE_MS)) +
+                        expandVertically(tween(DecisionDeckMath.COLLAPSE_MS)),
+                    exit = fadeOut(tween(DecisionDeckMath.COLLAPSE_MS)) +
+                        shrinkVertically(tween(DecisionDeckMath.COLLAPSE_MS)),
+                ) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .alpha(if (cardsLocked) 0.38f else 1f)
+                            .then(
+                                if (lockedLabel == null) {
+                                    Modifier
+                                } else {
+                                    Modifier.semantics(mergeDescendants = true) {
+                                        contentDescription = lockedLabel
+                                    }
+                                },
+                            ),
+                    ) {
+                        Text(
+                            stringResource(R.string.needs_you_section, deckCount),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                        DecisionDeck(
+                            pending = pending,
+                            nowEpochMs = nowEpochMs,
+                            buttonsEnabled = !cardsLocked && selected?.isObserver != true,
+                            dragEnabled = !cardsLocked,
+                            onAnswer = onAnswer,
+                            onOpen = onOpenThread,
+                            onOpenTerminal = onOpenTerminal,
+                        )
+                    }
+                }
             }
-            Text(
-                stringResource(R.string.needs_you_section, pending.size),
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.tertiary,
-            )
-            val pagerState = rememberPagerState(pageCount = { pending.size })
-            HorizontalPager(
-                state = pagerState,
-                contentPadding = PaddingValues(start = 16.dp, end = 72.dp),
-                pageSpacing = 12.dp,
-                userScrollEnabled = !cardsLocked,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .alpha(if (cardsLocked) 0.38f else 1f)
-                    .then(
-                        if (lockedLabel == null) {
-                            Modifier
+            stickyHeader(key = "session-filters") {
+                SessionFilterRow(
+                    filter = filter,
+                    hostName = selected?.name,
+                    choices = scopeChoices,
+                    roster = roster,
+                    pathTexts = pathTexts,
+                    homeDir = homeDir,
+                    onFilter = onFilter,
+                    modifier = Modifier.background(
+                        if (filtersStuck) {
+                            MaterialTheme.colorScheme.surfaceContainer
                         } else {
-                            Modifier.semantics(mergeDescendants = true) {
-                                contentDescription = lockedLabel
-                            }
+                            MaterialTheme.colorScheme.surface
                         },
                     ),
-            ) { page ->
-                val thread = pending[page]
-                DecisionPreview(
-                    thread = thread,
-                    age = sessionAgeLabel(thread.updatedEpochMs, nowEpochMs),
-                    enabled = !cardsLocked && selected?.isObserver != true,
-                    onAnswer = { option -> onAnswer(thread, option) },
-                    onOpen = { onOpenThread(thread) },
-                    onOpenTerminal = onOpenTerminal,
                 )
             }
-        }
-        if (shown.isEmpty() && sessionsLoading && !(searching && query.isNotBlank())) {
-            SessionLoading()
-        } else if (shown.isEmpty()) {
-            SessionEmpty(
-                selected = selected,
-                searching = searching && query.isNotBlank(),
-                scopeCount = roster.agents,
-                filter = filter,
-                scopeText = scopeText,
-                onFilter = onFilter,
-                onNewSession = onNewSession,
-            )
-        } else {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp)) {
+            if (shown.isEmpty() && sessionsLoading && !(searching && query.isNotBlank())) {
+                item(key = "sessions-loading") {
+                    SessionLoading(Modifier.fillParentMaxHeight())
+                }
+            } else if (shown.isEmpty()) {
+                item(key = "sessions-empty") {
+                    SessionEmpty(
+                        selected = selected,
+                        searching = searching && query.isNotBlank(),
+                        scopeCount = roster.agents,
+                        filter = filter,
+                        scopeText = scopeText,
+                        onFilter = onFilter,
+                        onNewSession = onNewSession,
+                        modifier = Modifier.fillParentMaxHeight(),
+                    )
+                }
+            } else {
                 items(shown, key = { "${it.hostId}:${it.id}" }) { thread ->
                     SessionRow(
                         thread = thread,
@@ -490,6 +520,13 @@ private fun SessionsBody(
     }
 }
 
+private fun filtersAreStuck(state: LazyListState, headerIndex: Int): Boolean {
+    val info = state.layoutInfo.visibleItemsInfo
+    val header = info.firstOrNull { it.index == headerIndex } ?: return false
+    val next = info.firstOrNull { it.index > headerIndex } ?: return false
+    return header.offset <= 0 && next.offset < header.offset + header.size
+}
+
 @Composable
 private fun SessionFilterRow(
     filter: HostSessionFilter,
@@ -499,9 +536,10 @@ private fun SessionFilterRow(
     pathTexts: List<SessionPathText>,
     homeDir: String?,
     onFilter: (HostSessionFilter) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(start = 12.dp, top = 4.dp, bottom = 4.dp),
+        modifier.fillMaxWidth().padding(start = 16.dp, top = 4.dp, end = 0.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ScopeFilterChip(filter, hostName, choices, pathTexts, homeDir, onFilter)
@@ -731,9 +769,10 @@ private fun SessionEmpty(
     scopeText: String,
     onFilter: (HostSessionFilter) -> Unit,
     onNewSession: () -> Unit,
+    modifier: Modifier = Modifier.fillMaxSize(),
 ) {
     Column(
-        Modifier.fillMaxSize().padding(32.dp),
+        modifier.padding(32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -805,9 +844,9 @@ private fun SessionEmpty(
 }
 
 @Composable
-private fun SessionLoading() {
+private fun SessionLoading(modifier: Modifier = Modifier.fillMaxSize()) {
     Column(
-        Modifier.fillMaxSize(),
+        modifier,
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -1270,10 +1309,11 @@ private fun TrailDots(
 }
 
 @Composable
-private fun DecisionPreview(
+internal fun DecisionPreview(
     thread: AgentThread,
     age: String?,
     enabled: Boolean,
+    counter: String?,
     onAnswer: (AskOption) -> Unit,
     onOpen: () -> Unit,
     onOpenTerminal: () -> Unit,
@@ -1299,6 +1339,19 @@ private fun DecisionPreview(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (counter != null) {
+                    Text(
+                        counter,
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color.White.copy(alpha = 0.55f))
+                            .clearAndSetSemantics { }
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                }
             }
             decisionQuestionText(thread)?.let { question ->
                 Text(
