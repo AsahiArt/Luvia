@@ -12,9 +12,12 @@ struct TerminalPageView: View {
     var textOverride: String? = nil
     /// Debug fixture is on screen. A host stuck in `.connecting` still reads as 离线.
     var fixtureOfflineChrome: Bool = false
+    var sessionAgentType: String? = nil
+    var sessionDisplayName: String? = nil
+    var fixCandidates: [TerminalFixChoice] = []
     var onBack: () -> Void
     var onSelectPane: (String) -> Void
-    var onAskFix: (String) -> Bool = { _ in false }
+    var onAskFix: (String, TerminalFixChoice?) -> Bool = { _, _ in false }
     var glass: Namespace.ID
 
     @Environment(\.colorScheme) private var colorScheme
@@ -22,6 +25,7 @@ struct TerminalPageView: View {
     @State private var literal = ""
     @State private var ctrlLatched = false
     @State private var fixRefused = false
+    @State private var pickedFix: TerminalFixChoice? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -281,6 +285,71 @@ struct TerminalPageView: View {
         .padding(.bottom, 8)
     }
 
+    private func failureOffer(for banner: TerminalFailureBanner) -> TerminalFailureOffer {
+        let foreground = panes.first { $0.id == selectedPaneID }?.title
+        return TerminalChromeKt.terminalFailureOffer(
+            paneForeground: foreground,
+            sessionAgentType: sessionAgentType,
+            sessionDisplayName: sessionDisplayName,
+            candidates: fixCandidates
+        )
+    }
+
+    /// Fixing is a status, not a button. Handoff uses the offer's agent, never a fixed name.
+    @ViewBuilder
+    private func failureOfferControl(_ banner: TerminalFailureBanner) -> some View {
+        let offer = failureOffer(for: banner)
+        let handed = offer.mode == TerminalFailureMode.handoff
+        let choice = handed ? pickedFix : nil
+        let name = choice?.name ?? offer.agentName
+        let label = handed ? "交给 \(name) 修" : offer.fixingLabel
+        HStack(spacing: 2) {
+            if handed {
+                Button {
+                    fixRefused = !onAskFix(banner.excerpt, choice)
+                } label: {
+                    failureOfferLabel(label, enabled: canAskFix)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canAskFix)
+                if !offer.choices.isEmpty {
+                    Menu {
+                        ForEach(Array(offer.choices.enumerated()), id: \.offset) { _, item in
+                            Button(item.name) { pickedFix = item }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Color.black)
+                            .frame(width: 22, height: 28)
+                    }
+                    .disabled(!canAskFix)
+                    .accessibilityLabel("切换 agent")
+                }
+            } else {
+                failureOfferLabel(label, enabled: true)
+                    .accessibilityElement(children: .combine)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
+    }
+
+    private func failureOfferLabel(_ label: String, enabled: Bool) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "sparkles")
+                .font(.caption.weight(.bold))
+            Text(label)
+                .font(.subheadline.weight(.semibold))
+        }
+        .foregroundStyle(enabled ? Color.black : Color.black.opacity(0.45))
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.white.opacity(enabled ? 0.94 : 0.38), in: Capsule())
+    }
+
     private func failureCard(_ banner: TerminalFailureBanner) -> some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -301,25 +370,7 @@ struct TerminalPageView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Button {
-                fixRefused = !onAskFix(banner.excerpt)
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "sparkles")
-                        .font(.caption.weight(.bold))
-                    Text("让 claude 修")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .foregroundStyle(canAskFix ? Color.black : Color.black.opacity(0.45))
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.white.opacity(canAskFix ? 0.94 : 0.38), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(!canAskFix)
-            .accessibilityLabel("让 claude 修")
+            failureOfferControl(banner)
         }
         .padding(.leading, 14)
         .padding(.trailing, 10)

@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var cwd = ""
     @State private var confirmUnpair = false
     @State private var userOpenedPairing = false
+    @State private var awaitingFixAgent = false
     #if DEBUG
     @State private var fixturePaneID = ""
     @AppStorage("luvia.debug.noncursorFixture") private var showNoncursorFixture = false
@@ -39,6 +40,9 @@ struct ContentView: View {
                         canAskFix: canHandFix,
                         textOverride: terminalTextOverride,
                         fixtureOfflineChrome: usingTerminalFixture,
+                        sessionAgentType: terminalSessionAgentType,
+                        sessionDisplayName: terminalSessionDisplayName,
+                        fixCandidates: terminalFixChoices,
                         onBack: closeTerminal,
                         onSelectPane: selectPane,
                         onAskFix: handFix,
@@ -61,6 +65,9 @@ struct ContentView: View {
         }
         .onChange(of: model.hosts.map(\.id)) { _, _ in
             applyPairingGate()
+        }
+        .onChange(of: acpFixWatch) { _, _ in
+            adoptAwaitingFixAgent()
         }
         .onChange(of: model.pendingOpenAgentID) { _, id in
             guard let id else { return }
@@ -528,11 +535,86 @@ struct ContentView: View {
         model.openTerminal(paneId: id)
     }
 
-    /// Live hosts go through HostUhp.askFix. A debug fixture has no session to
-    /// prompt, so the button opens the related chat instead.
-    private func handFix(_ excerpt: String) -> Bool {
-        if model.hostUhp()?.askFix(excerpt: excerpt, paneId: model.uhp.selectedAgentID) == true {
-            return true
+    private var terminalFixSession: AgentThread? {
+        TerminalChromeKt.terminalOwningSession(threads: catalog, paneId: shownPaneID)
+    }
+
+    /// Open chat wins. Otherwise the session that owns this pane. Not the decision question.
+    private var terminalSessionAgentType: String? {
+        let openType = openThread?.agentType?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let openType, !openType.isEmpty { return openType }
+        let owned = terminalFixSession?.agentType?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let owned, !owned.isEmpty { return owned }
+        return nil
+    }
+
+    private var terminalSessionDisplayName: String? {
+        let openTitle = openThread?.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let openTitle, !openTitle.isEmpty { return openTitle }
+        let owned = terminalFixSession?.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let owned, !owned.isEmpty { return owned }
+        return nil
+    }
+
+    private var terminalFixChoices: [TerminalFixChoice] {
+        let id = model.selectedHostID ?? ""
+        let agents: [AcpAgentKind] = KotlinLists.array(model.hostStates[id]?.acp.agents as Any)
+        let hostIds = agents.map { agent in
+            let raw = agent.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            return raw.isEmpty ? agent.name : raw
+        }
+        let types = catalog.compactMap(\.agentType)
+        return KotlinLists.array(
+            TerminalChromeKt.terminalFixCandidates(hostAgentIds: hostIds, threadAgentTypes: types) as Any
+        )
+    }
+
+    private var acpFixWatch: String {
+        guard awaitingFixAgent, let id = model.selectedHostID, let state = model.hostStates[id] else { return "" }
+        let session = state.acp.info?.sessionId ?? ""
+        return "\(state.acp.open)|\(state.acp.errorText ?? "")|\(session)"
+    }
+
+    private func adoptAwaitingFixAgent() {
+        guard awaitingFixAgent, let id = model.selectedHostID, let state = model.hostStates[id] else { return }
+        if state.acp.errorText != nil && !state.acp.open {
+            awaitingFixAgent = false
+            return
+        }
+        guard let thread = AgentThreadKt.awaitingAcpThread(state: state, hostId: id) else { return }
+        model.hostUhp()?.viewAcp()
+        threadID = thread.id
+        stage = "chat"
+        awaitingFixAgent = false
+    }
+
+    /// Live hosts go through HostUhp.handoffFailure. Sent stays here. Drafted opens chat.
+    /// A debug fixture has no session to prompt, so the button opens the related chat instead.
+    private func handFix(_ excerpt: String, _ choice: TerminalFixChoice?) -> Bool {
+        let pane = shownPaneID
+        let requested = choice?.agentType
+        if let outcome = model.hostUhp()?.handoffFailure(excerpt: excerpt, paneId: pane, agentType: requested) {
+            switch outcome {
+            case .sent:
+                return true
+            case .drafted:
+                if TerminalChromeKt.terminalFixOpensNewAgent(
+                    agentType: requested,
+                    sessionAgentType: terminalSessionAgentType
+                ) {
+                    awaitingFixAgent = true
+                }
+                if let opened = model.hostUhp()?.openThread() {
+                    threadID = opened.id
+                } else if let pane {
+                    threadID = catalog.first { $0.paneId == pane }?.id ?? pane
+                }
+                terminalReturn = "chat"
+                closeTerminal()
+                return true
+            default:
+                break
+            }
         }
         #if DEBUG
         if usingTerminalFixture {
