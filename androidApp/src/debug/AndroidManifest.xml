@@ -4,5 +4,14 @@
             android:name=".ScreenshotActivity"
             android:exported="true"
             android:theme="@style/Theme.Luvia" />
+        <activity
+            android:name="androidx.activity.ComponentActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Luvia">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>
