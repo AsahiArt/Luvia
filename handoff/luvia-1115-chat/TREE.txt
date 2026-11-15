@@ -1,0 +1,23 @@
+code_commit=864d744b3ca078b44d280316552f9db23e39c201
+code_tree=da3eeaddc7ca0268744b5befffb3f5efc073d681
+base=11d423663f8ad1937c9386ef6ceb1c611b66dac6
+base_tree=f9a147a6fdd1fc5881802b1db73b41ab2e34c2e2
+
+$ git diff --stat 11d423663f8ad1937c9386ef6ceb1c611b66dac6..864d744b3ca078b44d280316552f9db23e39c201
+ .../tech/asahiart/luvia/ui/ChatDecisionSheet.kt    |  75 +++++
+ .../kotlin/tech/asahiart/luvia/ui/ChatScreen.kt    | 327 ++++++++++++++-------
+ .../asahiart/luvia/ui/ChatDecisionSheetTest.kt     | 113 +++++++
+ handoff/luvia-1115-chat/REMAINDER.md               |  24 ++
+ .../page-frame-source-gap-matrix.md                |  93 ++++++
+ handoff/luvia-1115-chat/validation.log             |  64 ++++
+ iosApp/iosApp/ChatView.swift                       | 166 ++++++-----
+ 7 files changed, 687 insertions(+), 175 deletions(-)
+
+$ git diff --name-only 11d423663f8ad1937c9386ef6ceb1c611b66dac6..864d744b3ca078b44d280316552f9db23e39c201
+androidApp/src/main/kotlin/tech/asahiart/luvia/ui/ChatDecisionSheet.kt
+androidApp/src/main/kotlin/tech/asahiart/luvia/ui/ChatScreen.kt
+androidApp/src/test/kotlin/tech/asahiart/luvia/ui/ChatDecisionSheetTest.kt
+handoff/luvia-1115-chat/REMAINDER.md
+handoff/luvia-1115-chat/page-frame-source-gap-matrix.md
+handoff/luvia-1115-chat/validation.log
+iosApp/iosApp/ChatView.swift
