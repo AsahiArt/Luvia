@@ -17,6 +17,7 @@ struct TerminalPageView: View {
     var onAskFix: (String) -> Bool = { _ in false }
     var glass: Namespace.ID
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var stickToBottom = true
     @State private var literal = ""
     @State private var ctrlLatched = false
@@ -68,7 +69,6 @@ struct TerminalPageView: View {
         }
         .background(TerminalPalette.background.ignoresSafeArea())
         .foregroundStyle(TerminalPalette.foreground)
-        .preferredColorScheme(.dark)
         .onChange(of: shownText) { _, _ in
             fixRefused = false
         }
@@ -112,12 +112,12 @@ struct TerminalPageView: View {
                                 } label: {
                                     Text(TerminalChromeKt.terminalSegmentLabel(index: Int32(index), title: pane.title))
                                         .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(selected ? Color.black : Color.white)
+                                        .foregroundStyle(selected ? selectedPaneInk : idlePaneInk)
                                         .lineLimit(1)
                                         .fixedSize(horizontal: true, vertical: false)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 8)
-                                        .background(selected ? Color.white.opacity(0.92) : Color.clear, in: Capsule())
+                                        .background(selected ? selectedPaneFill : Color.clear, in: Capsule())
                                 }
                                 .buttonStyle(.plain)
                                 .fixedSize(horizontal: true, vertical: false)
@@ -128,6 +128,7 @@ struct TerminalPageView: View {
                         .padding(3)
                         .fixedSize(horizontal: true, vertical: false)
                     }
+                    .contentMargins(.horizontal, 6, for: .scrollContent)
                     .onAppear { revealSelectedPane(proxy) }
                     .onChange(of: selectedPaneID) { _, _ in revealSelectedPane(proxy) }
                     .onChange(of: paneIdentity) { _, _ in revealSelectedPane(proxy) }
@@ -135,7 +136,8 @@ struct TerminalPageView: View {
                 .frame(minWidth: 0, maxWidth: .infinity)
                 .frame(height: 44)
                 .layoutPriority(1)
-                .clipped()
+                .clipShape(Capsule())
+                .mask { paneEdgeFade }
                 .terminalPlate(in: Capsule(), fill: chromeFill)
             } else {
                 Text("终端")
@@ -171,7 +173,7 @@ struct TerminalPageView: View {
                 if model.selectedHost?.isController == true {
                     Text("接管")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.white.opacity(0.38))
+                        .foregroundStyle(TerminalPalette.foreground.opacity(0.38))
                 }
             }
             .padding(.horizontal, 12)
@@ -194,7 +196,7 @@ struct TerminalPageView: View {
             }
             .buttonStyle(.plain)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color.white)
+            .foregroundStyle(TerminalPalette.foreground)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .terminalPlate(in: Capsule(), fill: chromeFill)
@@ -224,6 +226,7 @@ struct TerminalPageView: View {
         .padding(.leading, 14)
         .padding(.trailing, 8)
         .padding(.vertical, 8)
+        .foregroundStyle(Color.white)
         .terminalPlate(in: Capsule(), fill: decisionFill)
         .accessibilityElement(children: .contain)
     }
@@ -247,7 +250,7 @@ struct TerminalPageView: View {
                     ctrlLatched = false
                     _Concurrency.Task { await model.sendTerminalKey(.ctrlC) }
                 } label: {
-                    keyLabel("~C", selected: ctrlLatched)
+                    keyLabel("^C", selected: false)
                 }
                 .buttonStyle(.plain)
                 key("回车", .enter)
@@ -283,12 +286,13 @@ struct TerminalPageView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(failureSummary(banner))
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.white)
                     .lineLimit(1)
                 if let title = banner.failedTitle, !title.isEmpty {
                     Text(title.replacingOccurrences(of: " > ", with: " › "))
                         .font(.caption.monospaced())
                         .lineLimit(1)
-                        .foregroundStyle(Color(hex: "FF9F99"))
+                        .foregroundStyle(failureTitleInk)
                 }
                 if fixRefused {
                     Text("没发出去")
@@ -323,7 +327,7 @@ struct TerminalPageView: View {
         .terminalPlate(
             in: RoundedRectangle(cornerRadius: 24, style: .continuous),
             fill: failureFill,
-            halo: Color.red.opacity(0.45)
+            halo: colorScheme == .light ? nil : Color.red.opacity(0.45)
         )
     }
 
@@ -418,9 +422,33 @@ struct TerminalPageView: View {
 
     private var subtitleColor: Color {
         if linkDown || !model.holdsTerminalControl {
-            return Color.white
+            return TerminalPalette.foreground
         }
-        return Color.white.opacity(0.82)
+        return colorScheme == .light ? TerminalPalette.dim : TerminalPalette.foreground.opacity(0.82)
+    }
+
+    /// Dark selected pill stays the checked-in white/black pair. Light uses only the SPEC board colors.
+    private var selectedPaneFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.92) : TerminalPalette.foreground
+    }
+
+    private var selectedPaneInk: Color {
+        colorScheme == .dark ? Color.black : TerminalPalette.background
+    }
+
+    /// SPEC: unselected pane labels are `on-surface-v` on the light board. Dark stays the SPEC foreground.
+    private var idlePaneInk: Color {
+        colorScheme == .light ? TerminalPalette.dim : TerminalPalette.foreground
+    }
+
+    private var paneEdgeFade: some View {
+        HStack(spacing: 0) {
+            LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                .frame(width: 12)
+            Color.black
+            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                .frame(width: 12)
+        }
     }
 
     private var waitingLine: String {
@@ -435,8 +463,16 @@ struct TerminalPageView: View {
         Color.white.opacity(0.10)
     }
 
+    /// Light summary bar is the SPEC error `#BA1A1A`. Dark keeps the existing glass.
     private var failureFill: Color {
-        Color(red: 0.32, green: 0.08, blue: 0.08).opacity(0.82)
+        if colorScheme == .light {
+            return Color(hex: "BA1A1A")
+        }
+        return Color(red: 0.32, green: 0.08, blue: 0.08).opacity(0.82)
+    }
+
+    private var failureTitleInk: Color {
+        colorScheme == .light ? Color.white.opacity(0.92) : Color(hex: "FF9F99")
     }
 
     private var decisionFill: Color {
