@@ -21,6 +21,8 @@ import tech.asahiart.luvia.internal.UhpRequest
 import tech.asahiart.luvia.internal.decodeUhpRequest
 import tech.asahiart.luvia.internal.parseObject
 import tech.asahiart.luvia.support.ScriptedFactory
+import tech.asahiart.luvia.thread.DECISION_QUESTION_FALLBACK
+import tech.asahiart.luvia.thread.threads
 import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -346,6 +348,49 @@ class HostUhpTest {
 
 
     @Test
+    fun retainedSessionIsLiveOnlyWhileOnlineAndFresh() = runTest {
+        val recorded = mutableListOf<String>()
+        val session = openSession(backgroundScope, recorded = recorded)
+        var runtime = sampleRuntime().copy(
+            link = HostLink.Failed(Failure.Transport("down")),
+            freshness = ConnectionFreshness.Offline,
+        )
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        uhp.shown()
+        advanceUntilIdle()
+        assertEquals(false, uhp.state.value.connected)
+        assertEquals(emptyList(), recorded)
+        assertEquals(false, uhp.askFix("boom", "7"))
+        assertEquals(emptyList(), recorded)
+        val offline = uhp.state.value.threads("h").single()
+        assertNull(offline.ask?.question)
+        assertEquals(true, offline.needsYou)
+
+        runtime = sampleRuntime().copy(
+            link = HostLink.Connecting,
+            freshness = ConnectionFreshness.Stale,
+        )
+        uhp.applyRuntime(runtime)
+        uhp.shown()
+        advanceUntilIdle()
+        assertEquals(false, uhp.state.value.connected)
+        assertEquals(emptyList(), recorded)
+
+        runtime = sampleRuntime()
+        uhp.applyRuntime(runtime)
+        uhp.shown()
+        advanceUntilIdle()
+        assertEquals(true, uhp.state.value.connected)
+        val live = uhp.state.value.threads("h").single()
+        assertEquals(DECISION_QUESTION_FALLBACK, live.ask?.question)
+        assertEquals(true, live.needsYou)
+        assertEquals(false, recorded.contains(Methods.AGENT_PROMPT))
+        uhp.close()
+        session.close()
+    }
+
+    @Test
     fun userMessageDoesNotInviteRetryOnLostMutation() {
         val text = Failure.IndeterminateMutation("agent.prompt").userMessage()
         assertTrue(text.contains("Do not retry automatically"))
@@ -377,7 +422,7 @@ private fun sampleRuntime(
                 hints = listOf("studio.tailnet"),
                 port = 22,
             ),
-        link = HostLink.Idle,
+        link = HostLink.Online("studio.tailnet", "default"),
         snapshot =
             SessionSnapshot(
                 sessionName = "default",
@@ -388,7 +433,7 @@ private fun sampleRuntime(
                 agents = listOf(agent),
             ),
         tasks = emptyList(),
-        freshness = ConnectionFreshness.Offline,
+        freshness = ConnectionFreshness.Live,
     )
 }
 

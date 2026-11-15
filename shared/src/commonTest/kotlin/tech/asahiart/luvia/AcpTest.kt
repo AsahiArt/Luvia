@@ -632,7 +632,7 @@ private fun sampleRuntime(
                 hints = listOf("studio.tailnet"),
                 port = 22,
             ),
-        link = HostLink.Idle,
+        link = HostLink.Online("studio.tailnet", "default"),
         snapshot =
             SessionSnapshot(
                 sessionName = "default",
@@ -643,7 +643,7 @@ private fun sampleRuntime(
                 agents = listOf(summary),
             ),
         tasks = emptyList(),
-        freshness = ConnectionFreshness.Offline,
+        freshness = ConnectionFreshness.Live,
     )
 }
 

@@ -6,9 +6,12 @@ import tech.asahiart.luvia.AgentDetailState
 import tech.asahiart.luvia.AgentKey
 import tech.asahiart.luvia.AgentReadSource
 import tech.asahiart.luvia.AgentStatus
+import tech.asahiart.luvia.ConnectionFreshness
 import tech.asahiart.luvia.Failure
+import tech.asahiart.luvia.HostLink
 import tech.asahiart.luvia.HostRole
 import tech.asahiart.luvia.HostRuntime
+import tech.asahiart.luvia.LuviaSession
 import tech.asahiart.luvia.Outcome
 import tech.asahiart.luvia.StoredPanePreview
 import tech.asahiart.luvia.UhpMethods
@@ -23,6 +26,16 @@ import tech.asahiart.luvia.toCapabilities
 import tech.asahiart.luvia.userMessage
 import kotlin.time.Clock
 
+/**
+ * A host is live only while a session exists and the runtime says the link is
+ * online and fresh. A missing runtime is not live. A Failed or stale link can
+ * still hold a session object; that object is not live.
+ */
+internal fun sessionIsLive(session: LuviaSession?, runtime: HostRuntime?): Boolean {
+    if (session == null || runtime == null) return false
+    return runtime.link is HostLink.Online && runtime.freshness == ConnectionFreshness.Live
+}
+
 internal class AgentBoard(private val ctx: UhpContext) {
     private var previewJob: Job? = null
     private var lastWorkingPreviewMs: Long = 0L
@@ -35,7 +48,7 @@ internal class AgentBoard(private val ctx: UhpContext) {
         val oldStatus = ctx.value().agentDetail.summary?.status
         ctx.update { current ->
             current.copy(
-                connected = session != null,
+                connected = sessionIsLive(session, runtime),
                 isObserver = runtime.profile.role == HostRole.Observer,
                 capabilities = session?.toCapabilities() ?: if (session == null) {
                     tech.asahiart.luvia.HostCapabilities()
@@ -62,15 +75,19 @@ internal class AgentBoard(private val ctx: UhpContext) {
         ctx.launch {
             val session = ctx.session()
             val runtime = ctx.runtime()
-            if (session == null) {
+            if (session == null || !sessionIsLive(session, runtime)) {
                 ctx.update {
                     it.copy(
                         connected = false,
                         loading = false,
                         isObserver = runtime?.profile?.role == HostRole.Observer,
-                        capabilities = tech.asahiart.luvia.HostCapabilities(),
+                        capabilities = if (session == null) {
+                            tech.asahiart.luvia.HostCapabilities()
+                        } else {
+                            session.toCapabilities()
+                        },
                         agents = runtime?.snapshot?.agents.orEmpty().ifEmpty { it.agents },
-                        backend = runtime?.backend ?: "luvus",
+                        backend = runtime?.backend ?: it.backend,
                     )
                 }
                 return@launch
@@ -143,6 +160,7 @@ internal class AgentBoard(private val ctx: UhpContext) {
      * a step and dots without opening each conversation. Idle panes are not read.
      */
     private fun refreshListPreviews() {
+        if (!sessionIsLive(ctx.session(), ctx.runtime())) return
         if (previewJob?.isActive == true) return
         val session = ctx.session() ?: return
         if (!session.supports(UhpMethods.AGENT_READ)) return

@@ -69,7 +69,9 @@ public const val DECISION_QUESTION_FALLBACK: String = "等你确认"
 /**
  * A decision an Agent is waiting on. [question] is the permission title or the
  * agent's last question, never the pane status bar. It is
- * [DECISION_QUESTION_FALLBACK] when neither is available.
+ * [DECISION_QUESTION_FALLBACK] when the host is live and neither is available.
+ * A host that is not live keeps a question only when one was actually extracted.
+ * It does not invent the fallback, and the question may be null.
  * [index] and [total] describe a queue of decisions. They default to a single card.
  */
 public data class Ask(
@@ -85,7 +87,9 @@ public data class Ask(
 )
 
 public fun HostUhpState.threads(hostId: String): List<AgentThread> {
-    val panes = agents.map { it.toThread(hostId, cachedTranscriptFor(it.paneId, it.status)) }
+    val panes = agents.map {
+        it.toThread(hostId, cachedTranscriptFor(it.paneId, it.status), allowQuestionFallback = connected)
+    }
     val live = acp.takeIf { it.open }?.toThread(hostId)
     val base = if (live == null) panes else panes + live
     return mergeAcpHistory(base, acp.history.map { it.toHistoryThread(hostId) })
@@ -116,7 +120,11 @@ private fun HostUhpState.cachedTranscriptFor(paneId: String, status: AgentStatus
     return preview.text
 }
 
-internal fun AgentSummary.toThread(hostId: String, transcript: String?): AgentThread {
+internal fun AgentSummary.toThread(
+    hostId: String,
+    transcript: String?,
+    allowQuestionFallback: Boolean,
+): AgentThread {
     val plain = transcript?.let(::stripAnsi)
     val last = lastNonEmptyLine(plain)
     val waiting = status == AgentStatus.Blocked
@@ -129,7 +137,7 @@ internal fun AgentSummary.toThread(hostId: String, transcript: String?): AgentTh
         title = name?.takeIf { it.isNotBlank() } ?: agent?.takeIf { it.isNotBlank() } ?: "Agent",
         agentType = agent,
         status = status,
-        ask = if (waiting) paneDecision(plain) else null,
+        ask = if (waiting) paneDecision(plain, allowQuestionFallback) else null,
         summary = last,
         updatedEpochMs = null,
         paneId = paneId,
@@ -295,10 +303,10 @@ private fun isAgentQuestion(line: String): Boolean {
  * A recognized block that cannot be answered with keys → the question and no options,
  * so the UI can send the user to the terminal instead of inventing Yes/No.
  */
-internal fun paneDecision(transcript: String?): Ask {
+internal fun paneDecision(transcript: String?, allowQuestionFallback: Boolean): Ask {
     val clean = transcript?.let(::stripAnsi)
     val hit = clean?.let { findQuestionHit(it.lines()) }
-    val question = hit?.text ?: DECISION_QUESTION_FALLBACK
+    val question = hit?.text ?: if (allowQuestionFallback) DECISION_QUESTION_FALLBACK else null
     val parsed = if (clean != null && hit != null) {
         parseOptionsBelow(clean.lines(), hit.anchorIndex)
     } else {

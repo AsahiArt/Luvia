@@ -72,7 +72,10 @@ class ThreadTest {
 
     @Test
     fun blockedPaneWithoutTranscriptAsksToConfirm() {
-        val thread = HostUhpState(agents = listOf(pane("p1", AgentStatus.Blocked))).threads("h").single()
+        val thread = HostUhpState(
+            connected = true,
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+        ).threads("h").single()
         assertEquals(DECISION_QUESTION_FALLBACK, thread.ask?.question)
         assertEquals(DECISION_QUESTION_FALLBACK, listTrail(thread, null).label)
         assertNull(HostUhpState(agents = listOf(pane("p2", AgentStatus.Working))).threads("h").single().ask)
@@ -384,6 +387,7 @@ class ThreadTest {
     @Test
     fun decisionTextFallsBackWhenOnlyStatusBar() {
         val state = HostUhpState(
+            connected = true,
             agents = listOf(pane("p1", AgentStatus.Blocked)),
             panePreviews = mapOf("p1" to StoredPanePreview(piStatusBar, AgentStatus.Blocked)),
         )
@@ -670,4 +674,68 @@ class ThreadTest {
         ledger = ledger.markViewed(threads.first { it.id == "p3" })
         assertTrue(buildNowState(listOf(a), ledger, 1).recentlyDone.isEmpty())
     }
+
+    @Test
+    fun blockedQuestionFollowsLiveAndKeepsARealQuestion() {
+        val agent = pane("p1", AgentStatus.Blocked)
+        val question = "Fork this session into current directory? [y/N]"
+        val detailQuestion = "Run migration? (y/n)"
+        val blanks = listOf<String?>(null, "", "   \n\t", "\u001B[0m   \n", piStatusBar)
+        for (text in blanks) {
+            val live = blockedState(connected = true, preview = text).threads("h").single()
+            val offline = blockedState(connected = false, preview = text).threads("h").single()
+            assertEquals(DECISION_QUESTION_FALLBACK, live.ask?.question)
+            assertNull(offline.ask?.question)
+            assertTrue(live.needsYou)
+            assertTrue(offline.needsYou)
+            assertEquals(live.title, offline.title)
+            assertEquals("claude", live.title)
+        }
+        val observer = blockedState(connected = true, observer = true).threads("h").single()
+        val controller = blockedState(connected = true).threads("h").single()
+        assertEquals(controller.ask?.question, observer.ask?.question)
+        assertEquals(false, HostUhpState(connected = true, isObserver = true).canMutate)
+        assertEquals(true, HostUhpState(connected = true, isObserver = false).canMutate)
+        val cached = blockedState(connected = false, preview = "working\n$question").threads("h").single()
+        assertEquals(question, cached.ask?.question)
+        assertEquals(question, decisionQuestionText(cached))
+        val dropped = blockedState(connected = false).threads("h").single()
+        assertNull(dropped.ask?.question)
+        assertNull(decisionQuestionText(dropped))
+        val detailWins = HostUhpState(
+            connected = false,
+            agents = listOf(agent),
+            panePreviews = mapOf("p1" to StoredPanePreview("working\n$question", AgentStatus.Blocked)),
+            agentDetail = AgentDetailState(
+                paneId = "p1",
+                transcript = AgentReadResult("p1", detailQuestion, null),
+            ),
+        ).threads("h").single()
+        assertEquals(detailQuestion, detailWins.ask?.question)
+        val wrongStatus = blockedState(connected = true, preview = question, previewStatus = AgentStatus.Working)
+            .threads("h").single()
+        assertEquals(DECISION_QUESTION_FALLBACK, wrongStatus.ask?.question)
+        val otherPane = HostUhpState(
+            connected = true,
+            agents = listOf(agent),
+            agentDetail = AgentDetailState(
+                paneId = "other",
+                transcript = AgentReadResult("other", question, null),
+            ),
+        ).threads("h").single()
+        assertEquals(DECISION_QUESTION_FALLBACK, otherPane.ask?.question)
+        assertNull(HostUhpState(agents = listOf(pane("p2", AgentStatus.Working))).threads("h").single().ask)
+    }
+
+    private fun blockedState(
+        connected: Boolean,
+        preview: String? = null,
+        previewStatus: AgentStatus = AgentStatus.Blocked,
+        observer: Boolean = false,
+    ) = HostUhpState(
+        connected = connected,
+        isObserver = observer,
+        agents = listOf(pane("p1", AgentStatus.Blocked)),
+        panePreviews = preview?.let { mapOf("p1" to StoredPanePreview(it, previewStatus)) }.orEmpty(),
+    )
 }

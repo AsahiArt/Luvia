@@ -21,9 +21,9 @@ public enum class SessionFilter {
 }
 
 /**
- * Question on a decision card. The cached ask only: never the session name,
- * and never a generic stand-in. Null when the cache has no question, including
- * while the host is offline or the pairing is invalid.
+ * Question already stored on the ask. This does not invent a stand-in.
+ * A live ask may already carry [DECISION_QUESTION_FALLBACK]. Null when the
+ * ask has no extracted question, including while the host is not live.
  */
 public fun decisionQuestionText(thread: AgentThread): String? =
     thread.ask?.question?.trim()?.takeIf { it.isNotEmpty() }

@@ -617,6 +617,7 @@ class SessionListTest {
     fun offlineOrInvalidCardKeepsCachedQuestionNotSessionName() {
         val question = "Fork this session into current directory? [y/N]"
         val cached = HostUhpState(
+            connected = false,
             agents = listOf(
                 AgentSummary(paneId = "p", name = "tailnet-i", status = AgentStatus.Blocked, agent = "claude"),
             ),
@@ -629,6 +630,7 @@ class SessionListTest {
         assertEquals(question, decisionQuestionText(cached.ask?.question))
 
         val missing = HostUhpState(
+            connected = false,
             agents = listOf(
                 AgentSummary(paneId = "p", name = "tailnet-i", status = AgentStatus.Blocked, agent = "claude"),
             ),
