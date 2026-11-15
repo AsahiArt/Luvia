@@ -122,8 +122,8 @@ struct ChatView: View {
         }
         .onChange(of: askToken) { _, token in
             if token.isEmpty {
-                Task {
-                    try? await Task.sleep(nanoseconds: 250_000_000)
+                _Concurrency.Task {
+                    try? await _Concurrency.Task.sleep(nanoseconds: 250_000_000)
                     if thread.ask == nil {
                         withAnimation(.easeIn(duration: 0.15)) { composerShown = true }
                     }
