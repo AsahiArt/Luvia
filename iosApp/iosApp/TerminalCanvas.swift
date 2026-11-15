@@ -34,6 +34,7 @@ struct TerminalCanvas: UIViewRepresentable {
         private var lastAnsi: Bool?
         private var lastWrap: Bool?
         private var lastOutline: [Int] = []
+        private var baseAttributed: NSAttributedString?
         private var lastViewport: CGSize = .zero
         private var parseGeneration: UInt64 = 0
         private var userZoom: CGFloat = 1
@@ -138,9 +139,10 @@ struct TerminalCanvas: UIViewRepresentable {
 
         private func apply(_ attributed: NSAttributedString, generation: UInt64) {
             guard generation == parseGeneration, let host else { return }
+            baseAttributed = attributed
             bufferWidth = TerminalFont.unwrappedWidthAtReference(of: attributed)
             ignoringScroll = true
-            host.textView.attributedText = attributed
+            host.textView.attributedText = painted(attributed)
             host.textView.isScrollEnabled = false
             ignoringScroll = false
             relayout(forceZoom: false)
@@ -150,8 +152,15 @@ struct TerminalCanvas: UIViewRepresentable {
             refreshOutline()
         }
 
+        private func painted(_ source: NSAttributedString) -> NSAttributedString {
+            applyOutlinedInk(source, outlined: parent.outlinedLines)
+        }
+
         private func refreshOutline() {
             guard let host else { return }
+            if let baseAttributed {
+                host.textView.attributedText = painted(baseAttributed)
+            }
             host.outlineView.lineIndexes = parent.outlinedLines
             host.outlineView.frame = host.textView.frame
             host.outlineView.setNeedsDisplay()
@@ -334,6 +343,11 @@ final class FailureOutlineView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        setNeedsDisplay()
+    }
+
     override func draw(_ rect: CGRect) {
         guard let textView, !lineIndexes.isEmpty else { return }
         let text = textView.text ?? ""
@@ -349,14 +363,20 @@ final class FailureOutlineView: UIView {
         func flush() {
             guard let first = run.first else { return }
             let union = run.dropFirst().reduce(first) { $0.union($1) }.insetBy(dx: -4, dy: -2)
-            let glow = UIBezierPath(roundedRect: union.insetBy(dx: -3, dy: -2), cornerRadius: 12)
-            UIColor.systemRed.withAlphaComponent(0.28).setStroke()
-            glow.lineWidth = 7
-            glow.stroke()
             let path = UIBezierPath(roundedRect: union, cornerRadius: 10)
-            UIColor.systemRed.withAlphaComponent(0.16).setFill()
-            path.fill()
-            UIColor(red: 1, green: 0.41, blue: 0.38, alpha: 0.85).setStroke()
+            if traitCollection.userInterfaceStyle == .dark {
+                let glow = UIBezierPath(roundedRect: union.insetBy(dx: -3, dy: -2), cornerRadius: 12)
+                UIColor.systemRed.withAlphaComponent(0.28).setStroke()
+                glow.lineWidth = 7
+                glow.stroke()
+                UIColor.systemRed.withAlphaComponent(0.16).setFill()
+                path.fill()
+                UIColor(red: 1, green: 0.41, blue: 0.38, alpha: 0.85).setStroke()
+            } else {
+                UIColor(hex: "FFDAD6").withAlphaComponent(0.55).setFill()
+                path.fill()
+                UIColor(hex: "BA1A1A").setStroke()
+            }
             path.lineWidth = 1.5
             path.stroke()
             run.removeAll()
@@ -408,7 +428,7 @@ final class TerminalCanvasHostView: UIView {
         scrollView.bouncesZoom = true
         scrollView.keyboardDismissMode = .none
         scrollView.contentInsetAdjustmentBehavior = .never
-        scrollView.indicatorStyle = .white
+        scrollView.indicatorStyle = .default
         scrollView.showsVerticalScrollIndicator = true
         scrollView.showsHorizontalScrollIndicator = true
         addSubview(scrollView)
@@ -440,7 +460,6 @@ final class TerminalCanvasHostView: UIView {
         )
         textView.font = terminalCanvasFont
         textView.textColor = terminalCanvasForeground
-        textView.overrideUserInterfaceStyle = .dark
         textView.adjustsFontForContentSizeCategory = false
         textView.dataDetectorTypes = []
         textView.accessibilityLabel = "终端输出"
@@ -476,8 +495,10 @@ private let terminalCanvasFont: UIFont =
     UIFont(name: TerminalFont.postScriptName, size: TerminalFont.referenceSize)
     ?? UIFont.monospacedSystemFont(ofSize: TerminalFont.referenceSize, weight: .regular)
 
-private let terminalCanvasBackground = UIColor(TerminalPalette.background)
-private let terminalCanvasForeground = UIColor(TerminalPalette.foreground)
+private let terminalCanvasBackground = TerminalPalette.uiBackground
+private let terminalCanvasForeground = TerminalPalette.uiForeground
+private let terminalCanvasDim = TerminalPalette.uiDim
+private let terminalFailureInk = TerminalPalette.uiFailureInk
 
 private func makeTerminalAttributedString(text: String, parseANSI: Bool) -> NSAttributedString {
     let attributes: [NSAttributedString.Key: Any] = [
@@ -510,7 +531,11 @@ private func attributesForSpan(_ span: AnsiSpan) -> [NSAttributedString.Key: Any
         swap(&foreground, &background)
     }
     if span.dim {
-        foreground = foreground.withAlphaComponent(0.65)
+        if span.foreground == nil && !span.inverse {
+            foreground = terminalCanvasDim
+        } else {
+            foreground = foreground.withAlphaComponent(0.65)
+        }
     }
     attrs[.foregroundColor] = foreground
     if span.background != nil || span.inverse {
@@ -534,6 +559,61 @@ private func terminalUIFont(bold: Bool, italic: Bool) -> UIFont {
         return terminalCanvasFont
     }
     return UIFont(descriptor: descriptor, size: TerminalFont.referenceSize)
+}
+
+/// Recolor plain and dim body on outlined rows. ANSI colors stay. Ink is dynamic: `#410002` in light, `#E4EEEB` in dark.
+private func applyOutlinedInk(_ source: NSAttributedString, outlined: [Int]) -> NSAttributedString {
+    if outlined.isEmpty || source.length == 0 { return source }
+    let text = source.string as NSString
+    let wanted = Set(outlined)
+    let result = NSMutableAttributedString(attributedString: source)
+    var start = 0
+    var line = 0
+    while start <= text.length {
+        let newline = text.rangeOfCharacter(
+            from: .newlines,
+            options: [],
+            range: NSRange(location: start, length: text.length - start)
+        )
+        let lineEnd = newline.location == NSNotFound ? text.length : newline.location
+        if wanted.contains(line), lineEnd > start {
+            let lineRange = NSRange(location: start, length: lineEnd - start)
+            result.enumerateAttribute(.foregroundColor, in: lineRange, options: []) { value, range, _ in
+                let color = (value as? UIColor) ?? terminalCanvasForeground
+                if isDefaultTerminalInk(color) {
+                    result.addAttribute(.foregroundColor, value: terminalFailureInk, range: range)
+                }
+            }
+        }
+        line += 1
+        if newline.location == NSNotFound { break }
+        start = newline.location + newline.length
+    }
+    return result
+}
+
+private func isDefaultTerminalInk(_ color: UIColor) -> Bool {
+    for style: UIUserInterfaceStyle in [.light, .dark] {
+        let traits = UITraitCollection(userInterfaceStyle: style)
+        let resolved = color.resolvedColor(with: traits)
+        let foreground = terminalCanvasForeground.resolvedColor(with: traits)
+        let dim = terminalCanvasDim.resolvedColor(with: traits)
+        if !sameRGB(resolved, foreground) && !sameRGB(resolved, dim) {
+            return false
+        }
+    }
+    return true
+}
+
+private func sameRGB(_ lhs: UIColor, _ rhs: UIColor) -> Bool {
+    var lr: CGFloat = 0, lg: CGFloat = 0, lb: CGFloat = 0, la: CGFloat = 0
+    var rr: CGFloat = 0, rg: CGFloat = 0, rb: CGFloat = 0, ra: CGFloat = 0
+    guard lhs.getRed(&lr, green: &lg, blue: &lb, alpha: &la),
+          rhs.getRed(&rr, green: &rg, blue: &rb, alpha: &ra) else {
+        return false
+    }
+    let slop: CGFloat = 0.02
+    return abs(lr - rr) < slop && abs(lg - rg) < slop && abs(lb - rb) < slop && abs(la - ra) < slop
 }
 
 private func terminalTextContainsEscape(_ text: String) -> Bool {
