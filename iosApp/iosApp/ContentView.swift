@@ -338,7 +338,7 @@ struct ContentView: View {
     private var selectedHome: String? {
         guard let host = model.selectedHost else { return nil }
         let paths = realCatalog.compactMap { $0.hostId == host.id ? $0.cwd : nil }
-        return HostFilterBridge.homeDirectory(username: host.username, paths: paths)
+        return HostFilterBridge.homeDirectory(username: host.user, paths: paths)
     }
 
     private func noteHostSwitch(_ hostId: String) {

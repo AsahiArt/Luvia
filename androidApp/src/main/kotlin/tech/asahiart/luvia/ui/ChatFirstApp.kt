@@ -133,7 +133,7 @@ fun ChatFirstApp(
     SideEffect {
         selected?.id?.let { viewModel.noteArrivedSessions(it, selectedThreads) }
     }
-    val homeDir = hostHomeDirectory(selected?.username, selectedThreads.mapNotNull { it.cwd })
+    val homeDir = hostHomeDirectory(selected?.user, selectedThreads.mapNotNull { it.cwd })
     val inScope = filterSessionsByHost(
         catalog,
         selected?.id,
