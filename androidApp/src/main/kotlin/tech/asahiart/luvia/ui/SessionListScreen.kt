@@ -235,6 +235,7 @@ fun SessionListScreen(
                 onAnswer = onAnswer,
                 onRetry = onRetry,
                 onPair = onPair,
+                onOpenTerminal = onOpenTerminal,
             )
             HomeTab.Machines -> MachinesBody(
                 padding = padding,
@@ -341,6 +342,7 @@ private fun SessionsBody(
     onAnswer: (AgentThread, AskOption) -> Unit,
     onRetry: () -> Unit,
     onPair: () -> Unit,
+    onOpenTerminal: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(padding)) {
         StatsRow(roster, latencyMs)
@@ -401,6 +403,7 @@ private fun SessionsBody(
                     enabled = !cardsLocked && selected?.isObserver != true,
                     onAnswer = { option -> onAnswer(thread, option) },
                     onOpen = { onOpenThread(thread) },
+                    onOpenTerminal = onOpenTerminal,
                 )
             }
         }
@@ -839,6 +842,7 @@ private fun DecisionPreview(
     enabled: Boolean,
     onAnswer: (AskOption) -> Unit,
     onOpen: () -> Unit,
+    onOpenTerminal: () -> Unit,
 ) {
     val ask = thread.ask ?: return
     val primary = recommendedOption(ask) ?: ask.options.firstOrNull()
@@ -868,11 +872,19 @@ private fun DecisionPreview(
                     modifier = Modifier.padding(top = 12.dp),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onTertiaryContainer,
-                    maxLines = 3,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (primary != null || secondary != null) {
+            if (ask.options.isEmpty()) {
+                FilledTonalButton(
+                    onClick = onOpenTerminal,
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(48.dp),
+                ) {
+                    Text(stringResource(R.string.answer_in_terminal))
+                }
+            } else if (primary != null || secondary != null) {
                 Row(
                     Modifier.fillMaxWidth().padding(top = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

@@ -630,12 +630,19 @@ struct SessionListView: View {
             if let question = SessionListKt.decisionQuestionText(thread: thread) {
                 Text(question)
                     .font(.system(size: 18, weight: .semibold))
-                    .lineLimit(3)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                     .onTapGesture { onOpen(thread) }
             }
             HStack(spacing: 8) {
+                if options.isEmpty {
+                    Button("去终端回答", action: onTerminal)
+                        .buttonStyle(.borderedProminent)
+                        .tint(Self.decide)
+                        .disabled(!canAnswer(thread))
+                }
                 if let primary {
                     Button(primary.label) { onAnswer(thread, primary) }
                         .buttonStyle(.borderedProminent)
@@ -644,27 +651,19 @@ struct SessionListView: View {
                         .lineLimit(1)
                 }
                 if let secondary {
-                    if secondary.tone == .destructive {
-                        Button(secondary.label) { onAnswer(thread, secondary) }
-                            .buttonStyle(.bordered)
-                            .tint(.red)
-                            .disabled(!canAnswer(thread))
+                    Button {
+                        onAnswer(thread, secondary)
+                    } label: {
+                        Text(secondary.label)
+                            .font(.body.weight(.semibold))
                             .lineLimit(1)
-                    } else {
-                        Button {
-                            onAnswer(thread, secondary)
-                        } label: {
-                            Text(secondary.label)
-                                .font(.body.weight(.semibold))
-                                .lineLimit(1)
-                                .foregroundStyle(Color.primary)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(Color(.tertiarySystemFill), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!canAnswer(thread))
+                            .foregroundStyle(Color.primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color(.tertiarySystemFill), in: Capsule())
                     }
+                    .buttonStyle(.plain)
+                    .disabled(!canAnswer(thread))
                 }
                 Spacer(minLength: 0)
                 Button {
