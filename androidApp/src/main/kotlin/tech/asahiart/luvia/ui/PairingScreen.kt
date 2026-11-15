@@ -208,10 +208,10 @@ private fun PairingStart(
             Modifier.selectableGroup(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            RoleChip(stringResource(R.string.role_controller), pairingRoleIsSelected(role, HostRole.Controller)) {
+            RoleChip(stringResource(R.string.role_controller), role == HostRole.Controller) {
                 role = HostRole.Controller
             }
-            RoleChip(stringResource(R.string.role_observer), pairingRoleIsSelected(role, HostRole.Observer)) {
+            RoleChip(stringResource(R.string.role_observer), role == HostRole.Observer) {
                 role = HostRole.Observer
             }
         }
@@ -239,13 +239,7 @@ private fun RoleChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** TalkBack selection for the controller/observer chips. Exclusive: one role is selected. */
-internal fun pairingRoleIsSelected(current: HostRole, choice: HostRole): Boolean = current == choice
-
-/**
- * Approved `lv-and-01-pair` fills only the latest entered tile.
- * An empty field still marks the first tile, which is the insertion slot.
- */
+/** Latest entered tile, or the first tile when the field is empty. */
 internal fun pairingTileHighlighted(index: Int, enteredLength: Int): Boolean {
     if (enteredLength <= 0) return index == 0
     return index == enteredLength - 1

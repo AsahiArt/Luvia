@@ -2,9 +2,6 @@ package tech.asahiart.luvia.ui
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
-import tech.asahiart.luvia.HostRole
 import tech.asahiart.luvia.SHORT_CODE_LENGTH
 
 class PairingScreenRulesTest {
@@ -28,18 +25,6 @@ class PairingScreenRulesTest {
             assertEquals(1, highlighted.size)
             assertEquals(if (length == 0) 0 else length - 1, highlighted.single())
         }
-    }
-
-    @Test
-    fun roleSelectionIsExclusive() {
-        for (current in listOf(HostRole.Controller, HostRole.Observer)) {
-            val selected = listOf(HostRole.Controller, HostRole.Observer).filter { choice ->
-                pairingRoleIsSelected(current, choice)
-            }
-            assertEquals(listOf(current), selected)
-        }
-        assertTrue(pairingRoleIsSelected(HostRole.Observer, HostRole.Observer))
-        assertFalse(pairingRoleIsSelected(HostRole.Observer, HostRole.Controller))
     }
 
     private fun highlightedIndexes(length: Int): List<Int> =
