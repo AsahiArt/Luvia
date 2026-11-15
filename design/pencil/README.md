@@ -1,8 +1,27 @@
+# 待验收：当前 `luvia.pen` 不是已通过的设计验收稿
+
+**PENDING ACCEPTANCE.** 2026-11-15 归档的是 2026-11-13 原生化修订。上传到 `design/pencil` **不代表设计验收通过**，也不要把当前 `luvia.pen` 整份标成已定稿。
+
+| 文件 | 角色 | sha256 | 状态 |
+|---|---|---|---|
+| `luvia.pen` | 2026-11-13 01:12（Asia/Shanghai）原生化修订，2050190 bytes | `d4744771c549a8c34f368d40399f571326f125efac232a9e740d21373b352d14` | **待设计验收**。不是新的实现基准。 |
+| `luvia-ba9bd691-approved-baseline.pen` | 2026-11-10 已定稿源稿的工作区副本，与入库时的 `luvia.pen` 逐字节相同（1811557 bytes，git blob `fda8735d28a24d81a22063b8b928d4e6bacc74ea`） | `ba9bd6910bb2933bdaed94f8543629a38ade95bc9bfe69b56d9fa822edb9a1b2` | **已定稿源稿**。实现与视觉核对仍以它为准。 |
+
+`png/`、`docs/`、`assets/`、`compare-small.png` 仍是上述 ba9bd 源稿的 2026-11-10 入库导出与文档，**不是** d474 新导出，本归档保持逐字节不变。已定稿与待验收边界见 `STATUS-MARKERS.md`，22 个 screen frame 见 `frame-index.json`。
+
+下文从「Luvia · Pencil 设计稿（定稿）」起是 2026-11-10 已入库说明原文，验收依据未改写。
+
+---
+
 # Luvia · Pencil 设计稿（定稿）
 
 Luvia 定稿设计稿的 Pencil 版，按 Android（Material You）和 iOS（Liquid Glass）分开放，都是浅色帧，机器页另有深色帧。从原 HTML 稿逐元素重画：几何、颜色、字体、间距都取自 HTML/CSS 的计算值，HTML 是规格来源。字体：Android 用 Roboto，iOS 用 Inter 代替 SF Pro（原 HTML 在这台机器上就是渲染成 Inter），等宽用 JetBrains Mono，中文回落 Noto Sans SC，和原稿渲染一致。数值以 `docs/final-rev-HANDOFF.md` 为准，图和文冲突时按文。
 
 ## 文件
+
+- `luvia.pen`：当前文件是 2026-11-13 原生化修订（d474），**待设计验收**。见文首。
+- `luvia-ba9bd691-approved-baseline.pen`：2026-11-10 已定稿源稿副本（ba9bd）。不要只依赖 git 历史。
+- `STATUS-MARKERS.md`、`frame-index.json`：已定稿 / 待验收标记。上传不等于验收通过。
 
 - `luvia.pen`：Pencil 源文件（pen.dev 2.22）。每个分区是一个顶层灰底 frame，里面每张屏一个 frame，frame 名 = 下表「frame」列。
 - `png/<frame>.png`：Pencil 导出图，倍率与原稿 PNG 相同。
