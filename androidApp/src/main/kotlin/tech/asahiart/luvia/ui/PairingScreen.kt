@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -81,6 +82,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -202,9 +204,16 @@ private fun PairingStart(
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            RoleChip(stringResource(R.string.role_controller), role == HostRole.Controller) { role = HostRole.Controller }
-            RoleChip(stringResource(R.string.role_observer), role == HostRole.Observer) { role = HostRole.Observer }
+        Row(
+            Modifier.selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            RoleChip(stringResource(R.string.role_controller), pairingRoleIsSelected(role, HostRole.Controller)) {
+                role = HostRole.Controller
+            }
+            RoleChip(stringResource(R.string.role_observer), pairingRoleIsSelected(role, HostRole.Observer)) {
+                role = HostRole.Observer
+            }
         }
         if (error != null) {
             Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
@@ -221,12 +230,25 @@ private fun PairingStart(
 }
 
 @Composable
-private fun RoleChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    if (selected) {
-        Button(onClick = onClick, shape = RoundedCornerShape(20.dp)) { Text(label) }
+private fun RoleChip(label: String, isSelected: Boolean, onClick: () -> Unit) {
+    val semantics = Modifier.semantics { selected = isSelected }
+    if (isSelected) {
+        Button(onClick = onClick, modifier = semantics, shape = RoundedCornerShape(20.dp)) { Text(label) }
     } else {
-        FilledTonalButton(onClick = onClick, shape = RoundedCornerShape(20.dp)) { Text(label) }
+        FilledTonalButton(onClick = onClick, modifier = semantics, shape = RoundedCornerShape(20.dp)) { Text(label) }
     }
+}
+
+/** TalkBack selection for the controller/observer chips. Exclusive: one role is selected. */
+internal fun pairingRoleIsSelected(current: HostRole, choice: HostRole): Boolean = current == choice
+
+/**
+ * Approved `lv-and-01-pair` fills only the latest entered tile.
+ * An empty field still marks the first tile, which is the insertion slot.
+ */
+internal fun pairingTileHighlighted(index: Int, enteredLength: Int): Boolean {
+    if (enteredLength <= 0) return index == 0
+    return index == enteredLength - 1
 }
 
 @Composable
@@ -585,7 +607,6 @@ private fun ShortCodeEntry(
         } else {
             stringResource(R.string.pair_tiles_entered, digits)
         }
-    val active = digits.length.coerceAtMost(5)
     BasicTextField(
         state = state,
         inputTransformation = transformation,
@@ -618,13 +639,14 @@ private fun ShortCodeEntry(
                     repeat(6) { index ->
                         if (index == 3) Spacer(Modifier.width(10.dp))
                         val filled = index < digits.length
+                        val highlighted = pairingTileHighlighted(index, digits.length)
                         Box(
                             Modifier
                                 .padding(horizontal = 3.dp)
                                 .size(width = 46.dp, height = 60.dp)
                                 .clip(TileShapes[index])
                                 .background(
-                                    if (filled || index == active) {
+                                    if (highlighted) {
                                         MaterialTheme.colorScheme.primary
                                     } else {
                                         MaterialTheme.colorScheme.surface
@@ -635,7 +657,11 @@ private fun ShortCodeEntry(
                             if (filled) {
                                 Text(
                                     digits[index].toString(),
-                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    color = if (highlighted) {
+                                        MaterialTheme.colorScheme.onPrimary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    },
                                     style = MaterialTheme.typography.headlineMedium,
                                     fontFamily = LuviaTheme.mono,
                                     fontWeight = FontWeight.SemiBold,
