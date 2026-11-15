@@ -100,7 +100,7 @@ struct SessionListView: View {
 
     private var sessions: some View {
         let host = model.selectedHost
-        NavigationStack {
+        return NavigationStack {
             VStack(spacing: 0) {
                 if showsChrome {
                     sessionChrome
