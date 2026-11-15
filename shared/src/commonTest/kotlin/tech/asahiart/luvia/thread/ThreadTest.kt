@@ -12,19 +12,34 @@ import tech.asahiart.luvia.AcpTranscriptRole
 import tech.asahiart.luvia.AgentDetailState
 import tech.asahiart.luvia.AgentKind
 import tech.asahiart.luvia.AgentReadResult
+import tech.asahiart.luvia.AgentKey
 import tech.asahiart.luvia.AgentStatus
 import tech.asahiart.luvia.AgentSummary
 import tech.asahiart.luvia.ConnectionFreshness
 import tech.asahiart.luvia.HostUhpState
+import tech.asahiart.luvia.StoredPanePreview
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ThreadTest {
+    private fun hasTuiBlock(text: String?): Boolean =
+        text?.any { it.code in 0x2580..0x259F } == true
+
+    private val piStatusBar =
+        "↑248k ↓59k R11M CH99.6% " + "$" + "12.824 … grok-4.7-build-fast * high"
+
     private fun pane(id: String, status: AgentStatus, agent: String = "claude") =
         AgentSummary(paneId = id, name = null, status = status, agent = agent, workspaceId = "w1", workspaceName = "luvus")
+
+    private fun blockedAsk(transcript: String): Ask =
+        HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        ).threads("h").single().ask!!
 
     private fun acp(run: AcpRunState, permission: AcpPermissionRequest? = null) =
         AcpState(
@@ -49,16 +64,333 @@ class ThreadTest {
         val thread = state.threads("h").single()
         assertEquals("luvus", thread.projectLabel)
         assertEquals("Run migration? (y/n)", thread.ask?.question)
-        assertEquals(listOf("Yes", "No", "Enter", "Esc"), thread.ask?.options?.map { it.label })
+        assertEquals(listOf("Yes", "No"), thread.ask?.options?.map { it.label })
         assertEquals(AskAction.Prompt("y"), thread.ask?.options?.first()?.action)
+        assertTrue(thread.ask?.options?.none { it.recommended } == true)
         assertTrue(thread.commands().any { it.name == "/compact" })
     }
 
     @Test
-    fun blockedPaneWithoutTranscriptHasNoQuestion() {
+    fun blockedPaneWithoutTranscriptAsksToConfirm() {
         val thread = HostUhpState(agents = listOf(pane("p1", AgentStatus.Blocked))).threads("h").single()
-        assertNull(thread.ask?.question)
+        assertEquals(DECISION_QUESTION_FALLBACK, thread.ask?.question)
+        assertEquals(DECISION_QUESTION_FALLBACK, listTrail(thread, null).label)
         assertNull(HostUhpState(agents = listOf(pane("p2", AgentStatus.Working))).threads("h").single().ask)
+    }
+
+    @Test
+    fun decisionTextUsesPermissionTitle() {
+        val request = AcpPermissionRequest(
+            "r1", "Run command", null, null, null,
+            listOf(AcpPermissionOption("a", "Allow once", AcpPermissionKind.AllowOnce)),
+        )
+        val state = acp(AcpRunState.AwaitingPermission, request).copy(
+            transcript = listOf(
+                AcpTranscriptItem.Message("m", AcpTranscriptRole.Agent, piStatusBar, false),
+            ),
+        )
+        val thread = HostUhpState(acp = state).threads("h").single()
+        assertEquals("Run command", thread.ask?.question)
+        assertEquals("Run command", listTrail(thread, null).label)
+        assertEquals(piStatusBar, thread.summary)
+    }
+
+    @Test
+    fun decisionTextUsesAgentQuestionNotStatusBar() {
+        val question = "要把 TokenStore 拆成两个 actual 吗？"
+        val transcript = "先看代码。\n$question\n~/src/luvia (main)\n$piStatusBar\n"
+        val state = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        )
+        val thread = state.threads("h").single()
+        assertEquals(question, thread.ask?.question)
+        assertEquals(question, listTrail(thread, null).label)
+        assertEquals(piStatusBar, thread.summary)
+    }
+
+    @Test
+    fun decisionTextStripsLeadingPromptMarkers() {
+        val question = "要把 TokenStore 拆成两个 actual 并补齐 iOS 深色帧吗？"
+        val transcript = "› $question\n~/src/luvia (main)\n$piStatusBar\n"
+        assertEquals(question, decisionQuestionText(null, transcript))
+        assertEquals(
+            "Run migration now?",
+            decisionQuestionText(null, "? Run migration now?\n$piStatusBar\n"),
+        )
+        assertEquals(
+            "Allow editing build.gradle.kts?",
+            decisionQuestionText(null, "❯ Allow editing build.gradle.kts?\n$piStatusBar\n"),
+        )
+    }
+
+    @Test
+    fun decisionTextSkipsBareQuestionMarkLines() {
+        val question = "继续跑 assembleDebug 吗？"
+        val transcript = "$question\n?\n？\n? gradle\n~/src/luvia (main)\n$piStatusBar\n"
+        assertEquals(question, decisionQuestionText(null, transcript))
+        assertEquals(
+            DECISION_QUESTION_FALLBACK,
+            decisionQuestionText(null, "?\n？\n? gradle\n$piStatusBar\n"),
+        )
+    }
+
+    @Test
+    fun decisionTextSkipsClaudeOptionLines() {
+        val question = "Claude wants to edit shared/src/commonMain/kotlin/tech/asahiart/luvia/thread/AgentThread.kt. Allow?"
+        val transcript = """
+            |Looking at AgentThread.kt…
+            |$question
+            |
+            |❯ 1. Yes
+            |  2. No
+            |  3. Tell Claude what to do differently
+            |~/src/luvia (main)
+            |$piStatusBar
+            |""".trimMargin()
+        val state = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        )
+        val thread = state.threads("h").single()
+        assertEquals(question, thread.ask?.question)
+        assertEquals(question, listTrail(thread, null).label)
+        assertEquals(question, decisionQuestionText(null, transcript))
+    }
+
+    @Test
+    fun decisionTextSkipsCodexOptionLines() {
+        val question = "Run ./gradlew :shared:jvmTest?"
+        val transcript = """
+            |$question
+            |❯ 1. Allow once
+            |  2. Allow always
+            |  3. Deny
+            |1. Allow
+            |$piStatusBar
+            |""".trimMargin()
+        assertEquals(question, decisionQuestionText(null, transcript))
+    }
+
+    @Test
+    fun grokAskJoinsWrappedQuestionAndParsesOptions() {
+        val transcript = """
+            |  ┃
+            |  ┃  是否允许在这个仅用于终端帧探测的 /tmp 沙箱里创建仅含一行 probe 的 term-
+            |  ┃  probe.txt，且不会影响系统其他位置？
+            |  ┃
+            |  ┃
+            |  ┃  1 (○) 允许 (Recommended)    允许在该 /tmp 沙箱中创建仅含一行 probe 的 term
+            |  ┃                            probe.txt，不改动系统其他位置。
+            |  ┃  2 (○) 不允许                 不创建 term-probe.txt，也不对沙箱或系统其他位
+            |  ┃  z (○) Type your answer here
+            |  ┃
+            |  ┃  ↑/↓ navigate · y copy                                       Enter:submit
+            |  ┃
+            |  Tab:next answer  │  Esc:scrollback  │  Shift+x:dismiss
+            |""".trimMargin()
+        val question = "是否允许在这个仅用于终端帧探测的 /tmp 沙箱里创建仅含一行 probe 的 term-probe.txt，且不会影响系统其他位置？"
+        assertEquals(question, decisionQuestionText(null, transcript))
+        assertTrue(question.contains("term-probe.txt"))
+        assertTrue(question.contains("其他位置？"))
+        assertTrue(question.length > 40)
+        assertFalse(question.contains("┃"))
+        assertFalse(question.contains("│"))
+        val state = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        )
+        val ask = state.threads("h").single().ask!!
+        assertEquals(question, ask.question)
+        assertEquals(listOf("允许", "不允许"), ask.options.map { it.label })
+        assertEquals(listOf("1"), (ask.options[0].action as AskAction.Keys).keys.map { it.wire })
+        assertEquals(listOf("2"), (ask.options[1].action as AskAction.Keys).keys.map { it.wire })
+        assertEquals(listOf("z"), ask.freeTextNav!!.map { it.wire })
+        assertTrue(ask.options[0].recommended)
+        assertTrue(!ask.options[0].consequence.isNullOrBlank())
+        assertTrue(ask.options[0].consequence!!.contains("probe.txt"))
+        assertFalse(ask.options[1].recommended)
+        assertEquals(AskTone.Primary, ask.options[0].tone)
+        assertEquals(AskTone.Destructive, ask.options[1].tone)
+        val banned = listOf("Yes", "No", "Enter", "Esc", "z", "Tab", "submit", "scrollback", "dismiss", "navigate", "copy")
+        assertTrue(ask.options.none { opt -> banned.any { opt.label.contains(it, ignoreCase = true) } })
+        assertTrue(ask.options.none { it.label.contains("Shift") })
+    }
+
+    @Test
+    fun grokAskStripsBlockElementsFromOptions() {
+        val transcript = """
+            |  ┃
+            |  ┃  是否允许在这个仅用于终端帧探测的 /tmp 沙箱里创建仅含一行 probe 的 term-
+            |  ┃  probe.txt，且不会影响系统其他位置？
+            |  ┃
+            |  ┃  1 (○) 允许 (Recommended)    允许在该 /tmp 沙箱中创建仅含一行 probe 的 term
+            |  ┃                            probe.txt，不改动系统其他位置。█
+            |  ┃  2 (○) 不允许                 不创建 term-probe.txt█
+            |  ┃  z (○) Type your answer here
+            |""".trimMargin()
+        val question = "是否允许在这个仅用于终端帧探测的 /tmp 沙箱里创建仅含一行 probe 的 term-probe.txt，且不会影响系统其他位置？"
+        val ask = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        ).threads("h").single().ask!!
+        assertEquals(question, ask.question)
+        assertEquals(question, decisionQuestionText(null, transcript))
+        assertFalse(ask.question!!.contains("┃"))
+        assertFalse(ask.question!!.contains("│"))
+        assertFalse(hasTuiBlock(ask.question))
+        assertEquals(listOf("允许", "不允许"), ask.options.map { it.label })
+        assertEquals("不创建 term-probe.txt", ask.options[1].consequence)
+        assertTrue(ask.options[0].consequence!!.contains("term probe.txt"))
+        assertTrue(ask.options[0].consequence!!.contains("其他位置。"))
+        assertTrue(ask.options.all { opt ->
+            !opt.label.contains("█") &&
+                opt.consequence?.contains("█") != true &&
+                !hasTuiBlock(opt.label) &&
+                !hasTuiBlock(opt.consequence)
+        })
+    }
+
+    @Test
+    fun askOptionsStayInsideTheCurrentBlock() {
+        val transcript = """
+            |要删掉缓存吗？
+            |1 (○) Keep
+            |2 (○) Archive
+            |3 (○) Wipe
+            |已选择 Keep。
+            |
+            |是否继续跑测试？
+            |1 (○) 允许 (Recommended)    只跑当前模块
+            |2 (○) 不允许                 先停下来
+            |""".trimMargin()
+        val ask = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        ).threads("h").single().ask!!
+        assertEquals("是否继续跑测试？", ask.question)
+        assertEquals(listOf("允许", "不允许"), ask.options.map { it.label })
+        assertEquals(
+            listOf(listOf("1"), listOf("2")),
+            ask.options.map { (it.action as AskAction.Keys).keys.map { key -> key.wire } },
+        )
+        assertEquals(2, ask.options.size)
+        assertTrue(ask.options.none { it.label in setOf("Keep", "Archive", "Wipe") })
+    }
+
+    @Test
+    fun currentClaudeAskIgnoresOlderGrokOptions() {
+        val transcript = """
+            |要删掉缓存吗？
+            |1 (○) 保留
+            |2 (○) 覆盖
+            |3 (○) 稍后
+            |已拒绝。
+            |
+            |Run ./gradlew :shared:jvmTest?
+            |❯ 1. Yes
+            |  2. No
+            |""".trimMargin()
+        val ask = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        ).threads("h").single().ask!!
+        assertEquals("Run ./gradlew :shared:jvmTest?", ask.question)
+        assertEquals(listOf("Yes", "No"), ask.options.map { it.label })
+        assertEquals(AskAction.Keys(listOf(AgentKey.ENTER)), ask.options[0].action)
+        assertEquals(AskAction.Keys(listOf(AgentKey.DOWN, AgentKey.ENTER)), ask.options[1].action)
+        assertTrue(ask.options.none { it.label in setOf("保留", "覆盖", "稍后") })
+    }
+
+    @Test
+    fun tuiChromeKeepsInteriorPipesAndDropsBlocks() {
+        val transcript = """
+            |Ship a | b now?
+            |1 (○) 允许    keep a | b█
+            |2 (○) 不允许    不创建
+            |""".trimMargin()
+        val ask = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(transcript, AgentStatus.Blocked)),
+        ).threads("h").single().ask!!
+        assertEquals("Ship a | b now?", ask.question)
+        assertTrue(ask.question!!.contains("a | b"))
+        assertEquals("keep a | b", ask.options[0].consequence)
+        assertFalse(hasTuiBlock(ask.options[0].consequence))
+        assertFalse(ask.options[0].consequence!!.contains("█"))
+    }
+
+    @Test
+    fun grokAskUsesDirectNumberKeys() {
+        val transcript = """
+            |是否允许？
+            |1 (○) 允许
+            |2 (○) 不允许
+            |""".trimMargin()
+        val ask = blockedAsk(transcript)
+        assertEquals(listOf("允许", "不允许"), ask.options.map { it.label })
+        assertEquals(listOf("1"), (ask.options[0].action as AskAction.Keys).keys.map { it.wire })
+        assertEquals(listOf("2"), (ask.options[1].action as AskAction.Keys).keys.map { it.wire })
+
+        val filled = """
+            |是否允许？
+            |1 (○) 允许
+            |2 (●) 不允许
+            |""".trimMargin()
+        val filledAsk = blockedAsk(filled)
+        assertEquals(listOf("1"), (filledAsk.options[0].action as AskAction.Keys).keys.map { it.wire })
+        assertEquals(listOf("2"), (filledAsk.options[1].action as AskAction.Keys).keys.map { it.wire })
+    }
+
+    @Test
+    fun keysNavigateRelativeToCursorOnOption2() {
+        val claude = """
+            |是否允许？
+            |  1. 允许
+            |❯ 2. 不允许
+            |""".trimMargin()
+        val claudeAsk = blockedAsk(claude)
+        assertEquals(listOf("允许", "不允许"), claudeAsk.options.map { it.label })
+        assertEquals(AskAction.Keys(listOf(AgentKey.UP, AgentKey.ENTER)), claudeAsk.options[0].action)
+        assertEquals(AskAction.Keys(listOf(AgentKey.ENTER)), claudeAsk.options[1].action)
+    }
+
+    @Test
+    fun numberedBlockWithoutCursorHasNoPrompt() {
+        val transcript = """
+            |Run the tests?
+            |1. Yes
+            |2. No
+            |""".trimMargin()
+        val ask = blockedAsk(transcript)
+        assertEquals("Run the tests?", ask.question)
+        assertTrue(ask.options.isEmpty())
+        assertTrue(ask.options.none { it.action is AskAction.Prompt })
+    }
+
+    @Test
+    fun decisionTextDoesNotTunnelThroughUnrelatedProse() {
+        val transcript = """
+            |要把 TokenStore 拆成两个 actual 吗？
+            |我已经改完了，等编译结果。
+            |?
+            |? gradle
+            |1. Allow
+            |$piStatusBar
+            |""".trimMargin()
+        assertEquals(DECISION_QUESTION_FALLBACK, decisionQuestionText(null, transcript))
+    }
+
+    @Test
+    fun decisionTextFallsBackWhenOnlyStatusBar() {
+        val state = HostUhpState(
+            agents = listOf(pane("p1", AgentStatus.Blocked)),
+            panePreviews = mapOf("p1" to StoredPanePreview(piStatusBar, AgentStatus.Blocked)),
+        )
+        val thread = state.threads("h").single()
+        assertEquals(DECISION_QUESTION_FALLBACK, thread.ask?.question)
+        assertEquals(DECISION_QUESTION_FALLBACK, listTrail(thread, null).label)
+        assertEquals(piStatusBar, thread.summary)
     }
 
     @Test
@@ -106,6 +438,97 @@ class ThreadTest {
         t = t.recordMine("go").recordStatus(AgentStatus.Idle).markLastUnconfirmed()
         assertEquals(TimelineItem.Unconfirmed("p1", "go"), t.items[0])
         assertEquals(AgentStatus.Idle, (t.items[1] as TimelineItem.Status).status)
+    }
+
+    @Test
+    fun askSelectionBlockLeavesTheQuestion() {
+        val raw = """
+            |先看沙箱。
+            |  ┃  是否允许在这个仅用于终端帧探测的 /tmp 沙箱里创建仅含一行 probe 的 term-
+            |  ┃  probe.txt，且不会影响系统其他位置？
+            |  ┃
+            |  ┃  1 (○) 允许 (Recommended)    允许创建
+            |  ┃                            probe.txt，不改动系统其他位置。
+            |  ┃  2 (○) 不允许                 不创建
+            |  ┃  z (○) Type your answer here
+            |  ┃  ↑/↓ navigate · y copy                                       Enter:submit
+            |  Tab:next answer  │  Esc:scrollback  │  Shift+x:dismiss
+            |""".trimMargin()
+        val kept = withoutAskSelectionBlock(raw)
+        assertTrue(kept.contains("先看沙箱。"))
+        assertTrue(kept.contains("是否允许"))
+        assertTrue(kept.contains("term-"))
+        assertTrue(kept.contains("probe.txt，且不会影响系统其他位置？"))
+        assertFalse(kept.contains("(○)"))
+        assertFalse(kept.contains("不允许"))
+        assertFalse(kept.contains("Type your answer"))
+        assertFalse(kept.contains("navigate"))
+        assertFalse(kept.contains("Enter:submit"))
+        assertFalse(kept.contains("Tab:next"))
+        assertFalse(kept.contains("Shift+x"))
+        assertEquals("Run the tests?", withoutAskSelectionBlock("Run the tests?\n1. Yes\n2. No\n").trim())
+        assertEquals("先看代码。\n准备开始。", withoutAskSelectionBlock("先看代码。\n准备开始。"))
+    }
+
+    @Test
+    fun parsedAskHidesSelectionBlockInTheStream() {
+        val raw = """
+            |Allow editing build.gradle.kts?
+            |❯ 1. Yes
+            |  2. No
+            |""".trimMargin()
+        val stored = PaneTimeline().ingestTranscript(raw)
+        assertTrue((stored.items.single() as TimelineItem.Output).text.contains("1. Yes"))
+        val shown = stored.render(Ask("Allow editing build.gradle.kts?", emptyList()))
+        val prose = shown.filterIsInstance<TimelineItem.Output>().joinToString("\n") { it.text }
+        assertTrue(prose.contains("Allow editing build.gradle.kts?"))
+        assertFalse(prose.contains("1. Yes"))
+        assertFalse(prose.contains("2. No"))
+        assertTrue(shown.any { it is TimelineItem.AskCard })
+        val untouched = stored.render(null).filterIsInstance<TimelineItem.Output>().single().text
+        assertTrue(untouched.contains("1. Yes"))
+    }
+
+    @Test
+    fun parsedAskHidesThePromptBubble() {
+        val raw = """
+            |Running Write `ask-probe-2.txt`
+            |│
+            |│  > Allow Edit to /tmp/ask-probe-2.txt?
+            |""".trimMargin()
+        val prompt = "> Allow Edit to /tmp/ask-probe-2.txt?"
+        assertTrue(withoutAskSelectionBlock(raw).contains(prompt))
+        val shown = PaneTimeline().ingestTranscript(raw).render(Ask(prompt, emptyList()))
+        val prose = shown.filterIsInstance<TimelineItem.Output>().joinToString("\n") { it.text }
+        assertTrue(prose.contains("Running Write"))
+        assertFalse(prose.contains("Allow Edit"))
+        assertFalse(prose.contains(">"))
+        assertFalse(prose.contains("│"))
+        assertTrue(shown.any { it is TimelineItem.AskCard })
+    }
+
+    @Test
+    fun parsedAskStripsOnlyTheLastOutput() {
+        val earlier = "下一步：\n1. 先看代码\n2. 再跑测试\n> 要继续吗？"
+        val last = """
+            |Allow editing build.gradle.kts?
+            |❯ 1. Yes
+            |  2. No
+            |""".trimMargin()
+        val stored = PaneTimeline(
+            items = listOf(
+                TimelineItem.Output("earlier", earlier),
+                TimelineItem.Output("last", last),
+            ),
+        )
+        val shown = stored.render(Ask("Allow editing build.gradle.kts?", emptyList()))
+        val earlierShown = shown.filterIsInstance<TimelineItem.Output>().single { it.id == "earlier" }
+        val lastShown = shown.filterIsInstance<TimelineItem.Output>().single { it.id == "last" }
+        assertEquals(earlier, earlierShown.text)
+        assertFalse(lastShown.text.contains("1. Yes"))
+        assertFalse(lastShown.text.contains("2. No"))
+        assertTrue(lastShown.text.contains("Allow editing build.gradle.kts?"))
+        assertTrue(shown.any { it is TimelineItem.AskCard })
     }
 
     @Test

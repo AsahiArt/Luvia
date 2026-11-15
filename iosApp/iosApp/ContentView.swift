@@ -7,7 +7,9 @@ struct ContentView: View {
     @State private var stage = "sessions"
     @State private var terminalReturn = "sessions"
     @State private var threadID: String?
-    @State private var filter: SessionFilter = .all
+    @State private var filterRevision = 0
+    @State private var filtersHighlighted = false
+    @State private var highlightTask: _Concurrency.Task<Void, Never>?
     @State private var showSettings = false
     @State private var showNewSession = false
     @State private var cwd = ""
@@ -15,8 +17,10 @@ struct ContentView: View {
     @State private var userOpenedPairing = false
     #if DEBUG
     @State private var fixturePaneID = ""
+    @AppStorage("luvia.debug.noncursorFixture") private var showNoncursorFixture = false
     #endif
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         LuviaGlassContainer {
@@ -60,7 +64,7 @@ struct ContentView: View {
         }
         .onChange(of: model.pendingOpenAgentID) { _, id in
             guard let id else { return }
-            if let thread = allThreads.first(where: { $0.id == id || $0.paneId == id }) {
+            if let thread = catalog.first(where: { $0.id == id || $0.paneId == id }) {
                 open(thread)
                 model.pendingOpenAgentID = nil
             }
@@ -83,6 +87,9 @@ struct ContentView: View {
             PairingView(
                 model: model,
                 onPaired: {
+                    if let id = model.selectedHostID {
+                        noteHostSwitch(id)
+                    }
                     userOpenedPairing = false
                     stage = "sessions"
                 },
@@ -133,10 +140,23 @@ struct ContentView: View {
                     model: model,
                     threads: visibleThreads,
                     pending: pending,
-                    filter: filter,
-                    roster: SessionListKt.sessionRoster(threads: allThreads),
+                    filter: currentFilter,
+                    roster: SessionListKt.sessionRoster(threads: scopeThreads),
+                    scopePaths: HostFilterBridge.includingSelected(
+                        HostFilterBridge.paths(threads: realCatalog, hostId: model.selectedHostID),
+                        scope: currentFilter.scope
+                    ),
+                    scopeSubtitle: scopeSubtitle,
+                    sessionListLoading: sessionListLoading,
+                    homeDir: selectedHome,
+                    filtersHighlighted: filtersHighlighted,
+                    catalog: realCatalog,
+                    onlineHostIDs: onlineHostIDs,
                     trails: threadTrails,
-                    onFilter: { filter = $0 },
+                    onScope: rememberScope,
+                    onStatus: rememberStatus,
+                    onSelectHost: selectHost,
+                    onFocusFilter: focusFilter,
                     onOpen: open,
                     onAnswer: { thread, option in
                         #if DEBUG
@@ -148,10 +168,7 @@ struct ContentView: View {
                         userOpenedPairing = true
                         stage = "pair"
                     },
-                    onNewSession: {
-                        model.hostUhp()?.loadAcpAgents()
-                        showNewSession = true
-                    },
+                    onNewSession: beginNewSession,
                     onTerminal: { openTerminal(openThread?.paneId) },
                     onSettings: { showSettings = true },
                     showsChrome: stage != "terminal",
@@ -197,46 +214,114 @@ struct ContentView: View {
         }
     }
 
-    private var allThreads: [AgentThread] {
+    private var realCatalog: [AgentThread] {
         var raw: [AgentThread] = []
-        if let id = model.selectedHostID, let state = model.hostStates[id] {
-            raw = KotlinLists.array(state.threads(hostId: id) as Any)
+        for host in model.hosts {
+            guard let state = model.hostStates[host.id] else { continue }
+            let rows: [AgentThread] = KotlinLists.array(state.threads(hostId: host.id) as Any)
+            raw.append(contentsOf: rows)
         }
+        return raw
+    }
+
+    private var catalog: [AgentThread] {
+        var raw = realCatalog
         #if DEBUG
-        // Live host: real sessions only. Fixtures only when the selected host is not live
-        // (same gate as terminal fixtures), so DEBUG cannot masquerade as a real session.
-        if !hostIsLive {
-            let samples: [AgentThread] = KotlinLists.array(PlaytestChatKt.playtestThreads() as Any)
-            let now = Int64(Date().timeIntervalSince1970 * 1000)
-            let listSamples: [AgentThread] = KotlinLists.array(
-                PlaytestListKt.playtestListThreads(nowEpochMs: now) as Any
-            )
-            raw.append(contentsOf: samples)
-            raw.append(contentsOf: listSamples)
+        // Fixtures only when no host is paired (same gate as terminal fixtures).
+        // A paired host, even offline or with an invalid pairing, shows its cache only.
+        if usingTerminalFixture {
+            raw.append(contentsOf: unpairedDebugSamples)
+        }
+        if showNoncursorFixture {
+            raw.append(PlaytestChatKt.playtestNoncursorThread())
         }
         #endif
         if raw.isEmpty { return [] }
         return KotlinLists.array(SessionListKt.sortSessions(threads: raw) as Any)
     }
 
+    private var onlineHostIDs: Set<String> {
+        Set(model.hosts.filter { $0.connection == .live }.map(\.id))
+    }
+
+    private var arrivedThreads: [AgentThread] {
+        guard let id = model.selectedHostID else { return [] }
+        return realCatalog.filter { $0.hostId == id }
+    }
+
+    private var currentFilter: HostSessionFilter {
+        _ = filterRevision
+        let stored = HostFilterBridge.stored(for: model.selectedHostID)
+        let arrived = arrivedThreads
+        if let id = model.selectedHostID {
+            HostFilterBridge.noteArrived(hostId: id, threads: arrived)
+        }
+        return HostFilterBridge.displayed(stored, threads: arrived, hostId: model.selectedHostID)
+    }
+
+    private var sessionListLoading: Bool {
+        guard model.selectedHost != nil else { return false }
+        return HostSessionFilterKt.hostSessionListLoading(
+            sessionCount: Int32(arrivedThreads.count),
+            connectionLive: model.selectedHost?.connection == .live
+        )
+    }
+
+    private var scopeThreads: [AgentThread] {
+        let scoped = HostFilterBridge.sessions(
+            threads: realCatalog,
+            hostId: model.selectedHostID,
+            scope: currentFilter.scope,
+            status: .all,
+            online: onlineHostIDs
+        )
+        #if DEBUG
+        var rows = scoped
+        if usingTerminalFixture {
+            rows.append(contentsOf: unpairedDebugSamples)
+        }
+        if showNoncursorFixture {
+            rows.append(PlaytestChatKt.playtestNoncursorThread())
+        }
+        return rows
+        #else
+        return scoped
+        #endif
+    }
+
     private var visibleThreads: [AgentThread] {
-        KotlinLists.array(SessionListKt.filterSessions(threads: allThreads, filter: filter) as Any)
+        KotlinLists.array(SessionListKt.filterSessions(threads: scopeThreads, filter: currentFilter.status) as Any)
     }
 
     private var pending: [AgentThread] {
-        KotlinLists.array(SessionListKt.filterSessions(threads: allThreads, filter: .needsYou) as Any)
+        KotlinLists.array(SessionListKt.filterSessions(threads: scopeThreads, filter: .needsYou) as Any)
+    }
+
+    private var scopeSubtitle: String {
+        switch onEnum(of: currentFilter.scope) {
+        case .allOnline:
+            return "全部在线主机"
+        case .currentHost:
+            return model.selectedHost?.name ?? "这台电脑"
+        case .path(let path):
+            return HostFilterBridge.relative(path.cwd, home: selectedHome)
+        }
     }
 
     private var threadTrails: [String: TrailThumb] {
         var map: [String: TrailThumb] = [:]
-        if let id = model.selectedHostID, let state = model.hostStates[id] {
-            let rows: [ThreadTrail] = KotlinLists.array(SessionListKt.threadTrails(state: state, threads: allThreads) as Any)
+        for host in model.hosts {
+            guard let state = model.hostStates[host.id] else { continue }
+            let owned = realCatalog.filter { $0.hostId == host.id }
+            let rows: [ThreadTrail] = KotlinLists.array(
+                SessionListKt.threadTrails(state: state, threads: owned) as Any
+            )
             for row in rows {
                 map[row.threadId] = row.thumb
             }
         }
         #if DEBUG
-        if !hostIsLive {
+        if usingTerminalFixture {
             let samples: [ThreadTrail] = KotlinLists.array(PlaytestListKt.playtestListTrails() as Any)
             for row in samples where map[row.threadId] == nil {
                 map[row.threadId] = row.thumb
@@ -247,20 +332,92 @@ struct ContentView: View {
     }
 
     private var openThread: AgentThread? {
-        allThreads.first { $0.id == threadID }
+        catalog.first { $0.id == threadID }
+    }
+
+    private var selectedHome: String? {
+        guard let host = model.selectedHost else { return nil }
+        let paths = realCatalog.compactMap { $0.hostId == host.id ? $0.cwd : nil }
+        return HostFilterBridge.homeDirectory(username: host.username, paths: paths)
+    }
+
+    private func noteHostSwitch(_ hostId: String) {
+        _ = HostFilterBridge.switched(to: hostId)
+        filterRevision += 1
+    }
+
+    private func rememberScope(_ scope: SessionScope) {
+        guard let id = model.selectedHostID else { return }
+        HostFilterBridge.remember(
+            HostFilterBridge.make(scope: scope, status: currentFilter.status),
+            hostId: id
+        )
+        filterRevision += 1
+    }
+
+    private func rememberStatus(_ status: SessionFilter) {
+        guard let id = model.selectedHostID else { return }
+        HostFilterBridge.remember(
+            HostFilterBridge.make(scope: currentFilter.scope, status: status),
+            hostId: id
+        )
+        filterRevision += 1
+    }
+
+    private func selectHost(_ host: HostViewState) {
+        guard host.id != model.selectedHostID else { return }
+        noteHostSwitch(host.id)
+        model.select(host)
+    }
+
+    private func focusFilter(_ host: HostViewState, _ scope: SessionScope, _ status: SessionFilter) {
+        if host.id != model.selectedHostID {
+            model.select(host)
+        }
+        HostFilterBridge.remember(HostFilterBridge.make(scope: scope, status: status), hostId: host.id)
+        filterRevision += 1
+        flashFilters()
+    }
+
+    private func flashFilters() {
+        guard !reduceMotion else { return }
+        filtersHighlighted = true
+        highlightTask?.cancel()
+        highlightTask = _Concurrency.Task { @MainActor in
+            try? await _Concurrency.Task.sleep(nanoseconds: 600_000_000)
+            guard !_Concurrency.Task.isCancelled else { return }
+            filtersHighlighted = false
+        }
+    }
+
+    private func beginNewSession() {
+        model.hostUhp()?.loadAcpAgents()
+        if case .path(let path) = onEnum(of: currentFilter.scope) {
+            cwd = path.cwd
+        } else {
+            cwd = ""
+        }
+        showNewSession = true
     }
 
     #if DEBUG
-    private var hostIsLive: Bool {
-        model.selectedHost?.connection == .live
+    /// Playtest rows. Callers may append them only from `usingTerminalFixture`.
+    private var unpairedDebugSamples: [AgentThread] {
+        let samples: [AgentThread] = KotlinLists.array(PlaytestChatKt.playtestThreads() as Any)
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let listSamples: [AgentThread] = KotlinLists.array(
+            PlaytestListKt.playtestListThreads(nowEpochMs: now) as Any
+        )
+        return samples + listSamples
     }
     #endif
 
-    /// Sample panes and a failed capture, only when this build is DEBUG and
-    /// the selected host is not live. Release never reads the fixture.
+    /// Sample sessions, panes, and a failed capture, only when this build is DEBUG
+    /// and the catalog has loaded with no paired host. Release never reads the fixture.
+    /// An empty host list before the catalog emits is not "unpaired".
     private var usingTerminalFixture: Bool {
         #if DEBUG
-        return !hostIsLive
+        return model.hostsReady && model.hosts.isEmpty
         #else
         return false
         #endif
@@ -311,13 +468,7 @@ struct ContentView: View {
     }
 
     private var decisionCount: Int {
-        #if DEBUG
-        if hostIsLive {
-            let real = pending.filter { !isPlaytestSample($0.id) }
-            if !real.isEmpty { return real.count }
-        }
-        #endif
-        return pending.count
+        pending.count
     }
 
     private var canHandFix: Bool {
@@ -328,20 +479,17 @@ struct ContentView: View {
         return false
     }
 
-    /// The decision tied to this terminal, else the first real waiting session.
-    /// Debug builds with no live host use the TokenStore sample so the capsule can be shot.
+    /// The decision tied to this terminal, else the first waiting session.
+    /// With no paired host, a debug build uses the TokenStore sample so the capsule can be shot.
     private var waitingThread: AgentThread? {
         if let linked = linkedPending() { return linked }
         #if DEBUG
-        let real = pending.filter { !isPlaytestSample($0.id) }
-        if hostIsLive, let first = real.first { return first }
-        if let sample = pending.first(where: { $0.id == PlaytestChatKt.PLAYTEST_DECIDE_ID }) {
+        if usingTerminalFixture,
+           let sample = pending.first(where: { $0.id == PlaytestChatKt.PLAYTEST_DECIDE_ID }) {
             return sample
         }
-        return real.first ?? pending.first
-        #else
-        return pending.first
         #endif
+        return pending.first
     }
 
     private var waitingTitle: String? {
@@ -367,21 +515,8 @@ struct ContentView: View {
         let byThread = threadID.flatMap { id in
             pending.first { $0.id == id }
         }
-        let match = byPane ?? byThread
-        #if DEBUG
-        if hostIsLive, let match, isPlaytestSample(match.id) { return nil }
-        #endif
-        return match
+        return byPane ?? byThread
     }
-
-    #if DEBUG
-    private func isPlaytestSample(_ id: String) -> Bool {
-        if PlaytestChatKt.isPlaytestThread(id: id) { return true }
-        if PlaytestListKt.isPlaytestListThread(id: id) { return true }
-        if PlaytestTerminalKt.isPlaytestPane(id: id) { return true }
-        return false
-    }
-    #endif
 
     private func selectPane(_ id: String) {
         #if DEBUG
@@ -460,6 +595,9 @@ struct ContentView: View {
         }
         #endif
         if let host = model.hosts.first(where: { $0.id == thread.hostId }) {
+            if model.selectedHostID != host.id {
+                noteHostSwitch(host.id)
+            }
             model.select(host)
         }
         model.uhpRegistry.markViewed(thread: thread)
@@ -533,6 +671,10 @@ private struct SettingsForm: View {
     @State private var addresses = ""
     @State private var port = ""
     @State private var user = ""
+    #if DEBUG
+    @AppStorage("luvia.debug.noncursorFixture") private var showNoncursorFixture = false
+    @AppStorage(MachinesPageFixture.key) private var machinesFixture = MachinesPageFixture.off.rawValue
+    #endif
 
     var body: some View {
         Form {
@@ -584,6 +726,19 @@ private struct SettingsForm: View {
                 Section {
                     Button("取消配对", role: .destructive, action: onUnpair)
                 }
+                #if DEBUG
+                Section {
+                    Toggle("显示「去终端回答」试玩卡", isOn: $showNoncursorFixture)
+                    Picker("机器页", selection: $machinesFixture) {
+                        Text("关").tag(MachinesPageFixture.off.rawValue)
+                        Text("未配对空态").tag(MachinesPageFixture.empty.rawValue)
+                        Text("当前主机离线").tag(MachinesPageFixture.currentOffline.rawValue)
+                    }
+                    .pickerStyle(.inline)
+                } footer: {
+                    Text("调试样本，不是这台电脑上的会话。编号列表没有光标，卡片只有去终端回答。")
+                }
+                #endif
             }
         }
         .navigationTitle(model.selectedHost?.name ?? "电脑")
