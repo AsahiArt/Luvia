@@ -547,7 +547,7 @@ private fun PairingRitual(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .padding(top = 8.dp, bottom = 16.dp)
+                .padding(top = 8.dp)
                 .height(56.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {

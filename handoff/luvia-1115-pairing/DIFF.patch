@@ -1,5 +1,5 @@
 diff --git a/androidApp/src/main/kotlin/tech/asahiart/luvia/ui/PairingScreen.kt b/androidApp/src/main/kotlin/tech/asahiart/luvia/ui/PairingScreen.kt
-index 2f342a4..7be6ffb 100644
+index 2f342a4..694abe0 100644
 --- a/androidApp/src/main/kotlin/tech/asahiart/luvia/ui/PairingScreen.kt
 +++ b/androidApp/src/main/kotlin/tech/asahiart/luvia/ui/PairingScreen.kt
 @@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
@@ -64,6 +64,15 @@ index 2f342a4..7be6ffb 100644
  @Composable
  private fun PairingRitual(
      pairing: PairingUiState,
+@@ -531,7 +547,7 @@ private fun PairingRitual(
+             Modifier
+                 .fillMaxWidth()
+                 .padding(horizontal = 16.dp)
+-                .padding(top = 8.dp, bottom = 16.dp)
++                .padding(top = 8.dp)
+                 .height(56.dp),
+             horizontalArrangement = Arrangement.spacedBy(2.dp),
+         ) {
 @@ -585,7 +601,6 @@ private fun ShortCodeEntry(
          } else {
              stringResource(R.string.pair_tiles_entered, digits)
@@ -141,10 +150,10 @@ index 0000000..5a434ea
 +}
 diff --git a/handoff/luvia-1115-pairing/GAP-MATRIX.md b/handoff/luvia-1115-pairing/GAP-MATRIX.md
 new file mode 100644
-index 0000000..eeacd85
+index 0000000..7964c33
 --- /dev/null
 +++ b/handoff/luvia-1115-pairing/GAP-MATRIX.md
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,94 @@
 +# Pairing page gap matrix · 2026-11-15
 +
 +Written before source edits. Base is PR59 `fe3a4da0185b95a116f81af0a959ca5cc712dfba` (tree `9e200ab9bc9475b6042dc2cc603f054e96398404`), clean. No merge or rebase of PRs 52 / 53 / 58 / 59.
@@ -160,19 +169,28 @@ index 0000000..eeacd85
 +
 +UX text: `docs/wow-CONCLUSION.md` (iOS pairing stays dark stage + blue sphere), `docs/final-rev-CHANGES.md` (Android pairing is the full-screen frame; token seed unchanged), `design/pencil/README.md` (figure/text conflict follows the text). `frame-index.json` marks both frames `implement_now` and forbids d474 after images. No finalized frame for an expired or invalid code (`missing_or_not_finalized.pairing-expired-or-invalid`).
 +
-+Attached images match the orig-spec hashes above, not the checked-in exports. Pixel notes below are measurements only. They do not close old GAP5. The designer is still separating a 16 dp title/body inset from the frame’s 12 dp card.
++Designer clarification `PAIRING-GAP5-CLARIFICATION` (2026-11-15) is a spec note, not acceptance of this PR. CSS px on the 390×844 board are not native dp, and `@2x` PNG pixels are not dp evidence. Old GAP5 is not passed as a whole.
 +
-+## Old Android GAP5
++## Old GAP5 after the 2026-11-15 clarification
 +
-+Not closed. Screenshot pixels and the current source are not enough to call any of these resolved.
++Source of the four items: `GAP-android.md` for the device-name step, which that note itself says has no finalized frame. They are a designer supplement, not a Misaka-accepted frame.
 +
-+| Old item | What was measured | What the source does now | Status |
-+|---|---|---|---|
-+| 16 dp title/body alignment | On both Android PNGs the hero and fingerprint cards start at x=24 px (12 dp at `@2x`). Title glyphs start near x=111 px. | Ritual scroll is `padding(horizontal = 12.dp)`. Start step is 20 dp. | Open. Designer is clarifying 16 dp title/body against the 12 dp card. This page does not pick one. |
-+| Missing top app bar | Title band y=117–154 includes a back glyph and the title. | `Row` with back (`R.string.back`) when `onBack != null`, plus `R.string.pair_new_computer`. | Not treated as closed. Help is still missing from that row. |
-+| Missing help | Trailing circle about x=704–743, y=116–152. | No trailing control. | Open. Strings are not in this tree. See placement note. |
-+| Role explanation | The approved UX docs do not print the explanation. iOS `PairingView` has one hardcoded sentence. Android start step has `R.string.pair_intro` and the role labels. | Chips call `onBegin(label, role)`. | Open until `pair_role_note` exists on a known dependency SHA. |
-+| 56 dp full-width bottom CTA, 16 dp safe inset | Action row y=1528–1639 is 112 px. Widest outer span x=32–747. | `height(56.dp)`, horizontal 16 dp, bottom 16 dp, parent `navigationBarsPadding()`. | Not treated as closed from pixels or source alone. Padding was not edited. |
++| Item | Status | Evidence |
++|---|---|---|
++| Title and body share a 16 inset | Cancelled as a ritual-page change. Not a device-name spec. | Ritual `.scroll` is `padding:0 12px`. Hero and fingerprint cards are x=12, w=366. Title is board x=54, after the back control, not 16 from the screen edge. Source keeps `padding(horizontal = 12.dp)` on the ritual scroll. Device-name column stays `padding(horizontal = 20.dp)`. |
++| Add the next page’s TopAppBar | Cancelled. Do not add a second bar. | Ritual `.tab` is already back + `配对新电脑` + help, above `.scroll`. Source is that one `Row`, not a `TopAppBar`. |
++| Role note under the chips | Cancelled for this round. Copy is not finalized. | No device-name frame. Clarification does not set new wording. `pair_role_note` is not referenced. |
++| Full-width「开始配对」, 56 high, 16 above the safe area | Cancelled for the ritual page. Not applied to the device-name step. | Ritual bar is QR width 76 + confirm, height 56, row `padding:8px 16px 24px`. The 24 is the gesture overlay. Source: `width(76.dp)`, `height(56.dp)`, `padding(horizontal = 16.dp)`, `padding(top = 8.dp)`, parent `navigationBarsPadding()` once. The extra bottom 16 that used to sit outside that inset is removed. |
++
++## Still open, or missing evidence
++
++| Item | Status |
++|---|---|
++| Ritual help mark | The `.tab` includes `{help}` (Pencil x=350, 24×24). Behavior and wording are explicitly deferred. `pair_help` is not a finalized label, so this page does not reference it. The `Row` still has back and title only. |
++| `pair_help`, `pair_role_note` | Present via merge of `1c429da2a9616caabfc76c7029330de853adaf16` (tree `dfafa60ac2715358b89306e84187346fba127cf8`). Unused by this page. Shared owner can remove them. `strings.xml` was not edited here. |
++| Fingerprint inner padding | HTML is `padding:14px 16px` (16 is inside the card). Source is `padding(14.dp)` on all sides. Not changed: board px are not automatically dp, and this note does not order a 16 rewrite. |
++| Device-name / role step | No finalized frame. Left as it was. |
++| iOS compile, both-platform real sessions, design and architecture review | Still open. This clarification is not PR 62 acceptance. |
 +
 +## Other proven source gaps
 +
@@ -201,24 +219,19 @@ index 0000000..eeacd85
 +| Android Kotlin compile | `:androidApp:compileDebugKotlin` plus the unit-test compile | No SDK install and no license acceptance. |
 +| Swift compile / XCTest / simulator | — | Not available on this Linux host. iOS is not built, not tested, and not approved. |
 +
-+## Help placement (not built in this commit)
++## Ritual padding literals after this correction
 +
-+Shared owner `bc-fdcabbd6` is adding `pair_help` and `pair_role_note` on the integration branch. No dependency SHA was in this run. This branch does not reference those keys and does not edit `strings.xml`.
++Board numbers below are CSS px on the 390×844 artboard. The Kotlin literals are what the file writes. They are not a claim that px equals dp, and not a visual pass.
 +
-+Where the control goes once that SHA is on this branch:
-+
-+- Android: trailing icon on the existing top `Row` in `PairingScreen` (back, then `R.string.pair_new_computer`). That row is outside the draft split, so it shows on the start step and the ritual. The ritual is the frame that has the circle. The panel it opens is the device-name field and the two role chips already in `PairingStart`, plus the role note. It should not be a second copy of the ritual scroll.
-+- iOS: already placed. `chrome` is an `HStack` with `.padding(.horizontal, 16)` and `.padding(.top, 8)`; `helpButton` is the trailing `questionmark` control. It toggles `setupLayer` / `setupCard` (device name, role chips, and the note sentence). Role chips already use `.isSelected`.
-+
-+Written UX docs do not specify that control or that sentence:
-+
-+- `design/pencil/docs/wow-CONCLUSION.md` only keeps iOS pairing on the dark stage and blue sphere.
-+- `design/pencil/docs/final-rev-CHANGES.md` lists `android-01-pair` as the full-screen frame and does not mention help or a role sentence.
-+- `design/pencil/docs/final-rev-HANDOFF.md` has no pairing-help section.
-+- `design/pencil/README.md` points `lv-and-01-pair` at HTML that is not in the repo. Its UX excerpts do not mention help.
-+- `frame-index.json` gives both pairing frames the single state `pairing`.
-+
-+The label `设备名称和角色` and the sentence `名称和角色会写进配对命令。改完后，重新复制命令到电脑。` are the hardcoded iOS `PairingView` help label and `setupCard` text. They are not a checked-in UX document. Android `R.string.pair_intro` is a different sentence.
++| Layer | Source literal | Board note |
++|---|---|---|
++| Screen column | `statusBarsPadding()` | Status overlay is board height 36. Not a second top bar. |
++| Top row | No horizontal padding. Back is an `IconButton` when `onBack` is set, else `Spacer(width = 12.dp)`. Title `weight(1f)`. | `.tab` height 64, padding `0 4px`, gap 2. Title x=54. Help icon is in the HTML and is not drawn here. |
++| Ritual scroll | `padding(horizontal = 12.dp)` | `.scroll` `padding:0 12px`. Left at 12. |
++| Hero card | `padding(start = 18.dp, end = 18.dp, top = 18.dp, bottom = 22.dp)` | `padding:18px 18px 22px`. Unchanged. |
++| Fingerprint row | outer `padding(top = 10.dp)`, inner `padding(14.dp)` | Outer `margin-top:10px`. Inner HTML is `14px 16px`. Source stays 14 on every side. |
++| Action row | `padding(horizontal = 16.dp)`, `padding(top = 8.dp)`, `height(56.dp)`, QR `width(76.dp)`, parent `navigationBarsPadding()` | `padding:8px 16px 24px`, QR 76, button 56. The 24 is the gesture layer, applied once by `navigationBarsPadding()`. No extra bottom 16. |
++| Start step | `padding(horizontal = 20.dp)`, `navigationBarsPadding()`, begin button `height(56.dp)` | No finalized frame. Not restyled. |
 +
 +## Run record (this host)
 +
@@ -230,7 +243,7 @@ index 0000000..eeacd85
 +| `:androidApp:compileDebugKotlin` and `:androidApp:testDebugUnitTest` filtered to `PairingScreenRulesTest` | Did not compile or run. Same missing SDK during `:shared` configuration. Log: `logs/android-pairing-compile-and-unit.log`. |
 +| Swift compile / XCTest | Missing. iOS is not built, not tested, and not approved. |
 +
-+Thresholds in the existing pairing tests were not edited. CI for `1289abb9ed36d1e6d0c5b2b1a27a2324684f3993` was still in progress and is not a pass. The cleanup commit does not re-run those Gradle tasks.
++Thresholds in the existing pairing tests were not edited. CI for `1289abb` and `f6b0856` is not a pass. This correction does not re-run the missing-SDK Gradle configuration. Only CI on the new head counts. The strings merge is `1154474115aca4d228b079d5740ca05bc50aafe1`.
 +
 +## Gates left open
 +
