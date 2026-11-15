@@ -49,6 +49,18 @@ struct SessionListView: View {
     @State private var scopePathsExpanded = false
     @State private var scanning = false
     @State private var pairError: String?
+    @State private var deckIndex = 0
+    @State private var deckDrag: CGSize = .zero
+    @State private var deckDragging = false
+    @State private var deckPastSlop = false
+    @State private var deckFlying = false
+    @State private var deckAlpha = 1.0
+    @State private var deckScale: CGFloat = 1
+    @State private var deckFrozen: [AgentThread]?
+    @State private var deckCardSize: CGSize = .zero
+    @State private var listWidth: CGFloat = 0
+    @ScaledMetric(relativeTo: .headline) private var sessionTitleSize: CGFloat = 16
+    @ScaledMetric(relativeTo: .title3) private var decisionQuestionSize: CGFloat = 18
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
 
@@ -115,6 +127,14 @@ struct SessionListView: View {
             .background(Color(.systemGroupedBackground))
             .navigationTitle("会话")
             .navigationBarTitleDisplayMode(.large)
+            .onChange(of: visiblePending.map { "\($0.hostId):\($0.id)" }) { _, ids in
+                guard deckFrozen == nil else { return }
+                if ids.isEmpty {
+                    deckIndex = 0
+                } else if deckIndex >= ids.count {
+                    deckIndex = ids.count - 1
+                }
+            }
             .toolbar(showsChrome ? .visible : .hidden, for: .navigationBar)
             .toolbarTitleMenu { scopeMenu }
             .toolbar {
@@ -157,6 +177,28 @@ struct SessionListView: View {
     private var sessionChrome: some View {
         VStack(alignment: .leading, spacing: 8) {
             summaryRow
+            if searching {
+                TextField("搜索会话", text: $query)
+                    .textFieldStyle(.roundedBorder)
+            }
+            if showsDecisionStack {
+                HStack(alignment: .firstTextBaseline) {
+                    Button("等你决定 · \(deckThreads.count)") { onStatus(.needsYou) }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(needsYouColor)
+                        .buttonStyle(.plain)
+                    Spacer(minLength: 8)
+                    Menu {
+                        scopeMenu
+                    } label: {
+                        Text(scopeMenuTitle)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .lineLimit(1)
+                    }
+                }
+                stackedDecisions
+            }
             Picker("状态", selection: statusBinding) {
                 Text("全部 \(agentCount)").tag(SessionFilter.all)
                 Text("等你 \(waitingCount)").tag(SessionFilter.needsYou)
@@ -170,23 +212,18 @@ struct SessionListView: View {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .stroke(filtersHighlighted ? Color.accentColor : Color.clear, lineWidth: 2)
             }
-            if searching {
-                TextField("搜索会话", text: $query)
-                    .textFieldStyle(.roundedBorder)
-            }
-            if waitingCount > 0 && filter.status != .running && filter.status != .idle {
-                Button("等你决定 · \(waitingCount)") { onStatus(.needsYou) }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(needsYouColor)
-                    .buttonStyle(.plain)
-            }
-            if !visiblePending.isEmpty && filter.status != .running && filter.status != .idle {
-                stackedDecisions
-            }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
+        .coordinateSpace(name: "sessionList")
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(key: ListWidthKey.self, value: proxy.size.width)
+            }
+        }
+        .onPreferenceChange(ListWidthKey.self) { listWidth = $0 }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: filtersHighlighted)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: deckThreads.count)
     }
 
     private var sessionScroll: some View {
@@ -615,7 +652,7 @@ struct SessionListView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(thread.title)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: sessionTitleSize, weight: .semibold))
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     if let age = sessionAge(thread.updatedEpochMs) {
@@ -712,37 +749,67 @@ struct SessionListView: View {
         return .secondary
     }
 
-    private var stackedDecisions: some View {
-        ZStack(alignment: .bottom) {
-            if visiblePending.count > 2 {
-                stackRim(inset: 28, opacity: 0.15)
-                    .offset(y: 20)
-            }
-            if visiblePending.count > 1 {
-                stackRim(inset: 14, opacity: 0.28)
-                    .offset(y: 10)
-            }
-            decisionCard(visiblePending[0])
-                .padding(.horizontal, 16)
+    private var showsDecisionStack: Bool {
+        !deckThreads.isEmpty && filter.status != .running && filter.status != .idle
+    }
+
+    private var deckThreads: [AgentThread] {
+        deckFrozen ?? visiblePending
+    }
+
+    private var scopeMenuTitle: String {
+        if HostFilterBridge.isAllOnline(filter.scope) { return "全部" }
+        if HostFilterBridge.isCurrentHost(filter.scope) {
+            return model.selectedHost?.name ?? "这台电脑"
         }
-        .padding(.bottom, visiblePending.count > 1 ? 24 : 8)
-        .padding(.top, 8)
+        return scopeSubtitle
+    }
+
+    private var stackedDecisions: some View {
+        let threads = deckThreads
+        let index = threads.isEmpty ? 0 : min(deckIndex, threads.count - 1)
+        let peek = decisionDeckPeekCount(index: index, count: threads.count)
+        let counter = threads.count > 1 ? "\(index + 1)/\(threads.count)" : nil
+        return ZStack(alignment: .top) {
+            ForEach(Array((0..<peek).reversed()), id: \.self) { layer in
+                decisionCard(
+                    threads[index + layer + 1],
+                    counter: nil,
+                    interactive: false
+                )
+                .scaleEffect(layer == 0 ? 0.96 : 0.92, anchor: .bottom)
+                .offset(y: layer == 0 ? 6 : 12)
+                .opacity(layer == 0 ? 0.72 : 0.45)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+            if threads.indices.contains(index) {
+                decisionCard(threads[index], counter: counter, interactive: true)
+                    .offset(deckDrag)
+                    .scaleEffect(deckScale)
+                    .opacity(deckAlpha)
+                    .rotationEffect(
+                        .degrees(deckRotation(count: threads.count)),
+                        anchor: .center
+                    )
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.preference(key: DeckSizeKey.self, value: proxy.size)
+                        }
+                    }
+                    .onPreferenceChange(DeckSizeKey.self) { deckCardSize = $0 }
+                    .simultaneousGesture(deckDragGesture(count: threads.count))
+                    .accessibilityElement(children: .contain)
+                    .accessibilityAction(named: "下一张") { stepDeck(by: 1) }
+                    .accessibilityAction(named: "上一张") { stepDeck(by: -1) }
+            }
+        }
+        .padding(.bottom, peek > 0 ? 12 : 0)
+        .padding(.top, 4)
         .modifier(DecisionLock(locked: decisionsLocked, label: decisionLockLabel))
     }
 
-    private func stackRim(inset: CGFloat, opacity: Double) -> some View {
-        RoundedRectangle(cornerRadius: 26, style: .continuous)
-            .fill(Color(.systemBackground))
-            .overlay(
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .stroke(Self.decide.opacity(opacity), lineWidth: 1)
-            )
-            .frame(height: 36)
-            .padding(.horizontal, 16 + inset)
-            .allowsHitTesting(false)
-    }
-
-    private func decisionCard(_ thread: AgentThread) -> some View {
+    private func decisionCard(_ thread: AgentThread, counter: String?, interactive: Bool) -> some View {
         let ask = thread.ask
         let options: [AskOption] = KotlinLists.array(ask?.options as Any)
         let primary = ask.flatMap { SessionListKt.recommendedOption(ask: $0) } ?? options.first
@@ -770,33 +837,50 @@ struct SessionListView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                if let counter {
+                    Text(counter)
+                        .font(.caption.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(Self.decide)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Self.decide.opacity(0.14), in: Capsule())
+                        .accessibilityHidden(true)
+                }
             }
             if let question = SessionListKt.decisionQuestionText(thread: thread) {
                 Text(question)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: decisionQuestionSize, weight: .semibold))
                     .lineLimit(2)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
-                    .onTapGesture { onOpen(thread) }
+                    .onTapGesture {
+                        guard interactive, !deckPastSlop, !deckFlying else { return }
+                        onOpen(thread)
+                    }
+                    .accessibilityLabel(interactive ? deckSpokenLabel(thread, count: deckThreads.count) : question)
             }
             HStack(spacing: 8) {
                 if options.isEmpty {
-                    Button("去终端回答", action: onTerminal)
+                    Button("去终端回答") {
+                        guard interactive, !deckPastSlop else { return }
+                        onTerminal()
+                    }
                         .buttonStyle(.borderedProminent)
                         .tint(Self.decide)
-                        .disabled(!canAnswer(thread))
+                        .disabled(!interactive || !canAnswer(thread))
                 }
                 if let primary {
-                    Button(primary.label) { onAnswer(thread, primary) }
+                    Button(primary.label) { commitAnswer(thread, primary) }
                         .buttonStyle(.borderedProminent)
                         .tint(Self.decide)
-                        .disabled(!canAnswer(thread))
+                        .disabled(!interactive || !canAnswer(thread))
                         .lineLimit(1)
                 }
                 if let secondary {
                     Button {
-                        onAnswer(thread, secondary)
+                        commitAnswer(thread, secondary)
                     } label: {
                         Text(secondary.label)
                             .font(.body.weight(.semibold))
@@ -807,10 +891,11 @@ struct SessionListView: View {
                             .background(Color(.tertiarySystemFill), in: Capsule())
                     }
                     .buttonStyle(.plain)
-                    .disabled(!canAnswer(thread))
+                    .disabled(!interactive || !canAnswer(thread))
                 }
                 Spacer(minLength: 0)
                 Button {
+                    guard interactive, !deckPastSlop, !deckFlying else { return }
                     onOpen(thread)
                 } label: {
                     Image(systemName: "chevron.right")
@@ -992,6 +1077,212 @@ struct SessionListView: View {
         default: false
         }
     }
+
+    private func deckRotation(count: Int) -> Double {
+        guard !reduceMotion, count > 1, deckCardSize.width > 0 else { return 0 }
+        let fraction = max(-1, min(1, deckDrag.width / deckCardSize.width))
+        return Double(8 * fraction)
+    }
+
+    private func deckDragGesture(count: Int) -> some Gesture {
+        DragGesture(minimumDistance: 8, coordinateSpace: .named("sessionList"))
+            .onChanged { value in
+                guard !decisionsLocked, !deckFlying else { return }
+                guard decisionDeckClaims(startX: value.startLocation.x, width: listWidth) else { return }
+                if deckFrozen == nil { deckFrozen = visiblePending }
+                deckDragging = true
+                deckPastSlop = true
+                let damp: CGFloat = count <= 1 ? 0.3 : 1
+                deckDrag = CGSize(
+                    width: value.translation.width * damp,
+                    height: value.translation.height * damp
+                )
+            }
+            .onEnded { value in
+                guard deckDragging, !deckFlying else { return }
+                let flip = decisionDeckShouldFlip(
+                    dx: value.translation.width,
+                    dy: value.translation.height,
+                    width: deckCardSize.width,
+                    height: deckCardSize.height,
+                    velocityX: value.velocity.width,
+                    velocityY: value.velocity.height,
+                    cardCount: count
+                )
+                if flip {
+                    flyDeck(translation: value.translation, velocity: value.velocity, count: count)
+                } else {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        deckDrag = .zero
+                    }
+                    deckDragging = false
+                    DispatchQueue.main.async {
+                        deckPastSlop = false
+                        deckFrozen = nil
+                    }
+                }
+            }
+    }
+
+    private func flyDeck(translation: CGSize, velocity: CGSize, count: Int) {
+        deckFlying = true
+        let speed = hypot(velocity.width, velocity.height)
+        let dir = speed > 50 ? velocity : translation
+        let len = max(1, hypot(dir.width, dir.height))
+        let distance = max(deckCardSize.width, deckCardSize.height) * 1.4
+        let target = CGSize(width: dir.width / len * distance, height: dir.height / len * distance)
+        let next = decisionDeckNextIndex(deckIndex, count)
+        withAnimation(.easeOut(duration: reduceMotion ? 0.15 : 0.22)) {
+            if !reduceMotion { deckDrag = target }
+            deckAlpha = 0
+        } completion: {
+            deckIndex = next
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                deckDrag = .zero
+                deckAlpha = 1
+                deckScale = reduceMotion ? 1 : 0.96
+            }
+            deckFrozen = nil
+            deckFlying = false
+            deckDragging = false
+            deckPastSlop = false
+            clampDeckIndex()
+            announceDeck()
+            if !reduceMotion {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    deckScale = 1
+                }
+            }
+        }
+    }
+
+    private func stepDeck(by delta: Int) {
+        let count = deckThreads.count
+        guard count > 1, !decisionsLocked else { return }
+        let next = delta > 0
+            ? decisionDeckNextIndex(deckIndex, count)
+            : decisionDeckPreviousIndex(deckIndex, count)
+        if reduceMotion {
+            deckIndex = next
+            announceDeck()
+            return
+        }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            deckAlpha = 0
+        } completion: {
+            deckIndex = next
+            deckAlpha = 1
+            deckScale = 0.96
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                deckScale = 1
+            }
+            announceDeck()
+        }
+    }
+
+    private func commitAnswer(_ thread: AgentThread, _ option: AskOption) {
+        guard !deckPastSlop, !deckFlying else { return }
+        deckFlying = true
+        let finish = {
+            onAnswer(thread, option)
+            deckFlying = false
+            deckAlpha = 1
+            deckScale = 1
+            clampDeckIndex()
+        }
+        if reduceMotion {
+            finish()
+            return
+        }
+        withAnimation(.easeOut(duration: 0.2)) {
+            deckScale = 0.9
+            deckAlpha = 0
+        } completion: {
+            finish()
+        }
+    }
+
+    private func clampDeckIndex() {
+        let count = visiblePending.count
+        if count == 0 {
+            deckIndex = 0
+        } else if deckIndex >= count {
+            deckIndex = count - 1
+        }
+    }
+
+    private func announceDeck() {
+        let threads = deckThreads
+        guard threads.indices.contains(deckIndex) else { return }
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: deckSpokenLabel(threads[deckIndex], count: threads.count)
+        )
+    }
+
+    private func deckSpokenLabel(_ thread: AgentThread, count: Int) -> String {
+        let agent = agentName(thread) ?? thread.title
+        let question = SessionListKt.decisionQuestionText(thread: thread) ?? ""
+        let place = min(deckIndex, max(count - 1, 0)) + 1
+        return "\(agent) 等你决定：\(question)，第 \(place) 个，共 \(count) 个"
+    }
+}
+
+private struct ListWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+private struct DeckSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        value = nextValue()
+    }
+}
+
+func decisionDeckPeekCount(index: Int, count: Int) -> Int {
+    guard count > 1, index >= 0, index < count else { return 0 }
+    let behind = count - index - 1
+    if behind <= 0 { return 0 }
+    return min(2, behind)
+}
+
+func decisionDeckNextIndex(_ index: Int, _ count: Int) -> Int {
+    guard count > 0 else { return 0 }
+    return (index + 1) % count
+}
+
+func decisionDeckPreviousIndex(_ index: Int, _ count: Int) -> Int {
+    guard count > 0 else { return 0 }
+    return (index - 1 + count) % count
+}
+
+func decisionDeckClaims(startX: CGFloat, width: CGFloat, edge: CGFloat = 20) -> Bool {
+    guard width > edge * 2 else { return true }
+    return startX >= edge && startX <= width - edge
+}
+
+func decisionDeckShouldFlip(
+    dx: CGFloat,
+    dy: CGFloat,
+    width: CGFloat,
+    height: CGFloat,
+    velocityX: CGFloat,
+    velocityY: CGFloat,
+    cardCount: Int
+) -> Bool {
+    if cardCount <= 1 { return false }
+    if hypot(velocityX, velocityY) > 800 { return true }
+    let absX = abs(dx)
+    let absY = abs(dy)
+    if absX >= absY {
+        return width > 0 && absX > width / 3
+    }
+    return height > 0 && absY > height / 3
 }
 
 func sessionLabel(_ status: AgentStatus) -> String {
