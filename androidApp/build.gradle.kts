@@ -61,6 +61,10 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     buildTypes {
         getByName("debug") {
             isMinifyEnabled = false
@@ -104,4 +108,7 @@ dependencies {
     implementation(libs.unifiedpush.connector)
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(kotlin("test-junit"))
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("androidx.compose.ui:ui-test-junit4:1.11.2")
+    testImplementation("org.robolectric:robolectric:4.16")
 }
