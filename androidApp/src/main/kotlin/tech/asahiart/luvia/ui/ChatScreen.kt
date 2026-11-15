@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.calculateBottomPadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -57,7 +56,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberBottomSheetScaffoldState
-import androidx.compose.material3.rememberBottomSheetState
+import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -156,12 +155,13 @@ fun ChatScreen(
     val visible = items.filterNot { it is TimelineItem.AskCard }
     val sheetPolicy = chatDecisionSheetPolicy(hasAsk = thread.ask != null, chrome = chrome)
     val allowHide = remember { mutableStateOf(false) }
-    // Material3 1.5 dropped the wrapper that skips PartiallyExpanded below half a screen.
-    // Hidden stays enabled so an answer can leave; the veto blocks a drag-to-dismiss.
-    val sheetState = rememberBottomSheetState(
+    // Pinned Material3 has rememberStandardBottomSheetState, not rememberBottomSheetState.
+    // It keeps PartiallyExpanded. skipHiddenState stays false so an answer can leave;
+    // the veto still blocks a drag-to-dismiss.
+    val sheetState = rememberStandardBottomSheetState(
         initialValue = SheetValue.PartiallyExpanded,
-        enabledValues = setOf(SheetValue.Hidden, SheetValue.PartiallyExpanded, SheetValue.Expanded),
         confirmValueChange = { value -> value != SheetValue.Hidden || allowHide.value },
+        skipHiddenState = false,
     )
     val scaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = sheetState)
     var heldAsk by remember { mutableStateOf(thread.ask) }
