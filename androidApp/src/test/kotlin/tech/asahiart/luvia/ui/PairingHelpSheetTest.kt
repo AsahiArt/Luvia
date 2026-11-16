@@ -2,14 +2,15 @@ package tech.asahiart.luvia.ui
 
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.ui.test.assertDoesNotExist
-import androidx.compose.ui.test.assertExists
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -26,6 +27,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import tech.asahiart.luvia.HostRole
 import tech.asahiart.luvia.PairingDraft
+import tech.asahiart.luvia.PairingUiState
 import tech.asahiart.luvia.ui.theme.LuviaTheme
 
 /**
@@ -73,25 +75,25 @@ class PairingHelpSheetTest {
         composeRule.mainClock.advanceTimeBy(400)
         composeRule.waitForIdle()
 
-        composeRule.onNodeWithText("如何配对").assertExists()
-        composeRule.onNodeWithText("在电脑终端运行本页显示的配对命令。").assertExists()
+        composeRule.onNodeWithText("如何配对").assertIsDisplayed()
+        composeRule.onNodeWithText("在电脑终端运行本页显示的配对命令。").assertIsDisplayed()
         composeRule.onNodeWithText(
             "在手机上输入电脑显示的六位短码和电脑地址；也可以扫描或粘贴电脑提供的 luvia2: 配对码，这种方式不用另填地址。",
-        ).assertExists()
-        composeRule.onNodeWithText("核对手机与电脑上的指纹，一致后点「确认配对」；不一致就先不要继续。").assertExists()
-        composeRule.onNodeWithText("配对新电脑").assertExists()
+        ).assertIsDisplayed()
+        composeRule.onNodeWithText("核对手机与电脑上的指纹，一致后点「确认配对」；不一致就先不要继续。").assertIsDisplayed()
+        composeRule.onNodeWithText("配对新电脑").assertIsDisplayed()
 
         composeRule.activity.onBackPressedDispatcher.onBackPressed()
         composeRule.mainClock.advanceTimeBy(400)
         composeRule.waitForIdle()
 
-        composeRule.onNodeWithText("如何配对").assertDoesNotExist()
-        composeRule.onNodeWithText("已输入短码 123456").assertExists()
-        composeRule.onNodeWithText("10.0.0.8").assertExists()
-        composeRule.onNodeWithText("luvia2:kept").assertExists()
+        composeRule.onAllNodesWithText("如何配对").assertCountEquals(0)
+        composeRule.onNodeWithText("已输入短码 123456").assertIsDisplayed()
+        composeRule.onNodeWithText("10.0.0.8").assertIsDisplayed()
+        composeRule.onNodeWithText("luvia2:kept").assertIsDisplayed()
         composeRule.onNodeWithText("确认配对").assertIsEnabled()
-        composeRule.onNodeWithText("核对指纹").assertExists()
-        composeRule.onNodeWithText("配对新电脑").assertExists()
+        composeRule.onNodeWithText("核对指纹").assertIsDisplayed()
+        composeRule.onNodeWithText("配对新电脑").assertIsDisplayed()
     }
 }
 
