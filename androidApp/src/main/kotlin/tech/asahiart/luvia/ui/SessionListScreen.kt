@@ -555,7 +555,10 @@ private fun SessionFilterRow(
             pathTexts,
             homeDir,
             onFilter,
-            Modifier.weight(1f, fill = false),
+            // The status chips already scroll. Cap the scope chip so a long path
+            // ellipsizes here instead of covering that row. 240.dp is the room
+            // left after the divider on a 390.dp screen, not a new chip style.
+            Modifier.widthIn(max = 240.dp),
         )
         Box(
             Modifier
