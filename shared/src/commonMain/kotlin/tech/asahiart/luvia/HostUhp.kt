@@ -69,7 +69,9 @@ public class HostUhp(
     public val state: StateFlow<HostUhpState> = stateFlow.asStateFlow()
 
     public fun applyRuntime(runtime: HostRuntime) {
+        val wasConnected = state.value.connected
         agents.applyRuntime(runtime)
+        if (wasConnected && !state.value.connected) acp.noteLinkLost()
     }
 
     public fun shown() {
@@ -429,7 +431,12 @@ public class HostUhp(
 
     public fun promptAcp() = acp.prompt()
 
-    public fun answerAcpPermission(optionId: String) = acp.answerPermission(optionId)
+    /**
+     * A bare option id is not an approval. The click has to carry [AskAction.AcpOption],
+     * including the request id and session generation, through [answer].
+     */
+    @Suppress("UNUSED_PARAMETER")
+    public fun answerAcpPermission(optionId: String) = Unit
 
     public fun cancelAcp() = acp.cancel()
 
@@ -463,7 +470,8 @@ public class HostUhp(
         when (val action = option.action) {
             is AskAction.Prompt -> agents.prompt(action.text)
             is AskAction.Keys -> agents.sendKeys(action.keys)
-            is AskAction.AcpOption -> acp.answerPermission(action.optionId)
+            is AskAction.AcpOption ->
+                acp.answerPermission(action.requestId, action.optionId, action.sessionGeneration)
         }
     }
 

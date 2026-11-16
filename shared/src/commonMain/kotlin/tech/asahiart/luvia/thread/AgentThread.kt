@@ -48,7 +48,11 @@ public sealed class AskAction {
 
     public data class Keys(public val keys: List<AgentKey>) : AskAction()
 
-    public data class AcpOption(public val requestId: String, public val optionId: String) : AskAction()
+    public data class AcpOption(
+        public val requestId: String,
+        public val optionId: String,
+        public val sessionGeneration: Long = 0,
+    ) : AskAction()
 }
 
 public data class AskOption(
@@ -594,7 +598,11 @@ public fun AcpState.toThread(hostId: String): AgentThread {
             Ask(
                 question = decisionQuestionText(req.title, lastMessage?.text),
                 options = req.options.map { option ->
-                    AskOption(option.name, option.kind.tone(), AskAction.AcpOption(req.requestId, option.optionId))
+                    AskOption(
+                        option.name,
+                        option.kind.tone(),
+                        AskAction.AcpOption(req.requestId, option.optionId, sessionGeneration),
+                    )
                 },
             )
         },
