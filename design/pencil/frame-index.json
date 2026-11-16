@@ -1,0 +1,647 @@
+{
+  "generated_at": "2026-11-15T21:36:00+08:00",
+  "timezone": "Asia/Shanghai",
+  "note": "frame_key 即 README 中的 frame 名，也是 .pen 内屏幕 frame 名。本轮未用 pen CLI 抽取内部节点 UUID（避免对源稿做 --out 写入）。子图层名存在 lv-*-N 编号，不是独立屏幕。",
+  "implementation_baseline_pen": {
+    "sha256": "ba9bd6910bb2933bdaed94f8543629a38ade95bc9bfe69b56d9fa822edb9a1b2",
+    "size": 1811557,
+    "git_blob_sha": "fda8735d28a24d81a22063b8b928d4e6bacc74ea",
+    "remote": "AsahiArt/Luvia main design/pencil/luvia.pen @ tree a1375f93a1fe0614aeaa89362b5efe307b631af7",
+    "local_sources": [
+      "/workspace/designer/pencil/slim/luvia/luvia.pen",
+      "/workspace/designer/pencil/_backup-2026-11-13/luvia/luvia.pen"
+    ]
+  },
+  "pending_acceptance_pen": {
+    "sha256": "d4744771c549a8c34f368d40399f571326f125efac232a9e740d21373b352d14",
+    "size": 2050190,
+    "git_blob_sha_local_only": "d007ab13521dc98a9a989e680af7143c34b8ff31",
+    "local": "/workspace/designer/pencil/luvia/luvia.pen",
+    "mtime": "2026-11-13 01:12 Asia/Shanghai",
+    "status": "pending-design-acceptance",
+    "not_an_implementation_baseline": true,
+    "upload_authorized_2026-11-15_21:34": true,
+    "upload_does_not_mean_accepted": true
+  },
+  "top_level_groups": [
+    "android-final-rev",
+    "home-flip",
+    "ios-wow",
+    "ios-diff",
+    "ios-machines-A",
+    "tokens"
+  ],
+  "frames": [
+    {
+      "frame_key": "lv-and-01-pair",
+      "group": "android-final-rev",
+      "platform": "Android",
+      "title": "Android · 01 配对",
+      "theme": "light",
+      "states": [
+        "pairing"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "section-delta-pending-acceptance",
+      "html": "/workspace/designer/luvia/final-rev-2026-11-06/android/01-pair.html",
+      "orig_png": "/workspace/designer/luvia/final-rev-2026-11-06/png/android-01-pair@2x.png",
+      "approval": "wow 定稿结构；final-rev CHANGES 全面屏。11-13 sec-lv-and-01-pair 有差，改画待验收。",
+      "ux_docs": [
+        "docs/final-rev-CHANGES.md",
+        "docs/wow-CONCLUSION.md",
+        "README-pencil.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-and-01-pair.png",
+      "checked_in_png_sha256": "b8a8070254d28e2cf895685942d7d04bb0449f88e212f4e8442604b2884478d2",
+      "orig_png_sha256": "b8daede8bf7bb86c38de535386aa36da517177ccb5be7f0b91d4a77fbe5bd39b",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-and-02-home",
+      "group": "android-final-rev",
+      "platform": "Android",
+      "title": "Android · 02 会话 · 等你决定层叠卡",
+      "theme": "light",
+      "states": [
+        "session-list",
+        "decision-stack"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "no-d474-full-export",
+      "html": "/workspace/designer/luvia/final-rev-2026-11-06/android/02-home.html",
+      "orig_png": "/workspace/designer/luvia/final-rev-2026-11-06/png/android-02-home@2x.png",
+      "approval": "HANDOFF §1 已定稿；§5 FilterChip 已定 Misaka 2026-11-06（已入库文档）。0 张层叠无独立帧。",
+      "ux_docs": [
+        "docs/final-rev-HANDOFF.md",
+        "docs/final-rev-CHANGES.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-and-02-home.png",
+      "checked_in_png_sha256": "abb868e938df33ca93389c1e56d0fb8f73ad28c48aebfbee915ec62931903c48",
+      "orig_png_sha256": "e3a21f2bb218cc7e0e2202b84babc933c1010384e31aee3d4302d38ede12f2bd",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-and-02b-flip",
+      "group": "home-flip",
+      "platform": "Android",
+      "title": "Android · 02b 翻卡 8 帧",
+      "theme": "light",
+      "states": [
+        "decision-flip-8-frames"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "section-compared-unchanged",
+      "html": "/workspace/designer/luvia/final-rev-2026-11-06/android/02b-flip.html",
+      "orig_png": "/workspace/designer/luvia/final-rev-2026-11-06/png/android-02b-flip@2x.png",
+      "approval": "HANDOFF §1.2–1.4 已定稿。11-13 截面 before=after。",
+      "ux_docs": [
+        "docs/final-rev-HANDOFF.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-and-02b-flip.png",
+      "checked_in_png_sha256": "192cebdb2cec6c48565f4e0130e7e0480e76dd6f9bfdc5b9875402b75215413f",
+      "orig_png_sha256": "109e8a0e2c35a7c150e5b735fcfbb7227e4a55846b3f670c3ebffab9ad7a0739",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-and-03-chat",
+      "group": "android-final-rev",
+      "platform": "Android",
+      "title": "Android · 03 对话 · 需要决定 sheet",
+      "theme": "light",
+      "states": [
+        "chat",
+        "decision-sheet-low"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "no-d474-full-export",
+      "html": "/workspace/designer/luvia/final-rev-2026-11-06/android/03-chat.html",
+      "orig_png": "/workspace/designer/luvia/final-rev-2026-11-06/png/android-03-chat@2x.png",
+      "approval": "HANDOFF §2 已定稿。中档/高档无独立帧，以文字规格为准。",
+      "ux_docs": [
+        "docs/final-rev-HANDOFF.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-and-03-chat.png",
+      "checked_in_png_sha256": "86293b3865cf4bb10b9de27a6c7f2b857ed5ec808038740f5951422e917f891b",
+      "orig_png_sha256": "d10759fb1bafafed97e4381d364c50c26c8ecc4868e28d5552357fad95f84feb",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-and-04-term-agent",
+      "group": "android-final-rev",
+      "platform": "Android",
+      "title": "Android · 04 终端 · agent 在修",
+      "theme": "light",
+      "states": [
+        "terminal-agent-repairing"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "no-d474-full-export",
+      "html": "/workspace/designer/luvia/final-rev-2026-11-06/android/04-terminal-agent.html",
+      "orig_png": "/workspace/designer/luvia/final-rev-2026-11-06/png/android-04-terminal-agent@2x.png",
+      "approval": "CHANGES 终端失败摘要两态；Misaka 定稿 agent 无按钮「在修…」（设计师 2026-11-06 记录）。",
+      "ux_docs": [
+        "docs/final-rev-CHANGES.md",
+        "docs/terminal-light-bg-SPEC.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-and-04-term-agent.png",
+      "checked_in_png_sha256": "c32cf30e515d9aed3a9f186eac61a59799ce215811269d1a82be13649792e58b",
+      "orig_png_sha256": "9eaac220c8e084993c22eeef2726cf472f6662eab3dd4dd4a4a75b9d54ff5eff",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-and-04-term-shell",
+      "group": "android-final-rev",
+      "platform": "Android",
+      "title": "Android · 04 终端 · 交给 claude 修",
+      "theme": "light",
+      "states": [
+        "terminal-shell-handoff"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "no-d474-full-export",
+      "html": "/workspace/designer/luvia/final-rev-2026-11-06/android/04-terminal-shell.html",
+      "orig_png": "/workspace/designer/luvia/final-rev-2026-11-06/png/android-04-terminal-shell@2x.png",
+      "approval": "同终端两态，shell「交给〈agent〉修 ▾」。",
+      "ux_docs": [
+        "docs/final-rev-CHANGES.md",
+        "docs/terminal-light-bg-SPEC.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-and-04-term-shell.png",
+      "checked_in_png_sha256": "81e961e7ccfe5369cae92a765c228301244c420f068ed2b78e9c601577d3a37d",
+      "orig_png_sha256": "e1b705922e558ab282cc3321f8c89f8c80c8e0d42d34f66c78e2b00d7c31dce1",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-and-05-transition",
+      "group": "android-final-rev",
+      "platform": "Android",
+      "title": "Android · 05 会话→终端转场",
+      "theme": "light",
+      "states": [
+        "session-to-terminal-transition"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "full-frame-delta-pending-acceptance",
+      "html": "/workspace/designer/luvia/final-rev-2026-11-06/android/05-transition.html",
+      "orig_png": "/workspace/designer/luvia/final-rev-2026-11-06/png/android-05-transition@2x.png",
+      "approval": "wow 默认收口 Android 350ms container transform。实现用原稿/已入库导出；d474 after 全帧有差，不能当新基准。",
+      "ux_docs": [
+        "docs/wow-CONCLUSION.md",
+        "docs/final-rev-CHANGES.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-and-05-transition.png",
+      "checked_in_png_sha256": "7a1346fe16478d2759ff022af477bfb0528724e63afad6b0f79cc9f54d28bc90",
+      "orig_png_sha256": "c8baccc24fcf31644664b9488e57508ffc82da8b18b66455a2d95b3cb696d477",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-ios-01-pair",
+      "group": "ios-wow",
+      "platform": "iOS",
+      "title": "iOS · 01 配对",
+      "theme": "light-on-dark-stage",
+      "states": [
+        "pairing"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "full-frame-and-section-delta-pending-acceptance",
+      "html": "/workspace/designer/luvus-mobile/native-a/wow/ios/01-pair.html",
+      "orig_png": "/workspace/designer/luvus-mobile/native-a/wow/png/ios-01-pair@2x.png",
+      "approval": "wow 定稿；默认收口暗场+蓝点球体。d474 after 全帧+截面有差，不能当新基准。",
+      "ux_docs": [
+        "docs/wow-CONCLUSION.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-ios-01-pair.png",
+      "checked_in_png_sha256": "5941500c4e1cf3298f588e8fbeb8eeec2e7af685e1cd0d3b4ebe7203ac2d66b6",
+      "orig_png_sha256": "add2192cec107a77df26f50a9d6c9dbb3ce7a82343e1d03c745408ad71b3e972",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-ios-02-home",
+      "group": "home-flip",
+      "platform": "iOS",
+      "title": "iOS · 02 会话 · 等你决定层叠卡",
+      "theme": "light",
+      "states": [
+        "session-list",
+        "decision-stack"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "no-d474-full-export",
+      "html": "/workspace/designer/luvia/final-rev-2026-11-06/ios/02-home.html",
+      "orig_png": "/workspace/designer/luvia/final-rev-2026-11-06/png/ios-02-home@2x.png",
+      "approval": "HANDOFF §1 已定稿。",
+      "ux_docs": [
+        "docs/final-rev-HANDOFF.md",
+        "docs/wow-sprint-CONCLUSION.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-ios-02-home.png",
+      "checked_in_png_sha256": "2b8d775e53bb79eff2fa14255686444073fbc59dc3698c94e56e37bfdb93b606",
+      "orig_png_sha256": "2d0d125f18d1ff63b79d5c9fe87cefab9e647d87313f018755842c8edc73b820",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-ios-02b-flip",
+      "group": "home-flip",
+      "platform": "iOS",
+      "title": "iOS · 02b 翻卡 8 帧",
+      "theme": "light",
+      "states": [
+        "decision-flip-8-frames"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "section-compared-unchanged",
+      "html": "/workspace/designer/luvia/final-rev-2026-11-06/ios/02b-flip.html",
+      "orig_png": "/workspace/designer/luvia/final-rev-2026-11-06/png/ios-02b-flip@2x.png",
+      "approval": "HANDOFF §1.2。11-13 截面 before=after。",
+      "ux_docs": [
+        "docs/final-rev-HANDOFF.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-ios-02b-flip.png",
+      "checked_in_png_sha256": "6575783c52a7f1a6fd510d5ac0bd6c03f7e9380b18af051559417b0f6f9e9b15",
+      "orig_png_sha256": "62661d02cfc1b520433180cecc0d5116035b2e990097a2295e3bf4cd261e4282",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-ios-03-chat",
+      "group": "ios-wow",
+      "platform": "iOS",
+      "title": "iOS · 03 对话",
+      "theme": "light",
+      "states": [
+        "chat"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "no-d474-full-export",
+      "html": "/workspace/designer/luvus-mobile/native-a/wow/ios/03-chat.html",
+      "orig_png": "/workspace/designer/luvus-mobile/native-a/wow/png/ios-03-chat@2x.png",
+      "approval": "wow 定稿；决策 sheet 行为按 HANDOFF §2。",
+      "ux_docs": [
+        "docs/wow-CONCLUSION.md",
+        "docs/final-rev-HANDOFF.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-ios-03-chat.png",
+      "checked_in_png_sha256": "7394516adf9e8875791e90296230fd6b1e67554c59f696943f1e9abf2fd2d37a",
+      "orig_png_sha256": "c2bd450688004e8759571d53e79ce486863254433820db6ec5d2fcc1fff39d12",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-ios-04-term",
+      "group": "ios-wow",
+      "platform": "iOS",
+      "title": "iOS · 04 终端",
+      "theme": "light",
+      "states": [
+        "terminal"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "no-d474-full-export",
+      "html": "/workspace/designer/luvus-mobile/native-a/wow/ios/04-terminal.html",
+      "orig_png": "/workspace/designer/luvus-mobile/native-a/wow/png/ios-04-terminal@2x.png",
+      "approval": "wow 定稿；浅色底板按 terminal-light-bg SPEC。",
+      "ux_docs": [
+        "docs/wow-CONCLUSION.md",
+        "docs/terminal-light-bg-SPEC.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-ios-04-term.png",
+      "checked_in_png_sha256": "dd558e9d5528c13688d986c2a68e7ea0c10efd46676e60737ea880c4d4ffcf2e",
+      "orig_png_sha256": "4b1efcbc05ca574acf30f214bf0b64a4879625dbddce85f8a5e7437eb3f7267c",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-ios-05-transition",
+      "group": "ios-wow",
+      "platform": "iOS",
+      "title": "iOS · 05 会话→终端转场",
+      "theme": "light",
+      "states": [
+        "session-to-terminal-transition"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "full-frame-delta-pending-acceptance",
+      "html": "/workspace/designer/luvus-mobile/native-a/wow/ios/05-transition.html",
+      "orig_png": "/workspace/designer/luvus-mobile/native-a/wow/png/ios-05-transition@2x.png",
+      "approval": "wow 默认收口 iOS ~0.42s spring。实现用原稿/已入库导出；d474 after 全帧有差。",
+      "ux_docs": [
+        "docs/wow-CONCLUSION.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-ios-05-transition.png",
+      "checked_in_png_sha256": "9e5b4a0df138b3c4e60d44cdd34e4174a1eef1e42be545789ebd932420daf763",
+      "orig_png_sha256": "bbeae6abcf15f48a26d5c9bd843e7d0418b22db6bed8bef8c1f7e380078f9062",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-ios-06-diff-1",
+      "group": "ios-diff",
+      "platform": "iOS",
+      "title": "iOS · 06 Diff 1 · 文件列表",
+      "theme": "light",
+      "states": [
+        "diff-file-list"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "section-compared-unchanged",
+      "html": "/workspace/designer/luvia/final-rev-2026-11-06/ios/06-diff-1-files.html",
+      "orig_png": "/workspace/designer/luvia/final-rev-2026-11-06/png/_ios-06-diff-1.png",
+      "approval": "HANDOFF §3 已定稿。",
+      "ux_docs": [
+        "docs/final-rev-HANDOFF.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-ios-06-diff-1.png",
+      "checked_in_png_sha256": "7948747cd285a0cd03539431d011880a1f47860de20913f4008ed904d8610d07",
+      "orig_png_sha256": "1db8fe9d7cf606d922602b26f988f32306b170e1c8bcdaa108bf3203994623d9",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-ios-06-diff-2",
+      "group": "ios-diff",
+      "platform": "iOS",
+      "title": "iOS · 06 Diff 2 · hunk",
+      "theme": "light",
+      "states": [
+        "diff-hunk"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "no-d474-full-export",
+      "html": "/workspace/designer/luvia/final-rev-2026-11-06/ios/06-diff-2-hunk.html",
+      "orig_png": "/workspace/designer/luvia/final-rev-2026-11-06/png/_ios-06-diff-2.png",
+      "approval": "HANDOFF §3 已定稿。",
+      "ux_docs": [
+        "docs/final-rev-HANDOFF.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-ios-06-diff-2.png",
+      "checked_in_png_sha256": "e3f96d8162b103b3641261ae7fc68a3c13c2078116e5bd428d731d151fee8635",
+      "orig_png_sha256": "ce83061e871c97e74c734cdfb9cdb24c5999b8c971ddf8a2c1e9f61fad9375a0",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-ios-06-diff-3",
+      "group": "ios-diff",
+      "platform": "iOS",
+      "title": "iOS · 06 Diff 3 · 批注 sheet",
+      "theme": "light",
+      "states": [
+        "diff-comment-sheet"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "no-d474-full-export",
+      "html": "/workspace/designer/luvia/final-rev-2026-11-06/ios/06-diff-3-note.html",
+      "orig_png": "/workspace/designer/luvia/final-rev-2026-11-06/png/_ios-06-diff-3.png",
+      "approval": "HANDOFF §3 已定稿。",
+      "ux_docs": [
+        "docs/final-rev-HANDOFF.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-ios-06-diff-3.png",
+      "checked_in_png_sha256": "040bb5d48ec11f29fdbd42c610ccbbfb115585b700e27e8746b6a54352b04bd0",
+      "orig_png_sha256": "743270cd6b250e8ca5d9db1dd4779878fa106e4ea2c7260962fb195d202bb95f",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-ios-mach-light",
+      "group": "ios-machines-A",
+      "platform": "iOS",
+      "title": "iOS · 机器 A · 浅色",
+      "theme": "light",
+      "states": [
+        "machines-current-host"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "section-compared-unchanged",
+      "html": "/workspace/designer/luvia/ios-machines-2026-11-09/html/ios-machines-A.html",
+      "orig_png": "/workspace/designer/luvia/ios-machines-2026-11-09/png/ios-machines-A@2x.png",
+      "approval": "已入库 docs/ios-machines-README.md 文首：定稿方向 A（2026-11-09 Misaka 需求对齐确认，筛选用方案 ②）。",
+      "ux_docs": [
+        "docs/ios-machines-README.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-ios-mach-light.png",
+      "checked_in_png_sha256": "253081d20e57e4d94281aaf9075a50f02b10156e9180e7147edec97dab5c5129",
+      "orig_png_sha256": "4210b0a1436676670386c50485cdb58f265a89637df01288093aeb21790fc5e4",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-ios-mach-dark",
+      "group": "ios-machines-A",
+      "platform": "iOS",
+      "title": "iOS · 机器 A · 深色",
+      "theme": "dark",
+      "states": [
+        "machines-current-host"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "no-d474-full-export",
+      "html": "/workspace/designer/luvia/ios-machines-2026-11-09/html/ios-machines-A-dark.html",
+      "orig_png": "/workspace/designer/luvia/ios-machines-2026-11-09/png/ios-machines-A-dark@2x.png",
+      "approval": "同上；深色规格见该 README「深色」节。本 .pen 中唯一产品深色全帧。",
+      "ux_docs": [
+        "docs/ios-machines-README.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-ios-mach-dark.png",
+      "checked_in_png_sha256": "890d2030a8a8732ee3e5b5ee5086f4be11f140cde886c60b701c6b3d1262197c",
+      "orig_png_sha256": "2c135a1266195d92baddf35a75119bd2d1c4aa7433b0422c6e5717737a59f8b5",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-ios-mach-offline",
+      "group": "ios-machines-A",
+      "platform": "iOS",
+      "title": "iOS · 机器 A · 离线",
+      "theme": "light",
+      "states": [
+        "machines-offline",
+        "machines-no-paths"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "no-d474-full-export",
+      "html": "/workspace/designer/luvia/ios-machines-2026-11-09/html/ios-machines-A-offline.html",
+      "orig_png": "/workspace/designer/luvia/ios-machines-2026-11-09/png/ios-machines-A-offline@2x.png",
+      "approval": "方向 A 离线/无路径态，见 README「离线」。",
+      "ux_docs": [
+        "docs/ios-machines-README.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-ios-mach-offline.png",
+      "checked_in_png_sha256": "bb948fda8695862f4c51f2be2e71e8b6a1b81bee70fed43d97b89a507a643deb",
+      "orig_png_sha256": "9c506c61bdf2e5c93cb29d62f975d18eef938a37031b720280c81e7d653ced81",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-ios-mach-empty",
+      "group": "ios-machines-A",
+      "platform": "iOS",
+      "title": "iOS · 机器 A · 空态",
+      "theme": "light",
+      "states": [
+        "machines-empty-unpaired"
+      ],
+      "content_status": "finalized",
+      "implement_now": true,
+      "nativeization": "no-d474-full-export",
+      "html": "/workspace/designer/luvia/ios-machines-2026-11-09/html/ios-machines-A-empty.html",
+      "orig_png": "/workspace/designer/luvia/ios-machines-2026-11-09/png/ios-machines-A-empty@2x.png",
+      "approval": "方向 A 空态，见 README「空态」。",
+      "ux_docs": [
+        "docs/ios-machines-README.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-ios-mach-empty.png",
+      "checked_in_png_sha256": "e4117a72ea4b385ddfe4e6366745c8681ab75981282c40da81b47c6420502eb7",
+      "orig_png_sha256": "bee81b09387cfb66923127e2fd05900738ee3e0922e76405bd836f309774629b",
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-tok-terminal",
+      "group": "tokens",
+      "platform": "both",
+      "title": "终端底板 token",
+      "theme": "light-and-dark-tokens",
+      "states": [
+        "token-board"
+      ],
+      "content_status": "finalized-text-spec-plus-board",
+      "implement_now": true,
+      "nativeization": "section-compared-unchanged",
+      "html": null,
+      "orig_png": null,
+      "approval": "docs/terminal-light-bg-SPEC.md。无独立产品屏原稿 PNG。深色失败描边无新色值。",
+      "ux_docs": [
+        "docs/terminal-light-bg-SPEC.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-tok-terminal.png",
+      "checked_in_png_sha256": "f7e198eb262caad7ed6ffd31c7bd3e7b2d2e6b841b9be21452f896d2d456dfde",
+      "orig_png_sha256": null,
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    },
+    {
+      "frame_key": "lv-brand-pi",
+      "group": "tokens",
+      "platform": "both",
+      "title": "pi 官方 Logo",
+      "theme": "n/a",
+      "states": [
+        "brand-board"
+      ],
+      "content_status": "finalized-text-spec-plus-board",
+      "implement_now": true,
+      "nativeization": "no-d474-full-export",
+      "html": null,
+      "orig_png": null,
+      "approval": "docs/PI-LOGO-SPEC.md + brand/logos SVG。无独立产品屏原稿 PNG。",
+      "ux_docs": [
+        "docs/PI-LOGO-SPEC.md"
+      ],
+      "checked_in_png": "/workspace/designer/pencil/luvia/png/lv-brand-pi.png",
+      "checked_in_png_sha256": "8d2efb46510ff5695c6273c7e0af1c36e0bc29cb593ea45899ab2ade8389f6bb",
+      "orig_png_sha256": null,
+      "pencil_internal_node_id": "not-extracted-this-round",
+      "d474_present_in_pen": true,
+      "implementation_visual": "orig-spec-png + checked-in ba9bd export + UX docs; not d474 after images when nativeization is a delta"
+    }
+  ],
+  "missing_or_not_finalized": [
+    {
+      "id": "android-dark",
+      "status": "missing",
+      "note": "Android 全部产品帧无深色定稿图。"
+    },
+    {
+      "id": "android-machines",
+      "status": "missing",
+      "note": "Android 机器页（含空态/离线/失效）无定稿帧。"
+    },
+    {
+      "id": "ios-dark-except-machines",
+      "status": "missing",
+      "note": "iOS 配对/列表/对话/终端/Diff 无深色定稿帧。"
+    },
+    {
+      "id": "pairing-expired-or-invalid",
+      "status": "missing",
+      "note": "短码过期/无效/已用等失效态无定稿帧。"
+    },
+    {
+      "id": "decision-stack-empty",
+      "status": "text-spec-only",
+      "note": "0 张时分组收起，HANDOFF §1.1 文字，无独立帧。"
+    },
+    {
+      "id": "decision-sheet-medium-large",
+      "status": "text-spec-only",
+      "note": "中档/高档以 HANDOFF §2 文字为准，图为低档视觉。"
+    },
+    {
+      "id": "mux-D",
+      "status": "not-finalized",
+      "note": "整包仍待定稿，不选此方向实现。"
+    },
+    {
+      "id": "ios-machines-B-C",
+      "status": "rejected-or-not-selected",
+      "note": "B/C 未选。"
+    },
+    {
+      "id": "workspace-filter-merge",
+      "status": "awaiting-selection",
+      "note": "选定前按 HANDOFF §5 FilterChip。"
+    }
+  ],
+  "png_export_warning": "pencil/luvia/png 与远端 png 为 ba9bd 导出（2026-11-12 10:04），不是 d474 导出。"
+}
