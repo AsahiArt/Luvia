@@ -16,7 +16,9 @@ struct ContentView: View {
     @State private var cwd = ""
     @State private var confirmUnpair = false
     @State private var userOpenedPairing = false
-    @State private var awaitingFixAgent = false
+    @State private var fixIntent: HandoffIntent? = nil
+    @State private var fixAttempt: Int64 = 0
+    @State private var navigationEpoch: Int64 = 0
     #if DEBUG
     @State private var fixturePaneID = ""
     @AppStorage("luvia.debug.noncursorFixture") private var showNoncursorFixture = false
@@ -118,20 +120,27 @@ struct ContentView: View {
                     items: timeline(thread),
                     queueIndex: queueIndex(thread),
                     queueTotal: max(pending.count, thread.ask.map { Int($0.total) } ?? 1),
-                    onBack: { stage = "sessions" },
+                    onBack: {
+                        invalidateHandoffNavigation()
+                        stage = "sessions"
+                    },
                     onTerminal: { openTerminal(thread) },
                     showsChrome: stage != "terminal",
                     glass: glass,
                     nextQuestion: nextQuestion(after: thread),
                     nextAgent: nextAgentName(after: thread),
                     onPairAgain: {
+                        invalidateHandoffNavigation()
                         userOpenedPairing = true
                         stage = "pair"
                     }
                 )
             } else {
                 ContentUnavailableView("会话不在了", systemImage: "bubble.left", description: Text("回到列表。"))
-                    .onTapGesture { stage = "sessions" }
+                    .onTapGesture {
+                        invalidateHandoffNavigation()
+                        stage = "sessions"
+                    }
             }
         default:
             if !model.hostsReady && model.hosts.isEmpty && !userOpenedPairing {
@@ -390,6 +399,7 @@ struct ContentView: View {
 
     private func selectHost(_ host: HostViewState) {
         guard host.id != model.selectedHostID else { return }
+        invalidateHandoffNavigation()
         noteHostSwitch(host.id)
         model.select(host)
     }
@@ -611,22 +621,52 @@ struct ContentView: View {
     }
 
     private var acpFixWatch: String {
-        guard awaitingFixAgent, let id = model.selectedHostID, let state = model.hostStates[id] else { return "" }
+        guard let intent = fixIntent, let state = model.hostStates[intent.hostId] else { return "" }
         let session = state.acp.info?.sessionId ?? ""
-        return "\(state.acp.open)|\(state.acp.errorText ?? "")|\(session)"
+        return "\(intent.attempt)|\(navigationEpoch)|\(intent.hostId)|\(state.acp.open)|\(state.acp.errorText ?? "")|\(session)"
+    }
+
+    private func invalidateHandoffNavigation() {
+        navigationEpoch += 1
+    }
+
+    private func armHandoff(pane: String?) {
+        guard let host = model.selectedHostID, !host.isEmpty else { return }
+        fixAttempt += 1
+        let baseline = model.hostStates[host]?.acp.info?.sessionId ?? ""
+        fixIntent = HandoffIntent(
+            hostId: host,
+            attempt: fixAttempt,
+            originPaneId: pane,
+            navigationEpoch: navigationEpoch,
+            baselineSessionId: baseline
+        )
     }
 
     private func adoptAwaitingFixAgent() {
-        guard awaitingFixAgent, let id = model.selectedHostID, let state = model.hostStates[id] else { return }
-        if state.acp.errorText != nil && !state.acp.open {
-            awaitingFixAgent = false
-            return
+        guard let intent = fixIntent, let state = model.hostStates[intent.hostId] else { return }
+        let effect = HandoffIntentKt.handoffEffect(
+            intent: intent,
+            eventAttempt: intent.attempt,
+            navigationEpoch: navigationEpoch,
+            selectedHostId: model.selectedHostID ?? "",
+            snapshotHostId: intent.hostId,
+            open: state.acp.open,
+            errorText: state.acp.errorText,
+            sessionId: state.acp.info?.sessionId ?? ""
+        )
+        switch effect {
+        case .showFailure:
+            fixIntent = nil
+        case .adopt:
+            guard let thread = AgentThreadKt.awaitingAcpThread(state: state, hostId: intent.hostId) else { return }
+            model.hostUhp()?.viewAcp()
+            remember(thread)
+            stage = "chat"
+            fixIntent = nil
+        default:
+            break
         }
-        guard let thread = AgentThreadKt.awaitingAcpThread(state: state, hostId: id) else { return }
-        model.hostUhp()?.viewAcp()
-        remember(thread)
-        stage = "chat"
-        awaitingFixAgent = false
     }
 
     /// Live hosts go through HostUhp.handoffFailure. Sent stays here. Drafted opens chat.
@@ -639,12 +679,6 @@ struct ContentView: View {
             case .sent:
                 return true
             case .drafted:
-                if TerminalChromeKt.terminalFixOpensNewAgent(
-                    agentType: requested,
-                    sessionAgentType: terminalSessionAgentType
-                ) {
-                    awaitingFixAgent = true
-                }
                 if let opened = model.hostUhp()?.openThread() {
                     remember(opened)
                 } else if let pane, let host = model.selectedHostID,
@@ -653,6 +687,12 @@ struct ContentView: View {
                 }
                 terminalReturn = "chat"
                 closeTerminal()
+                if TerminalChromeKt.terminalFixOpensNewAgent(
+                    agentType: requested,
+                    sessionAgentType: terminalSessionAgentType
+                ) {
+                    armHandoff(pane: pane)
+                }
                 return true
             default:
                 break
@@ -713,6 +753,7 @@ struct ContentView: View {
     }
 
     private func open(_ thread: AgentThread) {
+        invalidateHandoffNavigation()
         #if DEBUG
         if PlaytestChatKt.isPlaytestThread(id: thread.id) {
             remember(thread)
@@ -746,12 +787,14 @@ struct ContentView: View {
     /// Host-menu terminal. There is no card, so this does not borrow `onTerminal`'s thread.
     private func openSelectedTerminal() {
         guard model.selectedHost != nil else { return }
+        invalidateHandoffNavigation()
         if stage != "terminal" { terminalReturn = stage }
         model.openTerminal(paneId: nil)
         stage = "terminal"
     }
 
     private func openTerminal(_ thread: AgentThread) {
+        invalidateHandoffNavigation()
         if stage != "terminal" { terminalReturn = stage }
         if let host = model.hosts.first(where: { $0.id == thread.hostId }), model.selectedHostID != host.id {
             noteHostSwitch(host.id)
@@ -762,6 +805,7 @@ struct ContentView: View {
     }
 
     private func closeTerminal() {
+        if fixIntent != nil { invalidateHandoffNavigation() }
         model.setTerminalVisible(false)
         stage = terminalReturn
     }
