@@ -151,6 +151,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
                         permission = null,
                         errorText = null,
                         exitMessage = null,
+                        sessionGeneration = it.acp.sessionGeneration + 1,
                     ),
             )
         }
@@ -267,13 +268,25 @@ internal class AcpBoard(private val ctx: UhpContext) {
         return prompt()
     }
 
-    fun answerPermission(optionId: String) {
+    fun noteLinkLost() {
+        ctx.update { it.copy(acp = it.acp.copy(sessionGeneration = it.acp.sessionGeneration + 1)) }
+    }
+
+    /**
+     * Sends only when [requestId] is still the live permission, [optionId] is one of its options,
+     * and [sessionGeneration] is still this link's generation. A newer request is left in place.
+     */
+    fun answerPermission(requestId: String, optionId: String, sessionGeneration: Long) {
         val acpSession = session ?: return
-        val request = ctx.value().acp.permission ?: return
+        val state = ctx.value()
+        if (!state.canMutate) return
+        val request = state.acp.permission ?: return
+        if (requestId != request.requestId || sessionGeneration != state.acp.sessionGeneration) return
+        if (request.options.none { it.optionId == optionId }) return
         replaying = false
         ctx.update { it.copy(acp = it.acp.copy(permission = null, run = AcpRunState.Working)) }
         ctx.launch {
-            when (val result = acpSession.answerPermission(request.requestId, optionId)) {
+            when (val result = acpSession.answerPermission(requestId, optionId)) {
                 is Outcome.Ok -> Unit
                 is Outcome.Err ->
                     ctx.update { it.copy(acp = it.acp.copy(errorText = result.failure.userMessage())) }
@@ -307,7 +320,14 @@ internal class AcpBoard(private val ctx: UhpContext) {
         replaying = false
         ctx.update {
             it.copy(
-                acp = it.acp.copy(open = false, viewing = false, run = AcpRunState.Idle, permission = null),
+                acp =
+                    it.acp.copy(
+                        open = false,
+                        viewing = false,
+                        run = AcpRunState.Idle,
+                        permission = null,
+                        sessionGeneration = it.acp.sessionGeneration + 1,
+                    ),
             )
         }
     }
@@ -418,6 +438,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
 /** Resume+replay replaces whatever transcript the phone was showing. */
 internal fun AcpState.startingReplay(): AcpState =
     copy(
+        sessionGeneration = sessionGeneration + 1,
         run = AcpRunState.Starting,
         open = true,
         viewing = true,

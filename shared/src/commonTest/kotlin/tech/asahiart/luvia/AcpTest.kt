@@ -5,11 +5,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
@@ -23,7 +26,10 @@ import kotlinx.serialization.json.put
 import tech.asahiart.luvia.internal.Methods
 import tech.asahiart.luvia.internal.NdjsonFramer
 import tech.asahiart.luvia.internal.uhp.startingReplay
+import tech.asahiart.luvia.thread.AskAction
+import tech.asahiart.luvia.thread.AskTone
 import tech.asahiart.luvia.thread.threads
+import tech.asahiart.luvia.thread.toThread
 import tech.asahiart.luvia.internal.UhpRequest
 import tech.asahiart.luvia.internal.decodeAcpEvent
 import tech.asahiart.luvia.internal.decodeUhpEvent
@@ -32,6 +38,7 @@ import tech.asahiart.luvia.internal.parseObject
 import tech.asahiart.luvia.support.ScriptedFactory
 import kotlin.time.Duration.Companion.seconds
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class AcpTest {
     @Test
     fun acpAgentsMapsSamplePayload() = runTest {
@@ -495,6 +502,131 @@ class AcpTest {
         session.close()
     }
 
+    @Test
+    fun replacedPermissionDoesNotTakeTheOldClickAndTheNewRequestStillSendsOnce() = runTest {
+        val actions = mutableListOf<JsonObject>()
+        val release = CompletableDeferred<Unit>()
+        val session =
+            openAcpClient(
+                this,
+                actions = actions,
+                streamEvents = listOf(PERMISSION),
+                holdNext = release,
+                thenEvents = listOf(PERMISSION_R2),
+            )
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = this)
+        uhp.applyRuntime(runtime)
+        uhp.setLaunchAcpAgent("codex")
+        uhp.setLaunchAcpCwd("/tmp/work")
+        uhp.launchAcp()
+        val first =
+            withTimeout(2.seconds) {
+                uhp.state.first { it.acp.permission?.requestId == "req-1" }
+            }
+        val stale = first.acp.toThread(runtime.profile.hostId).ask!!.options.single()
+        assertEquals(AskAction.AcpOption("req-1", "allow", first.acp.sessionGeneration), stale.action)
+        release.complete(Unit)
+        val second =
+            withTimeout(2.seconds) {
+                uhp.state.first { it.acp.permission?.requestId == "req-2" }
+            }
+        assertEquals("req-2", second.acp.permission?.requestId)
+        uhp.answer(first.acp.toThread(runtime.profile.hostId), stale)
+        advanceUntilIdle()
+        assertEquals(emptyList(), permissionWires(actions))
+        assertEquals("req-2", uhp.state.value.acp.permission?.requestId)
+        val foreign =
+            uhp.state.value.acp.toThread(runtime.profile.hostId).ask!!.options.single().let { option ->
+                val action = option.action as AskAction.AcpOption
+                option.copy(action = action.copy(optionId = "not-a-member"))
+            }
+        uhp.answer(uhp.state.value.acp.toThread(runtime.profile.hostId), foreign)
+        advanceUntilIdle()
+        assertEquals(emptyList(), permissionWires(actions))
+        assertEquals("req-2", uhp.state.value.acp.permission?.requestId)
+        val live = uhp.state.value.acp.toThread(runtime.profile.hostId).ask!!.options.single()
+        assertEquals("req-2", (live.action as AskAction.AcpOption).requestId)
+        uhp.answer(uhp.state.value.acp.toThread(runtime.profile.hostId), live)
+        advanceUntilIdle()
+        assertEquals(listOf("req-2" to "allow"), permissionWires(actions))
+        assertEquals(null, uhp.state.value.acp.permission)
+        uhp.answer(uhp.state.value.acp.toThread(runtime.profile.hostId), live)
+        advanceUntilIdle()
+        assertEquals(listOf("req-2" to "allow"), permissionWires(actions))
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun oldClickAfterANewSessionOrReconnectSendsNothing() = runTest {
+        val actions = mutableListOf<JsonObject>()
+        val opens = mutableListOf<JsonObject>()
+        val session = openAcpClient(this, actions = actions, opens = opens, streamEvents = listOf(PERMISSION))
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = this)
+        uhp.applyRuntime(runtime)
+        uhp.setLaunchAcpAgent("codex")
+        uhp.setLaunchAcpCwd("/tmp/work")
+        uhp.launchAcp()
+        val first =
+            withTimeout(2.seconds) {
+                uhp.state.first { it.acp.permission?.requestId == "req-1" }
+            }
+        val stale = first.acp.toThread(runtime.profile.hostId).ask!!.options.single()
+        val opensBefore = opens.size
+        uhp.launchAcp()
+        withTimeout(2.seconds) {
+            uhp.state.first { opens.size > opensBefore && it.acp.permission?.requestId == "req-1" }
+        }
+        actions.clear()
+        uhp.answer(uhp.state.value.acp.toThread(runtime.profile.hostId), stale)
+        advanceUntilIdle()
+        assertEquals(emptyList(), permissionWires(actions))
+        assertEquals("req-1", uhp.state.value.acp.permission?.requestId)
+
+        val held = uhp.state.value.acp.toThread(runtime.profile.hostId).ask!!.options.single()
+        val offline = runtime.copy(link = HostLink.Idle, freshness = ConnectionFreshness.Offline)
+        uhp.applyRuntime(offline)
+        uhp.answer(uhp.state.value.acp.toThread(runtime.profile.hostId), held)
+        advanceUntilIdle()
+        assertEquals(emptyList(), permissionWires(actions))
+        uhp.applyRuntime(runtime)
+        uhp.answer(uhp.state.value.acp.toThread(runtime.profile.hostId), held)
+        advanceUntilIdle()
+        assertEquals(emptyList(), permissionWires(actions))
+        val current = uhp.state.value.acp.toThread(runtime.profile.hostId).ask!!.options.single()
+        uhp.answer(uhp.state.value.acp.toThread(runtime.profile.hostId), current)
+        advanceUntilIdle()
+        assertEquals(listOf("req-1" to "allow"), permissionWires(actions))
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun observerCannotAnswerTheLivePermission() = runTest {
+        val actions = mutableListOf<JsonObject>()
+        val session = openAcpClient(this, actions = actions, streamEvents = listOf(PERMISSION))
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = this)
+        uhp.applyRuntime(runtime)
+        uhp.setLaunchAcpAgent("codex")
+        uhp.setLaunchAcpCwd("/tmp/work")
+        uhp.launchAcp()
+        withTimeout(2.seconds) {
+            uhp.state.first { it.acp.permission?.requestId == "req-1" }
+        }
+        uhp.applyRuntime(sampleRuntime(role = HostRole.Observer))
+        val live = uhp.state.value.acp.toThread(runtime.profile.hostId).ask!!.options.single()
+        assertEquals(AskTone.Primary, live.tone)
+        uhp.answer(uhp.state.value.acp.toThread(runtime.profile.hostId), live)
+        advanceUntilIdle()
+        assertEquals(emptyList(), permissionWires(actions))
+        assertEquals("req-1", uhp.state.value.acp.permission?.requestId)
+        uhp.close()
+        session.close()
+    }
+
 }
 
 private suspend fun openAcpClient(
@@ -502,6 +634,8 @@ private suspend fun openAcpClient(
     actions: MutableList<JsonObject>? = null,
     opens: MutableList<JsonObject>? = null,
     streamEvents: List<String> = emptyList(),
+    holdNext: CompletableDeferred<Unit>? = null,
+    thenEvents: List<String> = emptyList(),
     extraMethods: List<String> = emptyList(),
     methods: List<String>? = null,
 ): LuviaSession {
@@ -537,6 +671,8 @@ private suspend fun openAcpClient(
                             respondAcp(framer, request, advertised)
                             if (request.method == Methods.ACP_SESSION_OPEN) {
                                 streamEvents.forEach { framer.writeFrame(it) }
+                                holdNext?.await()
+                                thenEvents.forEach { framer.writeFrame(it) }
                                 if (actions != null) {
                                     while (true) {
                                         val frame = parseObject(framer.readFrame())
@@ -667,6 +803,17 @@ private const val AGENT_LO: String =
 
 private const val PERMISSION: String =
     """{"event":"acp.permission","sequence":2,"data":{"request_id":"req-1","session_id":"sess_1","title":"Run command","description":null,"tool_call":{"tool_call_id":"tc1","title":"Bash","kind":"execute","status":"pending"},"options":[{"option_id":"allow","name":"Allow","kind":"allow_once"}]}}"""
+
+private const val PERMISSION_R2: String =
+    """{"event":"acp.permission","sequence":3,"data":{"request_id":"req-2","session_id":"sess_1","title":"Run the next command","description":null,"tool_call":{"tool_call_id":"tc2","title":"Bash","kind":"execute","status":"pending"},"options":[{"option_id":"allow","name":"Allow","kind":"allow_once"}]}}"""
+
+private fun permissionWires(actions: List<JsonObject>): List<Pair<String, String>> =
+    actions.mapNotNull { frame ->
+        if (frame["action"]?.jsonPrimitive?.content != "permission") return@mapNotNull null
+        val params = frame["params"]?.jsonObject ?: return@mapNotNull null
+        params["request_id"]?.jsonPrimitive?.content.orEmpty() to
+            params["option_id"]?.jsonPrimitive?.content.orEmpty()
+    }
 
 private const val TURN_ENDED: String =
     """{"event":"acp.turn","sequence":3,"data":{"stop_reason":"end_turn"}}"""

@@ -240,6 +240,8 @@ public data class AcpState(
     public val transcript: List<AcpTranscriptItem> = emptyList(),
     public val plan: List<AcpPlanEntry> = emptyList(),
     public val permission: AcpPermissionRequest? = null,
+    /** Changes when the ACP session is replaced or the link drops. An old click keeps the previous value. */
+    public val sessionGeneration: Long = 0,
     public val draft: String = "",
     public val errorText: String? = null,
     public val exitMessage: String? = null,
