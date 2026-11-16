@@ -201,7 +201,8 @@ private fun <T> deckSpring() = spring<T>(
 internal fun DecisionDeck(
     pending: List<AgentThread>,
     nowEpochMs: Long,
-    buttonsEnabled: Boolean,
+    buttonsEnabled: (AgentThread) -> Boolean,
+    lockLabel: (AgentThread) -> String? = { null },
     dragEnabled: Boolean,
     onAnswer: (AgentThread, AskOption) -> Unit,
     onOpen: (AgentThread) -> Unit,
@@ -417,7 +418,7 @@ internal fun DecisionDeck(
                     transformOrigin = TransformOrigin.Center
                 }
                 .semantics {
-                    contentDescription = spoken
+                    contentDescription = lockLabel(front)?.let { "$spoken。$it" } ?: spoken
                     liveRegion = LiveRegionMode.Polite
                     if (displayed.size > 1 && dragEnabled) {
                         customActions = listOf(
@@ -469,7 +470,7 @@ internal fun DecisionDeck(
             DecisionPreview(
                 thread = front,
                 age = sessionAgeLabel(front.updatedEpochMs, nowEpochMs),
-                enabled = buttonsEnabled && !pastSlop && !flying,
+                enabled = buttonsEnabled(front) && !pastSlop && !flying,
                 counter = counter,
                 onAnswer = { option -> answer(front, option) },
                 onOpen = { if (!pastSlop && !flying) onOpen(front) },

@@ -120,6 +120,8 @@ import tech.asahiart.luvia.thread.decisionQuestionText
 import tech.asahiart.luvia.thread.recommendedOption
 import tech.asahiart.luvia.thread.searchSessions
 import tech.asahiart.luvia.thread.sessionAgeLabel
+import tech.asahiart.luvia.thread.CardHostState
+import tech.asahiart.luvia.thread.cardCanOperate
 import tech.asahiart.luvia.thread.sessionRoster
 import tech.asahiart.luvia.ui.theme.LuviaTheme
 
@@ -281,6 +283,7 @@ fun SessionListScreen(
                 onPair = onPair,
                 onOpenTerminal = onOpenTerminal,
                 onOpenCardTerminal = onOpenCardTerminal,
+                hosts = hosts,
             )
             HomeTab.Machines -> MachinesBody(
                 padding = padding,
@@ -394,6 +397,7 @@ private fun SessionsBody(
     onPair: () -> Unit,
     onOpenTerminal: () -> Unit,
     onOpenCardTerminal: (AgentThread) -> Unit,
+    hosts: List<HostUiModel>,
 ) {
     val pathTexts = sessionPathTexts(scopeChoices.paths.map { it.cwd }, homeDir)
     val scopeText = scopeSummary(filter.scope, selected?.name, pathTexts, homeDir)
@@ -410,13 +414,9 @@ private fun SessionsBody(
     val filtersStuck by remember {
         derivedStateOf { filtersAreStuck(listState, headerIndex = 1) }
     }
-    val cardsLocked = selected != null &&
-        (selected.pairingRevoked || selected.connection != ConnectionBadge.Live)
-    val lockedLabel = when {
-        selected?.pairingRevoked == true -> stringResource(R.string.decision_locked_revoked)
-        cardsLocked -> stringResource(R.string.decision_locked_offline)
-        else -> null
-    }
+    val revokedLabel = stringResource(R.string.decision_locked_revoked)
+    val offlineLabel = stringResource(R.string.decision_locked_offline)
+    fun cardState(hostId: String): CardHostState? = cardHostState(hosts, hostId)
     Column(Modifier.fillMaxSize().padding(padding)) {
         HostStateBanner(selected, onRetry, onPair)
         if (searching) {
@@ -446,20 +446,7 @@ private fun SessionsBody(
                     exit = fadeOut(tween(DecisionDeckMath.COLLAPSE_MS)) +
                         shrinkVertically(tween(DecisionDeckMath.COLLAPSE_MS)),
                 ) {
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .alpha(if (cardsLocked) 0.38f else 1f)
-                            .then(
-                                if (lockedLabel == null) {
-                                    Modifier
-                                } else {
-                                    Modifier.semantics(mergeDescendants = true) {
-                                        contentDescription = lockedLabel
-                                    }
-                                },
-                            ),
-                    ) {
+                    Column(Modifier.fillMaxWidth()) {
                         Text(
                             stringResource(R.string.needs_you_section, deckCount),
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -469,9 +456,20 @@ private fun SessionsBody(
                         DecisionDeck(
                             pending = pending,
                             nowEpochMs = nowEpochMs,
-                            buttonsEnabled = !cardsLocked && selected?.isObserver != true,
-                            dragEnabled = !cardsLocked,
-                            onAnswer = onAnswer,
+                            buttonsEnabled = { thread -> cardCanOperate(cardState(thread.hostId)) },
+                            lockLabel = { thread ->
+                                val host = hosts.firstOrNull { it.id == thread.hostId }
+                                when {
+                                    host?.pairingRevoked == true -> revokedLabel
+                                    host == null || host.connection != ConnectionBadge.Live -> offlineLabel
+                                    else -> null
+                                }
+                            },
+                            dragEnabled = true,
+                            onAnswer = { thread, option ->
+                                if (!cardCanOperate(cardState(thread.hostId))) return@DecisionDeck
+                                onAnswer(thread, option)
+                            },
                             onOpen = onOpenThread,
                             onOpenTerminal = onOpenCardTerminal,
                         )
@@ -1440,4 +1438,13 @@ internal fun DecisionPreview(
             }
         }
     }
+}
+
+private fun cardHostState(hosts: List<HostUiModel>, hostId: String): CardHostState? {
+    val host = hosts.firstOrNull { it.id == hostId } ?: return null
+    return CardHostState(
+        connected = host.connection == ConnectionBadge.Live,
+        controller = !host.isObserver,
+        pairingRevoked = host.pairingRevoked,
+    )
 }

@@ -24,6 +24,9 @@ import tech.asahiart.luvia.internal.parseObject
 import tech.asahiart.luvia.support.ScriptedFactory
 import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.Ask
+import tech.asahiart.luvia.thread.AskAction
+import tech.asahiart.luvia.thread.AskOption
+import tech.asahiart.luvia.thread.AskTone
 import tech.asahiart.luvia.thread.NotificationCursor
 import tech.asahiart.luvia.thread.NotificationEvent
 import tech.asahiart.luvia.thread.reduceNotification
@@ -74,6 +77,45 @@ class HostUhpTest {
         uhp.openAgent("8")
         assertEquals("7", uhp.state.value.agentDetail.paneId)
         assertTrue(uhp.state.value.agentDetail.errorText!!.contains("still in progress"))
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun observerAnswerDoesNotRetargetOrSend() = runTest {
+        val recorded = mutableListOf<String>()
+        val session = openSession(this, recorded = recorded)
+        val runtime = sampleRuntime(role = HostRole.Observer)
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = this)
+        uhp.applyRuntime(runtime)
+        assertEquals(false, uhp.state.value.canMutate)
+        assertEquals(true, uhp.openAgent("7"))
+        advanceUntilIdle()
+        recorded.clear()
+        uhp.answer(notifiedPane(runtime.profile.hostId, "8"), AskOption("Yes", AskTone.Primary, AskAction.Prompt("y")))
+        advanceUntilIdle()
+        assertEquals("7", uhp.state.value.agentDetail.paneId)
+        assertEquals(emptyList(), recorded.filter { it == Methods.AGENT_PROMPT })
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun controllerAnswerSendsItsOwnPromptOnce() = runTest {
+        val recorded = mutableListOf<String>()
+        val session = openSession(this, recorded = recorded)
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = this)
+        uhp.applyRuntime(runtime)
+        assertEquals(true, uhp.state.value.canMutate)
+        assertEquals(true, uhp.openAgent("7"))
+        advanceUntilIdle()
+        recorded.clear()
+        uhp.answer(notifiedPane(runtime.profile.hostId, "7"), AskOption("Yes", AskTone.Primary, AskAction.Prompt("y")))
+        advanceUntilIdle()
+        assertEquals(listOf(Methods.AGENT_PROMPT), recorded.filter { it == Methods.AGENT_PROMPT })
+        assertEquals(false, uhp.state.value.agentDetail.sending)
+        assertEquals("7", uhp.state.value.agentDetail.paneId)
         uhp.close()
         session.close()
     }

@@ -497,13 +497,18 @@ struct SessionListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var decisionsLocked: Bool {
-        guard let host = model.selectedHost else { return false }
+    private func hostOf(_ thread: AgentThread) -> HostViewState? {
+        model.hosts.first { $0.id == thread.hostId }
+    }
+
+    /// Write access follows the card's host. Flipping the deck does not.
+    private func cardWriteLocked(_ thread: AgentThread) -> Bool {
+        guard let host = hostOf(thread) else { return true }
         return host.pairingRevoked || host.connection != .live
     }
 
-    private var decisionLockLabel: String {
-        if model.selectedHost?.pairingRevoked == true {
+    private func decisionLockLabel(_ thread: AgentThread) -> String {
+        if hostOf(thread)?.pairingRevoked == true {
             return "配对已失效，重新配对后才能作答"
         }
         return "离线，连上后才能作答"
@@ -744,7 +749,7 @@ struct SessionListView: View {
     }
 
     private func showsLiveStatus(_ thread: AgentThread) -> Bool {
-        if model.selectedHost?.connection == .live { return true }
+        if hostOf(thread)?.connection == .live { return true }
         #if DEBUG
         if PlaytestChatKt.isPlaytestThread(id: thread.id) { return true }
         #endif
@@ -752,11 +757,11 @@ struct SessionListView: View {
     }
 
     private func canAnswer(_ thread: AgentThread) -> Bool {
-        if model.selectedHost?.isController == true { return true }
         #if DEBUG
         if PlaytestChatKt.isPlaytestThread(id: thread.id) { return true }
         #endif
-        return false
+        guard let host = hostOf(thread) else { return false }
+        return host.isController && host.connection == .live && !host.pairingRevoked
     }
 
     private func statusColor(_ thread: AgentThread) -> Color {
@@ -824,7 +829,9 @@ struct SessionListView: View {
         }
         .padding(.bottom, peek > 0 ? 12 : 0)
         .padding(.top, 4)
-        .modifier(DecisionLock(locked: decisionsLocked, label: decisionLockLabel))
+        .accessibilityHint(
+            frontThread.flatMap { cardWriteLocked($0) ? decisionLockLabel($0) : nil } ?? ""
+        )
     }
 
     private func decisionCard(_ thread: AgentThread, counter: String?, interactive: Bool) -> some View {
@@ -1105,7 +1112,7 @@ struct SessionListView: View {
     private func deckDragGesture(count: Int) -> some Gesture {
         DragGesture(minimumDistance: 8, coordinateSpace: .named("sessionList"))
             .onChanged { value in
-                guard !decisionsLocked, !deckFlying else { return }
+                guard !deckFlying else { return }
                 guard decisionDeckClaims(startX: value.startLocation.x, width: listWidth) else { return }
                 if deckFrozen == nil { deckFrozen = visiblePending }
                 deckDragging = true
@@ -1178,7 +1185,7 @@ struct SessionListView: View {
 
     private func stepDeck(by delta: Int) {
         let count = deckThreads.count
-        guard count > 1, !decisionsLocked else { return }
+        guard count > 1 else { return }
         let next = delta > 0
             ? decisionDeckNextIndex(deckIndex, count)
             : decisionDeckPreviousIndex(deckIndex, count)
@@ -1200,7 +1207,14 @@ struct SessionListView: View {
         }
     }
 
+    private var frontThread: AgentThread? {
+        let threads = deckThreads
+        guard !threads.isEmpty else { return nil }
+        return threads[min(deckIndex, threads.count - 1)]
+    }
+
     private func commitAnswer(_ thread: AgentThread, _ option: AskOption) {
+        guard canAnswer(thread) else { return }
         guard !deckPastSlop, !deckFlying else { return }
         deckFlying = true
         let finish = {
