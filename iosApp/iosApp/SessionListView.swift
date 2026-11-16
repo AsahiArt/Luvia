@@ -43,7 +43,10 @@ struct SessionListView: View {
     var onPair: () -> Void
     var onNewSession: () -> Void
     var onCreateSession: (HostViewState, String?) -> Void
+    /// Card terminal. The host menu has no card, so it cannot use this callback.
     var onTerminal: (AgentThread) -> Void
+    /// Selected-host terminal from the host menu. `Button` action is `() -> Void`.
+    var onOpenSelectedTerminal: () -> Void
     var onSettings: () -> Void
     var showsChrome: Bool = true
     var glass: Namespace.ID
@@ -363,7 +366,9 @@ struct SessionListView: View {
             }
             Button("配对电脑", action: onPair)
             if host != nil {
-                Button("打开终端", action: onTerminal)
+                // Job 133353265165: `(AgentThread) -> Void` is not a `Button` action.
+                // The menu opens the selected host, not the card in front.
+                Button("打开终端", action: onOpenSelectedTerminal)
                 Button("电脑设置", action: onSettings)
             }
         } label: {

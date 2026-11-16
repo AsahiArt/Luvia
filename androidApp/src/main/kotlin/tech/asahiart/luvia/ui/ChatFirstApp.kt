@@ -33,6 +33,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -71,6 +72,9 @@ import tech.asahiart.luvia.thread.unreadChatCount
 import tech.asahiart.luvia.thread.sortSessions
 import tech.asahiart.luvia.thread.terminalFixCandidates
 import tech.asahiart.luvia.thread.terminalFixOpensNewAgent
+import tech.asahiart.luvia.thread.NotificationCursor
+import tech.asahiart.luvia.thread.NotificationEvent
+import tech.asahiart.luvia.thread.reduceNotification
 import tech.asahiart.luvia.thread.resolveOpenThread
 import tech.asahiart.luvia.thread.terminalOwningSessionOnHost
 import tech.asahiart.luvia.thread.threadTrails
@@ -84,6 +88,7 @@ private val TerminalOrigin = TransformOrigin(0.92f, 0.04f)
 fun ChatFirstApp(
     viewModel: LuviaViewModel,
     launchIntent: Intent?,
+    launchEventId: Long = 0L,
     pushEnabled: Boolean,
     hasPushDistributor: Boolean,
     onSetPushEnabled: (Boolean) -> Unit,
@@ -164,7 +169,8 @@ fun ChatFirstApp(
     )
     val openThread = resolveOpenThread(catalog, routeHostId.orEmpty(), threadId.orEmpty())
     val openBlocked = launchIntent?.getBooleanExtra(StatusNotificationController.EXTRA_OPEN_BLOCKED, false) == true
-    var consumedLaunch by rememberSaveable { mutableStateOf(false) }
+    var consumedEventId by rememberSaveable { mutableLongStateOf(-1L) }
+    var pendingEventId by rememberSaveable { mutableLongStateOf(-1L) }
 
     LaunchedEffect(profiles.map { it.hostId }) {
         if (startupApplied || profiles.isEmpty()) return@LaunchedEffect
@@ -214,28 +220,6 @@ fun ChatFirstApp(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(launchIntent, allThreads, consumedLaunch) {
-        if (consumedLaunch) return@LaunchedEffect
-        val id = launchIntent?.getStringExtra(StatusNotificationController.EXTRA_HOST_ID) ?: return@LaunchedEffect
-        val base = if (resolvedId != id) {
-            viewModel.switchHostSessionFilter(id)
-        } else {
-            viewModel.hostSessionFilter(id)
-        }
-        if (openBlocked) {
-            viewModel.rememberHostSessionFilter(id, base.copy(status = SessionFilter.NeedsYou))
-        }
-        hostId = id
-        val thread = if (openBlocked) allThreads.firstOrNull { it.hostId == id && it.needsYou } else null
-        if (thread != null) {
-            pinThread(thread)
-            stage = "chat"
-            consumedLaunch = true
-        } else if (!openBlocked) {
-            stage = "sessions"
-            consumedLaunch = true
-        }
-    }
     LaunchedEffect(
         awaitingAcp,
         state?.acp?.open,
@@ -258,7 +242,7 @@ fun ChatFirstApp(
         awaitingAcp = false
     }
 
-    fun openThread(thread: AgentThread) {
+    fun openThread(thread: AgentThread): Boolean {
         val id = thread.hostId
         val workspace = viewModel.workspace(id)
         if (thread.acpHistory) {
@@ -268,7 +252,7 @@ fun ChatFirstApp(
             if (agentId != null && !cwd.isNullOrBlank() && sessionId != null) {
                 workspace.resumeAcp(agentId, cwd, sessionId)
                 awaitingAcp = true
-                return
+                return true
             }
         }
         val accepted = when (thread.kind) {
@@ -278,12 +262,37 @@ fun ChatFirstApp(
             }
             AgentKind.Pane -> thread.paneId?.let { workspace.openAgent(it) } == true
         }
-        if (!accepted) return
+        if (!accepted) return false
         if (id != resolvedId) viewModel.switchHostSessionFilter(id)
         hostId = id
         pinThread(thread)
         viewModel.markViewed(thread)
         stage = "chat"
+        return true
+    }
+
+    LaunchedEffect(launchEventId, launchIntent, allThreads, consumedEventId, pendingEventId) {
+        val id = launchIntent?.getStringExtra(StatusNotificationController.EXTRA_HOST_ID) ?: return@LaunchedEffect
+        val event = NotificationEvent(launchEventId, id, openBlocked)
+        if (event.eventId == consumedEventId) return@LaunchedEffect
+        if (pendingEventId >= 0 && event.eventId < pendingEventId) return@LaunchedEffect
+        val base = if (resolvedId != id) {
+            viewModel.switchHostSessionFilter(id)
+        } else {
+            viewModel.hostSessionFilter(id)
+        }
+        if (openBlocked) {
+            viewModel.rememberHostSessionFilter(id, base.copy(status = SessionFilter.NeedsYou))
+        }
+        hostId = id
+        val result = reduceNotification(
+            NotificationCursor(consumedEventId, pendingEventId),
+            event,
+            allThreads,
+        ) { thread -> openThread(thread) }
+        consumedEventId = result.cursor.consumedEventId
+        pendingEventId = result.cursor.pendingEventId
+        if (result.showSessions) stage = "sessions"
     }
 
     fun conversationIds(thread: AgentThread?): Set<String> {

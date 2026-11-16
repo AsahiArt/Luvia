@@ -184,6 +184,7 @@ struct ContentView: View {
                         beginNewSession(on: host, cwd: cwd)
                     },
                     onTerminal: { card in openTerminal(card) },
+                    onOpenSelectedTerminal: openSelectedTerminal,
                     onSettings: { showSettings = true },
                     showsChrome: stage != "terminal",
                     glass: glass
@@ -738,6 +739,14 @@ struct ContentView: View {
         }
         remember(thread)
         stage = "chat"
+    }
+
+    /// Host-menu terminal. There is no card, so this does not borrow `onTerminal`'s thread.
+    private func openSelectedTerminal() {
+        guard model.selectedHost != nil else { return }
+        if stage != "terminal" { terminalReturn = stage }
+        model.openTerminal(paneId: nil)
+        stage = "terminal"
     }
 
     private func openTerminal(_ thread: AgentThread) {
