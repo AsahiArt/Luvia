@@ -424,6 +424,13 @@ public class HostUhp(
 
     public fun launchAcp() = acp.launch()
 
+    /** Generation written by the launch that is currently Starting, for a handoff receipt. */
+    public fun launchReceipt(): tech.asahiart.luvia.thread.LaunchReceipt? {
+        val generation = state.value.acp.sessionGeneration
+        if (state.value.acp.run != AcpRunState.Starting || generation == 0L) return null
+        return tech.asahiart.luvia.thread.LaunchReceipt(generation)
+    }
+
     public fun resumeAcp(agentId: String, cwd: String, sessionId: String) =
         acp.resume(agentId, cwd, sessionId)
 
