@@ -188,7 +188,6 @@ fun PairingScreen(
     }
 }
 
-@Composable
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PairingHelpSheet(onDismiss: () -> Unit) {
@@ -220,6 +219,7 @@ private fun PairingHelpSheet(onDismiss: () -> Unit) {
     }
 }
 
+@Composable
 private fun PairingStart(
     completing: Boolean,
     error: String?,
