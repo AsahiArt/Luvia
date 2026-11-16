@@ -401,7 +401,9 @@ final class AppModel {
                 let outcome = try await managerRef.openTerminal(hostId: hostId, identity: identity)
                 await MainActor.run {
                     guard let self else {
-                        if case .ok(let ok) = onEnum(of: outcome) { ok.value.close() }
+                        if case .ok(let ok) = onEnum(of: outcome), let control = ok.value {
+                            control.close()
+                        }
                         return
                     }
                     let current = epoch == self.terminalAcquireEpoch
@@ -411,7 +413,9 @@ final class AppModel {
                         && self.observingGeneration == generation
                         && self.observingTerminalID == terminal
                     guard current else {
-                        if case .ok(let ok) = onEnum(of: outcome) { ok.value.close() }
+                        if case .ok(let ok) = onEnum(of: outcome), let control = ok.value {
+                            control.close()
+                        }
                         return
                     }
                     switch onEnum(of: outcome) {
