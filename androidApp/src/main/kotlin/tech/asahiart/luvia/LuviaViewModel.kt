@@ -50,6 +50,7 @@ class LuviaViewModel(
     private val identities = mutableMapOf<String, TerminalIdentity>()
     private val triedTerminals = mutableMapOf<String, MutableSet<String>>()
     private val suppressAutoConnect = mutableSetOf<String>()
+    private var pairingAttempt: Long = 0L
 
     val hosts: StateFlow<List<HostRuntime>> = manager.hosts
     val catalogReady: StateFlow<Boolean> = manager.catalogReady
@@ -133,7 +134,10 @@ class LuviaViewModel(
             return
         }
         when (val result = manager.beginPairing(label, role)) {
-            is Outcome.Ok -> _pairing.value = PairingUiState(draft = result.value)
+            is Outcome.Ok -> {
+                pairingAttempt = manager.openPairingAttempt()
+                _pairing.value = PairingUiState(draft = result.value)
+            }
             is Outcome.Err -> _pairing.update { it.copy(errorMessage = result.failure.pairingMessage()) }
         }
     }
@@ -148,13 +152,16 @@ class LuviaViewModel(
     ) {
         val draft = _pairing.value.draft ?: return
         if (_pairing.value.completing) return
+        val attempt = pairingAttempt.takeIf { it != 0L } ?: manager.openPairingAttempt().also { pairingAttempt = it }
         viewModelScope.launch {
-            _pairing.update { it.copy(completing = true, errorMessage = null) }
+            if (pairingAttempt != attempt) return@launch
+            _pairing.update { if (pairingAttempt == attempt) it.copy(completing = true, errorMessage = null) else it }
             val trimmed = rawCode.trim()
             val material =
                 if (looksLikeShortCode(trimmed)) {
                     when (val redeemed = redeemShortCode(trimmed, draft.deviceKeyFingerprint, shortHost)) {
                         is Outcome.Err -> {
+                            if (pairingAttempt != attempt) return@launch
                             _pairing.update {
                                 it.copy(
                                     completing = false,
@@ -168,6 +175,7 @@ class LuviaViewModel(
                 } else {
                     trimmed
                 }
+            if (pairingAttempt != attempt) return@launch
             val parsedPort = port.trim().toIntOrNull()
             when (
                 val result =
@@ -177,21 +185,25 @@ class LuviaViewModel(
                         parseConnectionAddresses(host),
                         parsedPort,
                         user.trim().ifEmpty { null },
+                        attemptId = attempt,
                     )
             ) {
                 is Outcome.Ok -> {
+                    if (pairingAttempt != attempt) return@launch
                     val profile = result.value
                     suppressAutoConnect.remove(profile.hostId)
                     _pairing.value = PairingUiState(pairedHostId = profile.hostId)
                     onSuccess()
                 }
-                is Outcome.Err ->
+                is Outcome.Err -> {
+                    if (pairingAttempt != attempt) return@launch
                     _pairing.update {
                         it.copy(
                             completing = false,
                             errorMessage = pairingFailureCopy(result.failure, material),
                         )
                     }
+                }
             }
         }
     }
@@ -216,10 +228,14 @@ class LuviaViewModel(
 
 
     fun cancelPairing() {
+        manager.invalidatePairingAttempt()
+        pairingAttempt = 0L
         _pairing.value = PairingUiState()
     }
 
     fun clearPairingDraft() {
+        manager.invalidatePairingAttempt()
+        pairingAttempt = 0L
         _pairing.update { it.copy(draft = null, errorMessage = null, completing = false) }
     }
 

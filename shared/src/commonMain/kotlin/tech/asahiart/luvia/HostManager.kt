@@ -71,6 +71,14 @@ public class HostManager internal constructor(
         scope: CoroutineScope,
     ) : this(store, vault, scope, ::connectToProfile)
 
+    public val pairingAttempts: PairingAttemptGate = PairingAttemptGate()
+
+    public fun openPairingAttempt(): Long = pairingAttempts.open()
+
+    public fun invalidatePairingAttempt() {
+        pairingAttempts.invalidate()
+    }
+
     private val store: HostStore = store
     private val vault: DeviceKeyVault = vault
     private val job: Job = SupervisorJob(scope.coroutineContext[Job])
@@ -159,6 +167,7 @@ public class HostManager internal constructor(
         addresses: List<String> = emptyList(),
         port: Int? = null,
         user: String? = null,
+        attemptId: Long = 0,
     ): Outcome<HostProfile> {
         val code =
             when (val decoded = PairingCodes.decode(rawCode)) {
@@ -178,6 +187,9 @@ public class HostManager internal constructor(
                 is Outcome.Err -> return fail(parsed.failure)
                 is Outcome.Ok -> parsed.value
             }
+        if (attemptId != 0L && !pairingAttempts.claim(attemptId)) {
+            return fail(Failure.ProtocolError("pairing attempt is no longer current"))
+        }
         try {
             vault.save(code.deviceId, draft.privateKeyOpenssh)
         } catch (error: Exception) {

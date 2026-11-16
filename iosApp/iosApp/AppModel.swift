@@ -20,6 +20,7 @@ final class AppModel {
     private var terminalControl: TerminalControl?
     private var wantsTerminalObserve = false
     private var terminalAcquireEpoch = 0
+    private var pairingAttempt: Int64 = 0
     private var observingHostID: String?
     private var observingGeneration: String?
     private var observingTerminalID: String?
@@ -129,10 +130,16 @@ final class AppModel {
             guard let draft = ok.value else {
                 return .failure(UserFacingError(message: "无法开始配对。"))
             }
+            pairingAttempt = manager.openPairingAttempt()
             return .success(draft)
         case .err(let err):
             return .failure(UserFacingError(message: FailureText.describe(err.failure)))
         }
+    }
+
+    func cancelPairingAttempt() {
+        manager.invalidatePairingAttempt()
+        pairingAttempt = 0
     }
 
     func completePairing(
@@ -143,6 +150,8 @@ final class AppModel {
         port: String = "",
         user: String = ""
     ) async -> Result<HostProfile, UserFacingError> {
+        let attempt = pairingAttempt == 0 ? manager.openPairingAttempt() : pairingAttempt
+        if pairingAttempt == 0 { pairingAttempt = attempt }
         let trimmed = rawCode.trimmingCharacters(in: .whitespacesAndNewlines)
         let material: String
         if ShortCodeKt.looksLikeShortCode(raw: trimmed) {
@@ -158,11 +167,17 @@ final class AppModel {
                 )
                 switch onEnum(of: outcome) {
                 case .ok(let ok):
+                    guard pairingAttempt == attempt else {
+                        return .failure(UserFacingError(message: "这次配对已经结束，没有改动其他电脑。"))
+                    }
                     guard let value = ok.value else {
                         return .failure(UserFacingError(message: "短码兑换没有返回配对码。草稿仍然有效。"))
                     }
                     material = value as String
                 case .err(let err):
+                    guard pairingAttempt == attempt else {
+                        return .failure(UserFacingError(message: "这次配对已经结束，没有改动其他电脑。"))
+                    }
                     return .failure(UserFacingError(message: FailureText.describe(err.failure)))
                 }
             } catch {
@@ -172,15 +187,22 @@ final class AppModel {
             material = trimmed
         }
         do {
+            guard pairingAttempt == attempt else {
+                return .failure(UserFacingError(message: "这次配对已经结束，没有改动其他电脑。"))
+            }
             let outcome = try await manager.completePairing(
                 draft: draft,
                 rawCode: material,
                 addresses: [],
                 port: nil,
-                user: nil
+                user: nil,
+                attemptId: attempt
             )
             switch onEnum(of: outcome) {
             case .ok(let ok):
+                guard pairingAttempt == attempt else {
+                    return .failure(UserFacingError(message: "配对已保存，这次操作已经结束，没有改动其他电脑。"))
+                }
                 guard let profile = ok.value else {
                     return .failure(UserFacingError(message: "配对没有返回电脑。"))
                 }
