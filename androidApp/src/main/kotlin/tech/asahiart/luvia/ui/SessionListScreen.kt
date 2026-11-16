@@ -84,6 +84,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -174,19 +175,30 @@ fun SessionListScreen(
     }
     val shown = searchSessions(threads, if (searching) query else "")
     val pending = shown.filter { it.needsYou }
+    val titleChoices = scopeChoices ?: SessionScopeChoices(roster.agents, roster.agents, emptyList())
+    val titlePaths = sessionPathTexts(titleChoices.paths.map { it.cwd }, homeDir)
+    val titleScope = scopeSummary(filter.scope, selected?.name, titlePaths, homeDir)
     Scaffold(
         modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         containerColor = MaterialTheme.colorScheme.surface,
         topBar = {
             LargeTopAppBar(
                 title = {
-                    Text(
-                        when (tab) {
-                            HomeTab.Sessions -> stringResource(R.string.sessions_title)
-                            HomeTab.Machines -> stringResource(R.string.tab_machines)
-                            HomeTab.Settings -> stringResource(R.string.tab_settings)
-                        },
-                    )
+                    if (tab == HomeTab.Sessions) {
+                        SessionTitleSummary(
+                            scopeLabel = titleScope,
+                            roster = roster,
+                            monospace = filter.scope is SessionScope.Path,
+                            collapsed = scroll.state.collapsedFraction > 0.5f,
+                        )
+                    } else {
+                        Text(
+                            when (tab) {
+                                HomeTab.Machines -> stringResource(R.string.tab_machines)
+                                else -> stringResource(R.string.tab_settings)
+                            },
+                        )
+                    }
                 },
                 navigationIcon = {
                     HostChip(
@@ -403,11 +415,6 @@ private fun SessionsBody(
         else -> null
     }
     Column(Modifier.fillMaxSize().padding(padding)) {
-        StatsRow(
-            roster,
-            scopeText,
-            monospace = filter.scope is SessionScope.Path,
-        )
         HostStateBanner(selected, onRetry, onPair)
         if (searching) {
             OutlinedTextField(
@@ -542,7 +549,18 @@ private fun SessionFilterRow(
         modifier.fillMaxWidth().padding(start = 16.dp, top = 4.dp, end = 0.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ScopeFilterChip(filter, hostName, choices, pathTexts, homeDir, onFilter)
+        ScopeFilterChip(
+            filter,
+            hostName,
+            choices,
+            pathTexts,
+            homeDir,
+            onFilter,
+            // The status chips already scroll. Cap the scope chip so a long path
+            // ellipsizes here instead of covering that row. 240.dp is the room
+            // left after the divider on a 390.dp screen, not a new chip style.
+            Modifier.widthIn(max = 240.dp),
+        )
         Box(
             Modifier
                 .padding(horizontal = 8.dp)
@@ -608,28 +626,26 @@ private fun ScopeFilterChip(
     pathTexts: List<SessionPathText>,
     homeDir: String?,
     onFilter: (HostSessionFilter) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var open by rememberSaveable { mutableStateOf(false) }
     var showAllPaths by rememberSaveable { mutableStateOf(false) }
     val pathScope = filter.scope as? SessionScope.Path
     val selectedPath = pathScope?.let { pathText(it.cwd, pathTexts, homeDir) }
-    Box {
+    Box(modifier) {
         FilterChip(
-            modifier = Modifier.widthIn(max = 160.dp),
             selected = filter.scope != SessionScope.AllOnline,
             onClick = { open = true },
             label = {
                 Text(
-                    selectedPath?.chip ?: scopeLabel(filter.scope, hostName),
+                    selectedPath?.relative ?: scopeLabel(filter.scope, hostName),
                     maxLines = 1,
                     softWrap = false,
                     overflow = TextOverflow.Ellipsis,
                     fontFamily = if (pathScope != null) FontFamily.Monospace else null,
-                    modifier = Modifier
-                        .widthIn(max = 72.dp)
-                        .semantics {
-                            if (selectedPath != null) contentDescription = selectedPath.relative
-                        },
+                    modifier = Modifier.semantics {
+                        if (selectedPath != null) contentDescription = selectedPath.relative
+                    },
                 )
             },
             leadingIcon = if (pathScope != null) {
@@ -917,41 +933,58 @@ private fun statusWord(status: SessionFilter): String =
     }
 
 @Composable
-private fun StatsRow(roster: SessionRoster, scopeLabel: String, monospace: Boolean) {
+private fun SessionTitleSummary(
+    scopeLabel: String,
+    roster: SessionRoster,
+    monospace: Boolean,
+    collapsed: Boolean,
+) {
     val summary = stringResource(R.string.scope_summary, scopeLabel, roster.agents)
-    val count = stringResource(R.string.scope_session_count, roster.agents)
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    // The expanded title slot already stops 8.dp short of the window.
+    // Padding sits outside this tag so the tag's right edge is the 16.dp inset.
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(end = 8.dp)
+            .testTag("session-title-summary"),
     ) {
-        Row(
-            Modifier.weight(1f).semantics { contentDescription = summary },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                scopeLabel,
-                modifier = Modifier.weight(1f, fill = false),
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.MiddleEllipsis,
-                style = MaterialTheme.typography.bodyMedium,
-                fontFamily = if (monospace) FontFamily.Monospace else null,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                count,
-                maxLines = 1,
-                softWrap = false,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            StatDot(LuviaTheme.extended.live, stringResource(R.string.stats_running, roster.running))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+        Text(stringResource(R.string.sessions_title), maxLines = 1, softWrap = false)
+        if (!collapsed) {
             Spacer(Modifier.width(12.dp))
-            StatDot(MaterialTheme.colorScheme.tertiary, stringResource(R.string.stats_waiting, roster.waiting))
+            Column(
+                Modifier.weight(1f).semantics { contentDescription = summary },
+                horizontalAlignment = Alignment.End,
+            ) {
+                Text(
+                    summary,
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = if (monospace) FontFamily.Monospace else null,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    StatDot(
+                        MaterialTheme.colorScheme.primary,
+                        stringResource(R.string.stats_running, roster.running),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    StatDot(
+                        MaterialTheme.colorScheme.tertiary,
+                        stringResource(R.string.stats_waiting, roster.waiting),
+                    )
+                }
+            }
         }
+    }
     }
 }
 
@@ -960,7 +993,13 @@ private fun StatDot(color: androidx.compose.ui.graphics.Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(8.dp).background(color, CircleShape))
         Spacer(Modifier.width(6.dp))
-        Text(label, maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge)
+        Text(
+            label,
+            maxLines = 1,
+            softWrap = false,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
