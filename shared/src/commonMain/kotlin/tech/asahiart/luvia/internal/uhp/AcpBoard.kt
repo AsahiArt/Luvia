@@ -166,11 +166,11 @@ internal class AcpBoard(private val ctx: UhpContext) {
     }
 
     /** Resume an ACP history row. Replay starts from an empty transcript. */
-    fun resume(agentId: String, cwd: String, sessionId: String) {
-        val client = ctx.session() ?: return
+    fun resume(agentId: String, cwd: String, sessionId: String): tech.asahiart.luvia.thread.LaunchReceipt? {
+        val client = ctx.session() ?: return null
         val state = ctx.value()
-        if (!state.canMutate || !client.supports(UhpMethods.ACP_SESSION_OPEN)) return
-        if (cwd.isBlank() || sessionId.isBlank()) return
+        if (!state.canMutate || !client.supports(UhpMethods.ACP_SESSION_OPEN)) return null
+        if (cwd.isBlank() || sessionId.isBlank()) return null
         stop()
         nextItem = 0
         replaying = true
@@ -198,6 +198,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
                     ),
                 )
             }
+        return tech.asahiart.luvia.thread.LaunchReceipt(ticket)
     }
 
     private fun finishOpen(ticket: Long, opened: Outcome<AcpSession>) {

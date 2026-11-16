@@ -74,6 +74,10 @@ import tech.asahiart.luvia.thread.terminalFixCandidates
 import tech.asahiart.luvia.thread.terminalFixOpensNewAgent
 import tech.asahiart.luvia.thread.NotificationCursor
 import tech.asahiart.luvia.thread.NotificationEvent
+import tech.asahiart.luvia.thread.ResumeNavigation
+import tech.asahiart.luvia.thread.ResumeWait
+import tech.asahiart.luvia.thread.beginHistoryResume
+import tech.asahiart.luvia.thread.reduceHistoryResume
 import tech.asahiart.luvia.thread.reduceNotification
 import tech.asahiart.luvia.thread.resolveOpenThread
 import tech.asahiart.luvia.thread.terminalOwningSessionOnHost
@@ -116,6 +120,7 @@ fun ChatFirstApp(
     var showNewSession by rememberSaveable { mutableStateOf(false) }
     var confirmUnpair by rememberSaveable { mutableStateOf(false) }
     var awaitingAcp by rememberSaveable { mutableStateOf(false) }
+    var resumeWait by remember { mutableStateOf<ResumeWait?>(null) }
     val filterEpoch by viewModel.hostFilterEpoch.collectAsStateWithLifecycle()
     var seenChatIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     val profiles = runtimes.map { it.profile }
@@ -242,6 +247,31 @@ fun ChatFirstApp(
         awaitingAcp = false
     }
 
+    LaunchedEffect(resumeWait, hostId, stage, hostStates) {
+        val wait = resumeWait ?: return@LaunchedEffect
+        val snapshot = hostStates[wait.hostId]
+        val next =
+            reduceHistoryResume(
+                navigation = ResumeNavigation(wait, routeHostId, stage),
+                selectedHostId = hostId,
+                snapshotHostId = wait.hostId,
+                snapshotGeneration = snapshot?.acp?.sessionGeneration ?: -1L,
+                open = snapshot?.acp?.open == true,
+                errorText = snapshot?.acp?.errorText,
+                sessionId = snapshot?.acp?.info?.sessionId ?: "",
+            )
+        if (next == ResumeNavigation(wait, routeHostId, stage)) return@LaunchedEffect
+        resumeWait = next.wait
+        if (next.stage == "chat" && next.routeHostId == wait.hostId) {
+            val thread = snapshot?.let { awaitingAcpThread(it, wait.hostId) } ?: return@LaunchedEffect
+            viewModel.workspace(wait.hostId).viewAcp()
+            pinThread(thread)
+            viewModel.markViewed(thread)
+            stage = "chat"
+            showNewSession = false
+        }
+    }
+
     fun openThread(thread: AgentThread): Boolean {
         val id = thread.hostId
         val workspace = viewModel.workspace(id)
@@ -250,8 +280,10 @@ fun ChatFirstApp(
             val cwd = thread.cwd
             val sessionId = thread.acpSessionId
             if (agentId != null && !cwd.isNullOrBlank() && sessionId != null) {
-                workspace.resumeAcp(agentId, cwd, sessionId)
-                awaitingAcp = true
+                val wait = beginHistoryResume(id, workspace.resumeAcp(agentId, cwd, sessionId)) ?: return false
+                resumeWait = wait
+                if (id != resolvedId) viewModel.switchHostSessionFilter(id)
+                hostId = id
                 return true
             }
         }
