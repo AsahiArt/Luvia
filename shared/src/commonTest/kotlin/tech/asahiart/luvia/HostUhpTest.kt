@@ -23,6 +23,10 @@ import tech.asahiart.luvia.internal.decodeUhpRequest
 import tech.asahiart.luvia.internal.parseObject
 import tech.asahiart.luvia.support.ScriptedFactory
 import tech.asahiart.luvia.thread.AgentThread
+import tech.asahiart.luvia.thread.Ask
+import tech.asahiart.luvia.thread.NotificationCursor
+import tech.asahiart.luvia.thread.NotificationEvent
+import tech.asahiart.luvia.thread.reduceNotification
 import tech.asahiart.luvia.thread.DECISION_QUESTION_FALLBACK
 import tech.asahiart.luvia.thread.threads
 import kotlin.time.Duration.Companion.seconds
@@ -70,6 +74,49 @@ class HostUhpTest {
         uhp.openAgent("8")
         assertEquals("7", uhp.state.value.agentDetail.paneId)
         assertTrue(uhp.state.value.agentDetail.errorText!!.contains("still in progress"))
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun notificationAcceptOpensTheDetailBeforeTheRoute() = runTest {
+        val session = openSession(backgroundScope)
+        val runtime = sampleRuntime()
+        val host = runtime.profile.hostId
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        val fresh = reduceNotification(
+            NotificationCursor(),
+            NotificationEvent(1, host, openBlocked = true),
+            listOf(notifiedPane(host, "8")),
+        ) { uhp.openAgent(it.paneId!!) }
+        assertEquals("8", fresh.routeThread?.paneId)
+        assertEquals("8", uhp.state.value.agentDetail.paneId)
+        assertEquals(true, uhp.state.value.agentDetail.open)
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun notificationRejectWhileSendingDoesNotRouteTheOtherPane() = runTest {
+        val session = openSession(backgroundScope, hangPrompt = true)
+        val runtime = sampleRuntime()
+        val host = runtime.profile.hostId
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        assertEquals(true, uhp.openAgent("7"))
+        uhp.promptAgent("hello")
+        advanceUntilIdle()
+        assertEquals(true, uhp.state.value.agentDetail.sending)
+        val rejected = reduceNotification(
+            NotificationCursor(),
+            NotificationEvent(2, host, openBlocked = true),
+            listOf(notifiedPane(host, "8")),
+        ) { uhp.openAgent(it.paneId!!) }
+        assertNull(rejected.routeThread)
+        assertEquals("7", uhp.state.value.agentDetail.paneId)
+        assertEquals(2L, rejected.cursor.consumedEventId)
+        assertEquals(false, uhp.sendToThread(notifiedPane(host, "8"), "do not send"))
         uhp.close()
         session.close()
     }
@@ -464,6 +511,21 @@ class HostUhpTest {
         assertTrue(text.contains("Do not retry automatically"))
     }
 }
+
+private fun notifiedPane(hostId: String, paneId: String) = AgentThread(
+    id = paneId,
+    kind = AgentKind.Pane,
+    hostId = hostId,
+    projectKey = null,
+    projectLabel = null,
+    title = "title-$paneId",
+    agentType = null,
+    status = AgentStatus.Blocked,
+    ask = Ask("Q-$paneId", emptyList()),
+    summary = null,
+    updatedEpochMs = null,
+    paneId = paneId,
+)
 
 private fun sampleRuntime(
     role: HostRole = HostRole.Controller,

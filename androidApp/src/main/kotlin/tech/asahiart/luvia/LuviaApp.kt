@@ -25,7 +25,7 @@ import tech.asahiart.luvia.ui.ChatFirstApp
 import tech.asahiart.luvia.ui.theme.prewarmTerminalFont
 
 @Composable
-fun LuviaApp(launchIntent: Intent? = null) {
+fun LuviaApp(launchIntent: Intent? = null, launchEventId: Long = 0L) {
     val context = LocalContext.current
     val viewModel: LuviaViewModel = viewModel(
         factory = remember(context) { LuviaViewModel.Factory(context.applicationContext) },
@@ -88,6 +88,7 @@ fun LuviaApp(launchIntent: Intent? = null) {
     ChatFirstApp(
         viewModel = viewModel,
         launchIntent = launchIntent,
+        launchEventId = launchEventId,
         pushEnabled = pushRegistration != null,
         hasPushDistributor = PushRegistrar.hasDistributor(context),
         onSetPushEnabled = { enabled -> viewModel.setWakeEnabled(enabled, context) },
