@@ -44,10 +44,13 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -121,6 +124,7 @@ private val TileShapes = listOf(
 private val ScanShape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp, topEnd = 8.dp, bottomEnd = 8.dp)
 private val ConfirmShape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp, topEnd = 28.dp, bottomEnd = 28.dp)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PairingScreen(
     pairing: PairingUiState,
@@ -132,6 +136,7 @@ fun PairingScreen(
     initialLongCode: String = "",
 ) {
     val draft = pairing.draft
+    var helpOpen by remember { mutableStateOf(false) }
     Column(
         Modifier
             .fillMaxSize()
@@ -154,6 +159,16 @@ fun PairingScreen(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f),
             )
+            IconButton(onClick = { helpOpen = true }) {
+                Text(
+                    "?",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+        if (helpOpen) {
+            PairingHelpSheet(onDismiss = { helpOpen = false })
         }
         if (draft == null) {
             PairingStart(
@@ -174,6 +189,37 @@ fun PairingScreen(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PairingHelpSheet(onDismiss: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .navigationBarsPadding(),
+        ) {
+            Text(stringResource(R.string.pair_help_title), style = MaterialTheme.typography.headlineSmall)
+            Text(
+                stringResource(R.string.pair_help_command),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            Text(
+                stringResource(R.string.pair_help_code),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+            Text(
+                stringResource(R.string.pair_help_confirm),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp, bottom = 12.dp),
+            )
+        }
+    }
+}
+
 private fun PairingStart(
     completing: Boolean,
     error: String?,
