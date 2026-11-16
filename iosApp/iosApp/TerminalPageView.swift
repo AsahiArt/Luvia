@@ -12,15 +12,20 @@ struct TerminalPageView: View {
     var textOverride: String? = nil
     /// Debug fixture is on screen. A host stuck in `.connecting` still reads as 离线.
     var fixtureOfflineChrome: Bool = false
+    var sessionAgentType: String? = nil
+    var sessionDisplayName: String? = nil
+    var fixCandidates: [TerminalFixChoice] = []
     var onBack: () -> Void
     var onSelectPane: (String) -> Void
-    var onAskFix: (String) -> Bool = { _ in false }
+    var onAskFix: (String, TerminalFixChoice?) -> Bool = { _, _ in false }
     var glass: Namespace.ID
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var stickToBottom = true
     @State private var literal = ""
     @State private var ctrlLatched = false
     @State private var fixRefused = false
+    @State private var pickedFix: TerminalFixChoice? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,7 +73,6 @@ struct TerminalPageView: View {
         }
         .background(TerminalPalette.background.ignoresSafeArea())
         .foregroundStyle(TerminalPalette.foreground)
-        .preferredColorScheme(.dark)
         .onChange(of: shownText) { _, _ in
             fixRefused = false
         }
@@ -112,12 +116,12 @@ struct TerminalPageView: View {
                                 } label: {
                                     Text(TerminalChromeKt.terminalSegmentLabel(index: Int32(index), title: pane.title))
                                         .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(selected ? Color.black : Color.white)
+                                        .foregroundStyle(selected ? selectedPaneInk : idlePaneInk)
                                         .lineLimit(1)
                                         .fixedSize(horizontal: true, vertical: false)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 8)
-                                        .background(selected ? Color.white.opacity(0.92) : Color.clear, in: Capsule())
+                                        .background(selected ? selectedPaneFill : Color.clear, in: Capsule())
                                 }
                                 .buttonStyle(.plain)
                                 .fixedSize(horizontal: true, vertical: false)
@@ -128,6 +132,7 @@ struct TerminalPageView: View {
                         .padding(3)
                         .fixedSize(horizontal: true, vertical: false)
                     }
+                    .contentMargins(.horizontal, 6, for: .scrollContent)
                     .onAppear { revealSelectedPane(proxy) }
                     .onChange(of: selectedPaneID) { _, _ in revealSelectedPane(proxy) }
                     .onChange(of: paneIdentity) { _, _ in revealSelectedPane(proxy) }
@@ -135,7 +140,8 @@ struct TerminalPageView: View {
                 .frame(minWidth: 0, maxWidth: .infinity)
                 .frame(height: 44)
                 .layoutPriority(1)
-                .clipped()
+                .clipShape(Capsule())
+                .mask { paneEdgeFade }
                 .terminalPlate(in: Capsule(), fill: chromeFill)
             } else {
                 Text("终端")
@@ -171,7 +177,7 @@ struct TerminalPageView: View {
                 if model.selectedHost?.isController == true {
                     Text("接管")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.white.opacity(0.38))
+                        .foregroundStyle(TerminalPalette.foreground.opacity(0.38))
                 }
             }
             .padding(.horizontal, 12)
@@ -194,7 +200,7 @@ struct TerminalPageView: View {
             }
             .buttonStyle(.plain)
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color.white)
+            .foregroundStyle(TerminalPalette.foreground)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .terminalPlate(in: Capsule(), fill: chromeFill)
@@ -224,6 +230,7 @@ struct TerminalPageView: View {
         .padding(.leading, 14)
         .padding(.trailing, 8)
         .padding(.vertical, 8)
+        .foregroundStyle(Color.white)
         .terminalPlate(in: Capsule(), fill: decisionFill)
         .accessibilityElement(children: .contain)
     }
@@ -247,7 +254,7 @@ struct TerminalPageView: View {
                     ctrlLatched = false
                     _Concurrency.Task { await model.sendTerminalKey(.ctrlC) }
                 } label: {
-                    keyLabel("~C", selected: ctrlLatched)
+                    keyLabel("^C", selected: false)
                 }
                 .buttonStyle(.plain)
                 key("回车", .enter)
@@ -278,17 +285,83 @@ struct TerminalPageView: View {
         .padding(.bottom, 8)
     }
 
+    private func failureOffer(for banner: TerminalFailureBanner) -> TerminalFailureOffer {
+        let foreground = panes.first { $0.id == selectedPaneID }?.title
+        return TerminalChromeKt.terminalFailureOffer(
+            paneForeground: foreground,
+            sessionAgentType: sessionAgentType,
+            sessionDisplayName: sessionDisplayName,
+            candidates: fixCandidates
+        )
+    }
+
+    /// Fixing is a status, not a button. Handoff uses the offer's agent, never a fixed name.
+    @ViewBuilder
+    private func failureOfferControl(_ banner: TerminalFailureBanner) -> some View {
+        let offer = failureOffer(for: banner)
+        let handed = offer.mode == TerminalFailureMode.handoff
+        let choice = handed ? pickedFix : nil
+        let name = choice?.name ?? offer.agentName
+        let label = handed ? "交给 \(name) 修" : offer.fixingLabel
+        HStack(spacing: 2) {
+            if handed {
+                Button {
+                    fixRefused = !onAskFix(banner.excerpt, choice)
+                } label: {
+                    failureOfferLabel(label, enabled: canAskFix)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canAskFix)
+                if !offer.choices.isEmpty {
+                    Menu {
+                        ForEach(Array(offer.choices.enumerated()), id: \.offset) { _, item in
+                            Button(item.name) { pickedFix = item }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Color.black)
+                            .frame(width: 22, height: 28)
+                    }
+                    .disabled(!canAskFix)
+                    .accessibilityLabel("切换 agent")
+                }
+            } else {
+                failureOfferLabel(label, enabled: true)
+                    .accessibilityElement(children: .combine)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
+    }
+
+    private func failureOfferLabel(_ label: String, enabled: Bool) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "sparkles")
+                .font(.caption.weight(.bold))
+            Text(label)
+                .font(.subheadline.weight(.semibold))
+        }
+        .foregroundStyle(enabled ? Color.black : Color.black.opacity(0.45))
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.white.opacity(enabled ? 0.94 : 0.38), in: Capsule())
+    }
+
     private func failureCard(_ banner: TerminalFailureBanner) -> some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(failureSummary(banner))
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.white)
                     .lineLimit(1)
                 if let title = banner.failedTitle, !title.isEmpty {
                     Text(title.replacingOccurrences(of: " > ", with: " › "))
                         .font(.caption.monospaced())
                         .lineLimit(1)
-                        .foregroundStyle(Color(hex: "FF9F99"))
+                        .foregroundStyle(failureTitleInk)
                 }
                 if fixRefused {
                     Text("没发出去")
@@ -297,25 +370,7 @@ struct TerminalPageView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Button {
-                fixRefused = !onAskFix(banner.excerpt)
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "sparkles")
-                        .font(.caption.weight(.bold))
-                    Text("让 claude 修")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .foregroundStyle(canAskFix ? Color.black : Color.black.opacity(0.45))
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.white.opacity(canAskFix ? 0.94 : 0.38), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(!canAskFix)
-            .accessibilityLabel("让 claude 修")
+            failureOfferControl(banner)
         }
         .padding(.leading, 14)
         .padding(.trailing, 10)
@@ -323,7 +378,7 @@ struct TerminalPageView: View {
         .terminalPlate(
             in: RoundedRectangle(cornerRadius: 24, style: .continuous),
             fill: failureFill,
-            halo: Color.red.opacity(0.45)
+            halo: colorScheme == .light ? nil : Color.red.opacity(0.45)
         )
     }
 
@@ -418,9 +473,33 @@ struct TerminalPageView: View {
 
     private var subtitleColor: Color {
         if linkDown || !model.holdsTerminalControl {
-            return Color.white
+            return TerminalPalette.foreground
         }
-        return Color.white.opacity(0.82)
+        return colorScheme == .light ? TerminalPalette.dim : TerminalPalette.foreground.opacity(0.82)
+    }
+
+    /// Dark selected pill stays the checked-in white/black pair. Light uses only the SPEC board colors.
+    private var selectedPaneFill: Color {
+        colorScheme == .dark ? Color.white.opacity(0.92) : TerminalPalette.foreground
+    }
+
+    private var selectedPaneInk: Color {
+        colorScheme == .dark ? Color.black : TerminalPalette.background
+    }
+
+    /// SPEC: unselected pane labels are `on-surface-v` on the light board. Dark stays the SPEC foreground.
+    private var idlePaneInk: Color {
+        colorScheme == .light ? TerminalPalette.dim : TerminalPalette.foreground
+    }
+
+    private var paneEdgeFade: some View {
+        HStack(spacing: 0) {
+            LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                .frame(width: 12)
+            Color.black
+            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                .frame(width: 12)
+        }
     }
 
     private var waitingLine: String {
@@ -435,8 +514,16 @@ struct TerminalPageView: View {
         Color.white.opacity(0.10)
     }
 
+    /// Light summary bar is the SPEC error `#BA1A1A`. Dark keeps the existing glass.
     private var failureFill: Color {
-        Color(red: 0.32, green: 0.08, blue: 0.08).opacity(0.82)
+        if colorScheme == .light {
+            return Color(hex: "BA1A1A")
+        }
+        return Color(red: 0.32, green: 0.08, blue: 0.08).opacity(0.82)
+    }
+
+    private var failureTitleInk: Color {
+        colorScheme == .light ? Color.white.opacity(0.92) : Color(hex: "FF9F99")
     }
 
     private var decisionFill: Color {

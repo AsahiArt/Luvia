@@ -1,6 +1,7 @@
 package tech.asahiart.luvia.ui
 
 import androidx.compose.runtime.Immutable
+import tech.asahiart.luvia.ConnectionRoute
 import tech.asahiart.luvia.HostSection
 
 @Immutable
@@ -13,6 +14,8 @@ data class HostUiModel(
     val user: String = "",
     val sessionName: String?,
     val connection: ConnectionBadge,
+    /** Null unless the link is Online. Offline, reconnecting, and a rejected pairing have no chip. */
+    val route: ConnectionRoute? = null,
     val workingAgents: Int = 0,
     val blockedAgents: Int = 0,
     val completedAgents: Int = 0,

@@ -80,9 +80,23 @@ enum TerminalFont {
 }
 
 enum TerminalPalette {
-    static let background = Color(hex: "1A1815")
-    static let foreground = Color(hex: "E8E2D8")
+    /// Misaka 2026-11-01 light board, and the SPEC dark pair. Not the older `#1A1815` / `#E8E2D8` pane.
+    static let background = Color(uiBackground)
+    static let foreground = Color(uiForeground)
+    /// Light secondary is `#3F4947`. Dark dim stays the SPEC foreground at 65%, matching the Android dark dim scale.
+    static let dim = Color(uiDim)
     static let inset: CGFloat = 16
+
+    static let uiBackground = UIColor(light: UIColor(hex: "EEF5F2"), dark: UIColor(hex: "101615"))
+    static let uiForeground = UIColor(light: UIColor(hex: "161D1C"), dark: UIColor(hex: "E4EEEB"))
+    static let uiDim = UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+            return UIColor(hex: "E4EEEB").withAlphaComponent(0.65)
+        }
+        return UIColor(hex: "3F4947")
+    }
+    /// SPEC allows `#410002` for failure text. Dark outlined body stays `#E4EEEB`.
+    static let uiFailureInk = UIColor(light: UIColor(hex: "410002"), dark: UIColor(hex: "E4EEEB"))
 }
 
 extension Color {
@@ -108,6 +122,25 @@ extension Color {
 }
 
 extension UIColor {
+    convenience init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let r, g, b: UInt64
+        switch hex.count {
+        case 6:
+            (r, g, b) = (int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (r, g, b) = (0, 0, 0)
+        }
+        self.init(
+            red: CGFloat(r) / 255,
+            green: CGFloat(g) / 255,
+            blue: CGFloat(b) / 255,
+            alpha: 1
+        )
+    }
+
     convenience init(light: UIColor, dark: UIColor) {
         self.init { traitCollection in
             traitCollection.userInterfaceStyle == .dark ? dark : light

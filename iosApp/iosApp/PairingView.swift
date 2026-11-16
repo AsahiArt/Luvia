@@ -302,6 +302,8 @@ struct PairingView: View {
                 }
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityRemoveTraits(selected ? [] : .isSelected)
     }
 
     private var actionBar: some View {

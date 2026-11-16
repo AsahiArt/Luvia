@@ -19,7 +19,11 @@ struct ChatView: View {
     @State private var draft = ""
     @State private var decisionNote = ""
     @State private var selectedOptionID: String?
+    /// HANDOFF §2 low detent. Same number as `ChatDecisionMotion.IOS_LOW_PT`.
+    @State private var detent: PresentationDetent = .height(196)
+    @State private var composerShown = false
     @FocusState private var composerFocused: Bool
+    @FocusState private var noteFocused: Bool
 
     private var hostOffline: Bool {
         model.selectedHost?.connection != .live
@@ -55,7 +59,7 @@ struct ChatView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             if model.selectedHost?.pairingRevoked == true {
-                pairingLostBanner
+                PairingRevokedBanner(onPair: onPairAgain)
             } else if hostOffline, let host = model.selectedHost {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(connectionLabel(host.connection)).font(.headline)
@@ -75,7 +79,7 @@ struct ChatView: View {
                                 case .single(let item):
                                     timelineRow(item)
                                 case .tools(let calls):
-                                    ToolStream(calls: calls, canAsk: model.selectedHost?.isController == true && !hostOffline) {
+                                    ToolStream(calls: calls, canAsk: canAskTools) {
                                         send("请修这个失败：\n\($0)")
                                     }
                                 }
@@ -91,12 +95,48 @@ struct ChatView: View {
                     }
                 }
             }
-            if showsChrome, let ask = thread.ask {
-                decision(ask)
-            }
-            if showsChrome, thread.ask == nil {
+            if showsChrome, thread.ask == nil, composerShown {
                 composer
+                    .transition(.opacity)
             }
+        }
+        .animation(.easeIn(duration: 0.15), value: composerShown)
+        .sheet(isPresented: decisionPresented) {
+            Group {
+                if let ask = thread.ask {
+                    decision(ask)
+                }
+            }
+            .presentationDetents([.height(196), .medium, .large], selection: $detent)
+            .presentationDragIndicator(.visible)
+            .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+            .presentationContentInteraction(.scrolls)
+            .interactiveDismissDisabled()
+        }
+        .onAppear {
+            // Other sessions stay on the home stack. The caller still passes the next card.
+            _ = nextQuestion
+            _ = nextAgent
+            composerShown = thread.ask == nil
+            if thread.ask != nil { detent = .height(196) }
+        }
+        .onChange(of: askToken) { _, token in
+            if token.isEmpty {
+                _Concurrency.Task {
+                    try? await _Concurrency.Task.sleep(nanoseconds: 250_000_000)
+                    if thread.ask == nil {
+                        withAnimation(.easeIn(duration: 0.15)) { composerShown = true }
+                    }
+                }
+            } else {
+                composerShown = false
+                detent = .height(196)
+                selectedOptionID = nil
+                decisionNote = ""
+            }
+        }
+        .onChange(of: noteFocused) { _, focused in
+            if focused { detent = .large }
         }
     }
 
@@ -139,7 +179,7 @@ struct ChatView: View {
         case .thought(let row):
             ThoughtBlock(text: row.text)
         case .tool(let row):
-            ToolStream(calls: [row.call], canAsk: model.selectedHost?.isController == true && !hostOffline) {
+            ToolStream(calls: [row.call], canAsk: canAskTools) {
                 send("请修这个失败：\n\($0)")
             }
         case .plan(let row):
@@ -287,66 +327,32 @@ struct ChatView: View {
         model.selectedHost?.isController == true && !hostOffline && !pairingRevoked
     }
 
+    /// Trail "fix this" is a live send. Revoked can still report a live link.
+    private var canAskTools: Bool { canCompose }
+
+    private var decisionPresented: Binding<Bool> {
+        Binding(get: { showsChrome && thread.ask != nil }, set: { _ in })
+    }
+
+    private var askToken: String {
+        guard let ask = thread.ask else { return "" }
+        let options: [AskOption] = KotlinLists.array(ask.options as Any)
+        let labels = options.map { "\($0.label):\($0.recommended)" }.joined(separator: "|")
+        return "\(ask.question ?? "")\n\(labels)\n\(SessionListKt.askHasFreeText(ask: ask))"
+    }
+
     private var errorColor: Color {
         colorScheme == .dark ? Color(hex: "FFB4AB") : Color(hex: "BA1A1A")
     }
 
-    private var errorContainer: Color {
-        colorScheme == .dark ? Color(hex: "93000A") : Color(hex: "FFDAD6")
-    }
-
-    private var onErrorContainer: Color {
-        colorScheme == .dark ? Color(hex: "FFDAD6") : Color(hex: "410002")
-    }
-
-    private var pairingLostBanner: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(FailureMessagesKt.PROVE_REJECTED_ZH)
-                .font(.body)
-                .foregroundStyle(onErrorContainer)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-            Button(action: onPairAgain) {
-                Text("重新配对")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .frame(height: 40)
-                    .background(Color.blue, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-        }
-        .padding(16)
-        .background(errorContainer, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-    }
-
     private func decision(_ ask: Ask) -> some View {
-        let options: [AskOption] = KotlinLists.array(ask.options as Any)
-        let recommended = SessionListKt.recommendedOption(ask: ask)
-        let peek = queueTotal > queueIndex
+        let options = orderedOptions(ask)
+        let selected = options.first { selectedOptionID == optionID($0) }
+        let liveNote = SessionListKt.askHasFreeText(ask: ask) ? decisionNote : ""
+        let canContinue = canCompose && SessionListKt.canSubmitAsk(selected: selected, note: liveNote)
         let agent = thread.agentType?.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = (agent?.isEmpty == false ? agent! : thread.title)
-        return ZStack(alignment: .top) {
-            if peek {
-                HStack(spacing: 8) {
-                    Circle().fill(Color.orange).frame(width: 8, height: 8)
-                    Text(peekLabel)
-                        .font(.subheadline)
-                        .lineLimit(1)
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-                .padding(.bottom, 28)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .padding(.horizontal, 18)
-                .allowsHitTesting(false)
-            }
+        return ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     decisionAvatar()
@@ -358,13 +364,32 @@ struct ChatView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                Text(ask.question ?? "有一个决定在等你")
-                    .font(.title2.weight(.bold))
-                    .fixedSize(horizontal: false, vertical: true)
+                if let question = SessionListKt.decisionQuestionText(thread: thread) {
+                    Text(question)
+                        .font(.title2.weight(.bold))
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                }
+                if options.isEmpty {
+                    Button(action: onTerminal) {
+                        Text("去终端回答")
+                            .font(.headline)
+                            .foregroundStyle(Color.accentColor)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(
+                                Color.accentColor.opacity(colorScheme == .dark ? 0.20 : 0.15),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canCompose)
+                }
                 ForEach(Array(options.enumerated()), id: \.offset) { _, option in
-                    let picked = optionID(option) == (selectedOptionID ?? recommended.map(optionID))
-                    let suggested = option.recommended || optionID(option) == recommended.map(optionID)
+                    let picked = selectedOptionID == optionID(option)
+                    let suggested = option.recommended
                     Button {
+                        guard canCompose else { return }
                         selectedOptionID = optionID(option)
                     } label: {
                         HStack(alignment: .center, spacing: 12) {
@@ -380,7 +405,9 @@ struct ChatView: View {
                                     }
                                 }
                                 if let consequence = option.consequence, !consequence.isEmpty {
-                                    Text(consequence).font(.caption).foregroundStyle(.secondary)
+                                    Text(consequence)
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                             Spacer(minLength: 8)
@@ -397,53 +424,54 @@ struct ChatView: View {
                         )
                     }
                     .buttonStyle(.plain)
-                }
-                HStack(alignment: .center, spacing: 10) {
-                    TextField(decisionNotePlaceholder, text: $decisionNote, axis: .vertical)
-                        .lineLimit(1...3)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .luviaGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                        .disabled(!canCompose)
-                    Button("继续") {
-                        let choice = options.first { optionID($0) == (selectedOptionID ?? recommended.map(optionID)) }
-                        if let choice {
-                            confirm(choice)
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .tint(.blue)
                     .disabled(!canCompose)
+                }
+                if !options.isEmpty {
+                    HStack(alignment: .center, spacing: 10) {
+                        if SessionListKt.askHasFreeText(ask: ask) {
+                            TextField(decisionNotePlaceholder, text: $decisionNote, axis: .vertical)
+                                .focused($noteFocused)
+                                .lineLimit(1...3)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .luviaGlass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                                .disabled(!canCompose)
+                        }
+                        Button("继续") {
+                            guard canCompose else { return }
+                            if let choice = SessionListKt.askSubmission(ask: ask, selected: selected, note: liveNote) {
+                                confirm(choice)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.capsule)
+                        .tint(.blue)
+                        .disabled(!canContinue)
+                        .opacity(canContinue ? 1 : 0.38)
+                    }
                 }
             }
             .padding(16)
-            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+            .id(askToken)
+            .transition(
+                .asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                )
             )
-            .shadow(color: .black.opacity(0.08), radius: 16, y: 6)
-            .padding(.top, peek ? 32 : 0)
         }
-        .padding(.horizontal, 8)
-        .padding(.bottom, 8)
-        .opacity(model.selectedHost?.pairingRevoked == true ? 0.38 : 1)
-        .allowsHitTesting(model.selectedHost?.pairingRevoked != true)
+        .animation(.easeInOut(duration: 0.15), value: askToken)
+        .opacity(pairingRevoked ? 0.38 : 1)
+        .allowsHitTesting(!pairingRevoked)
     }
 
-    private var peekLabel: String {
-        let index = "\(queueIndex + 1)/\(queueTotal)"
-        let agent = nextAgent?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let question = nextQuestion?.trimmingCharacters(in: .whitespacesAndNewlines)
-        var parts = [index]
-        if let agent, !agent.isEmpty { parts.append(agent) }
-        if let question, !question.isEmpty {
-            parts.append(question)
-        } else if agent == nil || agent?.isEmpty != false {
-            parts.append("还有一个决定")
-        }
-        return parts.joined(separator: " · ")
+    /// Shared recommended-or-primary rule, so the 196pt peek shows that row first.
+    private func orderedOptions(_ ask: Ask) -> [AskOption] {
+        let options: [AskOption] = KotlinLists.array(ask.options as Any)
+        guard let lead = SessionListKt.recommendedOption(ask: ask) else { return options }
+        let leadID = optionID(lead)
+        guard options.contains(where: { optionID($0) == leadID }) else { return options }
+        return options.filter { optionID($0) == leadID } + options.filter { optionID($0) != leadID }
     }
 
     @ViewBuilder
@@ -507,18 +535,13 @@ struct ChatView: View {
         #if DEBUG
         if PlaytestChatKt.isPlaytestThread(id: thread.id) {
             decisionNote = ""
+            selectedOptionID = nil
             return
         }
         #endif
-        let note = decisionNote.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !note.isEmpty, thread.kind == .pane, case .prompt(let prompt) = onEnum(of: choice.action) {
-            let base = prompt.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let text = base.isEmpty ? note : "\(base)\n\(note)"
-            model.hostUhp()?.sendToThread(text: text)
-        } else {
-            model.uhpRegistry.answer(thread: thread, option: choice)
-        }
+        model.uhpRegistry.answer(thread: thread, option: choice)
         decisionNote = ""
+        selectedOptionID = nil
     }
 
     private var decisionNotePlaceholder: String {

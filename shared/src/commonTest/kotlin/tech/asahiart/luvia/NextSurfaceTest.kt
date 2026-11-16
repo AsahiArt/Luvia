@@ -305,7 +305,7 @@ private fun sampleRuntime(): HostRuntime {
                 hints = listOf("studio.tailnet"),
                 port = 22,
             ),
-        link = HostLink.Idle,
+        link = HostLink.Online("studio.tailnet", "default"),
         snapshot =
             SessionSnapshot(
                 sessionName = "default",
@@ -316,7 +316,7 @@ private fun sampleRuntime(): HostRuntime {
                 agents = listOf(agent),
             ),
         tasks = emptyList(),
-        freshness = ConnectionFreshness.Offline,
+        freshness = ConnectionFreshness.Live,
         backend = "luvus",
     )
 }

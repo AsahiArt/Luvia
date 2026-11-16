@@ -1,16 +1,25 @@
 package tech.asahiart.luvia.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,7 +27,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -31,28 +39,39 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberBottomSheetScaffoldState
+import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
 import tech.asahiart.luvia.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -74,10 +93,8 @@ import tech.asahiart.luvia.AcpToolCall
 import tech.asahiart.luvia.stripAnsi
 import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.Ask
-import tech.asahiart.luvia.thread.AskAction
 import tech.asahiart.luvia.thread.outputRuns
 import tech.asahiart.luvia.thread.AskOption
-import tech.asahiart.luvia.thread.AskTone
 import tech.asahiart.luvia.thread.CodeTokenKind
 import tech.asahiart.luvia.thread.DiffFileView
 import tech.asahiart.luvia.thread.DiffLineView
@@ -90,6 +107,10 @@ import tech.asahiart.luvia.thread.diffModulePath
 import tech.asahiart.luvia.thread.highlightCode
 import tech.asahiart.luvia.thread.proseSpans
 import tech.asahiart.luvia.thread.proseWithoutTrail
+import tech.asahiart.luvia.thread.askHasFreeText
+import tech.asahiart.luvia.thread.askSubmission
+import tech.asahiart.luvia.thread.canSubmitAsk
+import tech.asahiart.luvia.thread.decisionQuestionText
 import tech.asahiart.luvia.thread.recommendedOption
 import tech.asahiart.luvia.thread.structuredDiffFiles
 import tech.asahiart.luvia.thread.testBarCells
@@ -97,7 +118,10 @@ import tech.asahiart.luvia.thread.toolTrailView
 import tech.asahiart.luvia.thread.ToolTrailKind
 import tech.asahiart.luvia.ui.theme.LuviaTheme
 import tech.asahiart.luvia.ui.theme.lightTerminalBoard
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     thread: AgentThread,
@@ -129,88 +153,121 @@ fun ChatScreen(
     )
     val offline = chrome.offline
     val visible = items.filterNot { it is TimelineItem.AskCard }
+    val sheetPolicy = chatDecisionSheetPolicy(hasAsk = thread.ask != null, chrome = chrome)
+    val allowHide = remember { mutableStateOf(false) }
+    // Pinned Material3 has rememberStandardBottomSheetState, not rememberBottomSheetState.
+    // It keeps PartiallyExpanded. skipHiddenState stays false so an answer can leave;
+    // the veto still blocks a drag-to-dismiss.
+    val sheetState = rememberStandardBottomSheetState(
+        initialValue = SheetValue.PartiallyExpanded,
+        confirmValueChange = { value -> value != SheetValue.Hidden || allowHide.value },
+        skipHiddenState = false,
+    )
+    val scaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = sheetState)
+    var heldAsk by remember { mutableStateOf(thread.ask) }
+    var composerShown by remember(thread.id) { mutableStateOf(thread.ask == null) }
+    var composerEntered by remember(thread.id) { mutableStateOf(thread.ask == null) }
+    val scope = rememberCoroutineScope()
+    val askToken = decisionAskToken(thread.ask)
     LaunchedEffect(visible.size) {
         if (visible.isNotEmpty()) listState.animateScrollToItem(visible.lastIndex)
     }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
-            .statusBarsPadding()
-            .imePadding(),
-    ) {
-        Row(Modifier.fillMaxWidth().height(64.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+    LaunchedEffect(askToken) {
+        val ask = thread.ask
+        if (ask != null) {
+            allowHide.value = false
+            heldAsk = ask
+            composerShown = false
+            withFrameNanos { }
+            if (sheetState.currentValue != SheetValue.PartiallyExpanded) {
+                sheetState.partialExpand()
             }
-            Column(Modifier.weight(1f)) {
-                Text(thread.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val detail = chrome.headerSubtitle ?: when {
-                    offline && connection != null ->
-                        connection.chromeLabel() + " · " + stringResource(R.string.cached)
-                    else ->
-                    listOfNotNull(thread.projectLabel, thread.status.sessionLabel()).joinToString(" · ")
-                }
-                Text(
-                    if (chrome.showPairAgain) stringResource(R.string.pairing_revoked) else detail,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (chrome.showPairAgain) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    maxLines = 1,
-                )
-            }
-            if (offline) {
-                TextButton(onClick = onRetry) { Text(stringResource(R.string.retry)) }
-            }
-            TerminalThumbnail(
-                preview = terminalPreview,
-                onClick = onOpenTerminal,
-                modifier = terminalModifier.padding(end = 8.dp),
-            )
+        } else if (heldAsk != null) {
+            allowHide.value = true
+            val hidden = launch { sheetState.hide() }
+            delay(ChatDecisionMotion.EXIT_MS)
+            hidden.join()
+            heldAsk = null
+            composerShown = true
         }
-        if (chrome.showPairAgain) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 8.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.errorContainer)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(
-                    localizeUiMessage(tech.asahiart.luvia.PROVE_REJECTED_EN),
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    style = MaterialTheme.typography.bodyLarge,
+    }
+    LaunchedEffect(composerShown) {
+        if (!composerShown) {
+            composerEntered = false
+        } else if (!composerEntered) {
+            withFrameNanos { }
+            composerEntered = true
+        }
+    }
+    val noteHint = when (chrome.decisionNoteHint) {
+        DecisionNoteHint.PairAgain -> stringResource(R.string.pair_again_to_answer)
+        DecisionNoteHint.Observer -> stringResource(R.string.observer_cannot_answer)
+        DecisionNoteHint.Note -> stringResource(R.string.note_hint)
+    }
+
+    @Composable
+    fun Conversation(bottomInset: androidx.compose.ui.unit.Dp, showComposer: Boolean) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .statusBarsPadding(),
+        ) {
+            Row(Modifier.fillMaxWidth().height(64.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(thread.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val detail = chrome.headerSubtitle ?: when {
+                        offline && connection != null ->
+                            connection.chromeLabel() + " · " + stringResource(R.string.cached)
+                        else ->
+                            listOfNotNull(thread.projectLabel, thread.status.sessionLabel()).joinToString(" · ")
+                    }
+                    Text(
+                        if (chrome.showPairAgain) stringResource(R.string.pairing_revoked) else detail,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (chrome.showPairAgain) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        maxLines = 1,
+                    )
+                }
+                if (offline) {
+                    TextButton(onClick = onRetry) { Text(stringResource(R.string.retry)) }
+                }
+                TerminalThumbnail(
+                    preview = terminalPreview,
+                    onClick = onOpenTerminal,
+                    modifier = terminalModifier.padding(end = 8.dp),
                 )
-                Button(
-                    onClick = onPairAgain,
-                    modifier = Modifier.align(Alignment.End).height(40.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
-                    shape = RoundedCornerShape(20.dp),
-                ) {
-                    Text(stringResource(R.string.pair_again))
+            }
+            if (chrome.showPairAgain) {
+                PairingRevokedBanner(
+                    onPairAgain = onPairAgain,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
+                )
+            } else if (offline && connection != null) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(connection.chromeLabel(), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        stringResource(R.string.cached),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
-        } else if (offline && connection != null) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text(connection.chromeLabel(), style = MaterialTheme.typography.titleMedium)
-                Text(
-                    stringResource(R.string.cached),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 8.dp,
+                    bottom = 8.dp + bottomInset,
+                ),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(visible, key = { it.id }) { item ->
@@ -227,52 +284,84 @@ fun ChatScreen(
                     }
                 }
             }
-            if (thread.ask != null) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.22f)),
-                )
-            }
-        }
-        thread.ask?.let { ask ->
-            Box(Modifier.alpha(if (pairingRevoked) 0.38f else 1f)) {
-                DecisionCard(
-                    ask = ask,
-                    agentType = thread.agentType,
-                    sessionTitle = thread.title,
-                    index = queueIndex,
-                    total = queueTotal,
-                    enabled = chrome.decisionEnabled,
-                    noteHint = when (chrome.decisionNoteHint) {
-                        DecisionNoteHint.PairAgain -> stringResource(R.string.pair_again_to_answer)
-                        DecisionNoteHint.Observer -> stringResource(R.string.observer_cannot_answer)
-                        DecisionNoteHint.Note -> stringResource(R.string.note_hint)
+            AnimatedVisibility(
+                visible = showComposer && composerEntered,
+                enter = fadeIn(tween(ChatDecisionMotion.COMPOSER_FADE_MS)),
+            ) {
+                Composer(
+                    draft = draft,
+                    onDraft = { draft = it },
+                    onSend = {
+                        val text = draft.trim()
+                        if (text.isNotEmpty()) {
+                            onSend(text)
+                            draft = ""
+                        }
                     },
-                    onAnswer = onAnswer,
+                    canSend = chrome.sendEnabled,
+                    editable = chrome.inputEnabled,
+                    onSurface38 = chrome.composerOnSurface38,
+                    hint = when (chrome.hint) {
+                        ChatComposerHint.PairingRevoked -> stringResource(R.string.pairing_revoked)
+                        ChatComposerHint.Offline -> stringResource(R.string.offline_cannot_send)
+                        ChatComposerHint.Observer -> stringResource(R.string.observer_cannot_send)
+                        ChatComposerHint.Message -> stringResource(R.string.message_hint)
+                    },
                 )
             }
         }
-        Composer(
-            draft = draft,
-            onDraft = { draft = it },
-            onSend = {
-                val text = draft.trim()
-                if (text.isNotEmpty()) {
-                    onSend(text)
-                    draft = ""
+    }
+
+    val sheetAsk = heldAsk
+    if (sheetAsk != null) {
+        BottomSheetScaffold(
+            scaffoldState = scaffoldState,
+            sheetPeekHeight = sheetPolicy.peekDp.dp,
+            sheetDragHandle = { BottomSheetDefaults.DragHandle() },
+            sheetShape = BottomSheetDefaults.ExpandedShape,
+            sheetContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            containerColor = MaterialTheme.colorScheme.surface,
+            sheetSwipeEnabled = true,
+            modifier = Modifier.fillMaxSize().imePadding(),
+            sheetContent = {
+                AnimatedContent(
+                    targetState = sheetAsk,
+                    contentKey = { decisionAskToken(it) },
+                    transitionSpec = {
+                        (
+                            slideInHorizontally(tween(ChatDecisionMotion.NEXT_CROSSFADE_MS)) { it / 3 } +
+                                fadeIn(tween(ChatDecisionMotion.NEXT_CROSSFADE_MS))
+                            ).togetherWith(
+                            slideOutHorizontally(tween(ChatDecisionMotion.NEXT_CROSSFADE_MS)) { -it / 3 } +
+                                fadeOut(tween(ChatDecisionMotion.NEXT_CROSSFADE_MS)),
+                        )
+                    },
+                    label = "decision-ask",
+                ) { current ->
+                    DecisionCard(
+                        ask = current,
+                        agentType = thread.agentType,
+                        sessionTitle = thread.title,
+                        index = queueIndex,
+                        total = queueTotal,
+                        enabled = sheetPolicy.actionsEnabled && thread.ask != null,
+                        inkAlpha = sheetPolicy.inkAlpha,
+                        noteHint = noteHint,
+                        onAnswer = onAnswer,
+                        onOpenTerminal = onOpenTerminal,
+                        onNoteFocus = {
+                            if (thread.ask != null) scope.launch { sheetState.expand() }
+                        },
+                    )
                 }
             },
-            canSend = chrome.sendEnabled,
-            editable = chrome.inputEnabled,
-            onSurface38 = chrome.composerOnSurface38,
-            hint = when (chrome.hint) {
-                ChatComposerHint.PairingRevoked -> stringResource(R.string.pairing_revoked)
-                ChatComposerHint.Offline -> stringResource(R.string.offline_cannot_send)
-                ChatComposerHint.Observer -> stringResource(R.string.observer_cannot_send)
-                ChatComposerHint.Message -> stringResource(R.string.message_hint)
-            },
-        )
+        ) { padding ->
+            Conversation(padding.calculateBottomPadding(), showComposer = false)
+        }
+    } else {
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).imePadding()) {
+            Conversation(bottomInset = 0.dp, showComposer = true)
+        }
     }
 }
 
@@ -830,22 +919,27 @@ private fun DecisionCard(
     index: Int,
     total: Int,
     enabled: Boolean,
+    inkAlpha: Float,
     noteHint: String,
     onAnswer: (AskOption) -> Unit,
+    onOpenTerminal: () -> Unit,
+    onNoteFocus: () -> Unit,
 ) {
     val agentName = agentType?.takeIf { it.isNotBlank() } ?: sessionTitle
-    val recommended = recommendedOption(ask)
-    var selected by remember(ask.question, ask.options) { mutableStateOf(recommended ?: ask.options.firstOrNull()) }
+    var selected by remember(ask.question, ask.options) { mutableStateOf<AskOption?>(null) }
     var note by remember(ask.question, ask.options) { mutableStateOf("") }
-    val onCard = MaterialTheme.colorScheme.onTertiaryContainer
-    Surface(
-        color = MaterialTheme.colorScheme.tertiaryContainer,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        shadowElevation = 12.dp,
-        tonalElevation = 3.dp,
-        modifier = Modifier.fillMaxWidth(),
+    val liveNote = if (askHasFreeText(ask)) note else ""
+    val submitEnabled = enabled && canSubmitAsk(selected, liveNote)
+    val onCard = MaterialTheme.colorScheme.onSurface
+    val options = orderedDecisionOptions(ask)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .navigationBarsPadding()
+            .alpha(inkAlpha)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AgentAvatar(agentType, sessionTitle, brand = true, size = 28.dp)
                 Text(
@@ -868,13 +962,27 @@ private fun DecisionCard(
                     )
                 }
             }
-            Text(
-                ask.question ?: stringResource(R.string.decision_waiting),
-                modifier = Modifier.padding(top = 10.dp),
-                style = MaterialTheme.typography.headlineSmall,
-                color = onCard,
-            )
-            ask.options.forEach { option ->
+            decisionQuestionText(ask.question)?.let { question ->
+                Text(
+                    question,
+                    modifier = Modifier.padding(top = 10.dp),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = onCard,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (decisionOffersTerminalFallback(ask.options.size)) {
+                FilledTonalButton(
+                    onClick = { if (enabled) onOpenTerminal() },
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(48.dp),
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Text(stringResource(R.string.answer_in_terminal))
+                }
+            }
+            options.forEach { option ->
                 val picked = option == selected
                 Row(
                     Modifier
@@ -912,7 +1020,7 @@ private fun DecisionCard(
                     Column(Modifier.padding(start = 10.dp).weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(option.label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                        if (option.recommended || option == recommended) {
+                        if (option.recommended) {
                             Surface(
                                 color = MaterialTheme.colorScheme.tertiary,
                                 shape = RoundedCornerShape(10.dp),
@@ -927,63 +1035,62 @@ private fun DecisionCard(
                         }
                     }
                     option.consequence?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    if (option.tone == AskTone.Destructive) {
-                        Text(stringResource(R.string.option_rejects), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     }
                 }
             }
-            BasicTextField(
-                value = note,
-                onValueChange = { note = it },
-                enabled = enabled,
-                modifier = Modifier
-                    .padding(top = 10.dp)
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                decorationBox = { inner ->
-                    Box {
-                        if (note.isEmpty()) {
-                            Text(
-                                noteHint,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+            if (decisionShowsNote(ask)) {
+                BasicTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    enabled = enabled,
+                    modifier = Modifier
+                        .padding(top = 10.dp)
+                        .fillMaxWidth()
+                        .onFocusChanged { if (it.isFocused) onNoteFocus() }
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                    decorationBox = { inner ->
+                        Box {
+                            if (note.isEmpty()) {
+                                Text(
+                                    noteHint,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            inner()
                         }
-                        inner()
-                    }
-                },
-            )
-            Row(
+                    },
+                )
+            }
+            if (!decisionOffersTerminalFallback(ask.options.size)) Row(
                 Modifier.fillMaxWidth().padding(top = 12.dp),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Button(
                     onClick = {
-                        val choice = selected ?: return@Button
-                        val extra = note.trim()
-                        val action = choice.action
-                        val delivered = if (extra.isNotEmpty() && action is AskAction.Prompt) {
-                            val base = action.text.trim()
-                            choice.copy(action = AskAction.Prompt(if (base.isEmpty()) extra else "$base\n$extra"))
-                        } else {
-                            choice
-                        }
+                        if (!enabled) return@Button
+                        val delivered = askSubmission(ask, selected, liveNote) ?: return@Button
                         onAnswer(delivered)
                         note = ""
+                        selected = null
                     },
-                    enabled = enabled && selected != null,
+                    enabled = submitEnabled,
+                    modifier = Modifier.alpha(if (submitEnabled) 1f else 0.38f),
                     shape = RoundedCornerShape(20.dp),
                 ) {
                     Text(stringResource(R.string.select_and_continue))
                 }
             }
-        }
     }
 }
 

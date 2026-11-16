@@ -28,7 +28,8 @@ internal const val PROVE_BUDGET_MS: Long = 10_000L
  * dials through `luvia-transport`.
  */
 internal interface CandidateDial<T> {
-    suspend fun dns(address: String): Outcome<Unit>
+    /** The IP this candidate will dial. Tests return a fake resolution; production returns [resolveCandidate]. */
+    suspend fun dns(address: String): Outcome<String>
 
     suspend fun tcp(address: String): Outcome<Unit>
 
@@ -36,6 +37,13 @@ internal interface CandidateDial<T> {
 
     suspend fun close(value: T)
 }
+
+/** [candidate] is the original hint. [dialed] is the IP dns returned for that hint. */
+internal data class RacedCandidate<T>(
+    val candidate: String,
+    val dialed: String,
+    val value: T,
+)
 
 /**
  * Candidates, in order, deduped: lastGood, `name.local`, LAN hints, tailnet
@@ -91,7 +99,10 @@ internal suspend fun raceConnect(
     }
     val used = dial ?: SshCandidateDial(credential) { address -> profile.raceEndpoint(address) }
     return when (val raced = raceCandidates(addresses, used, log)) {
-        is Outcome.Ok -> ProfileConnectResult(ok(HostConnection(raced.value.second, raced.value.first)))
+        is Outcome.Ok ->
+            ProfileConnectResult(
+                ok(HostConnection(raced.value.value, raced.value.candidate, raced.value.dialed)),
+            )
         is Outcome.Err -> ProfileConnectResult(fail(raced.failure))
     }
 }
@@ -100,12 +111,12 @@ internal suspend fun <T> raceCandidates(
     addresses: List<String>,
     dial: CandidateDial<T>,
     log: (String) -> Unit = { line -> println("luvia-connect: $line") },
-): Outcome<Pair<String, T>> {
+): Outcome<RacedCandidate<T>> {
     if (addresses.isEmpty()) {
         return fail(Failure.Transport("incomplete host endpoint"))
     }
     return coroutineScope {
-        val winner = CompletableDeferred<Pair<String, T>>()
+        val winner = CompletableDeferred<RacedCandidate<T>>()
         val abort = CompletableDeferred<Failure>()
         val state = Mutex()
         val loserLines = ArrayList<String>()
@@ -132,8 +143,9 @@ internal suspend fun <T> raceCandidates(
                     delay(index * CANDIDATE_STAGGER_MS)
                     when (val outcome = runCandidate(address, dial)) {
                         is Outcome.Ok -> {
-                            if (!winner.complete(address to outcome.value)) {
-                                dial.close(outcome.value)
+                            val raced = RacedCandidate(address, outcome.value.first, outcome.value.second)
+                            if (!winner.complete(raced)) {
+                                dial.close(raced.value)
                             }
                         }
                         is Outcome.Err -> {
@@ -150,7 +162,7 @@ internal suspend fun <T> raceCandidates(
                         }
                     }
                 } catch (error: CancellationException) {
-                    val wonThis = winner.isCompleted && winner.getCompleted().first == address
+                    val wonThis = winner.isCompleted && winner.getCompleted().candidate == address
                     if (!wonThis) {
                         withContext(NonCancellable) { addLoser(address, "cancelled") }
                     }
@@ -172,15 +184,15 @@ internal suspend fun <T> raceCandidates(
 
         val aborted = if (abort.isCompleted) abort.getCompleted() else null
         if (aborted != null) {
-            if (winner.isCompleted) dial.close(winner.getCompleted().second)
+            if (winner.isCompleted) dial.close(winner.getCompleted().value)
             state.withLock { loserLines.toList() }.forEach(log)
             return@coroutineScope fail(aborted)
         }
         if (winner.isCompleted) {
-            val (address, value) = winner.getCompleted()
-            log("winner $address")
+            val won = winner.getCompleted()
+            log("winner ${won.candidate}")
             state.withLock { loserLines.toList() }.forEach(log)
-            return@coroutineScope ok(address to value)
+            return@coroutineScope ok(won)
         }
         // AuthRejected outranks timeouts and network errors, including a timeout
         // that is recorded later. It does not cancel a candidate that can still win.
@@ -190,18 +202,24 @@ internal suspend fun <T> raceCandidates(
     }
 }
 
-private suspend fun <T> runCandidate(address: String, dial: CandidateDial<T>): Outcome<T> {
+private suspend fun <T> runCandidate(address: String, dial: CandidateDial<T>): Outcome<Pair<String, T>> {
     val dns = withTimeoutOrNull(DNS_TIMEOUT_MS) { dial.dns(address) }
         ?: return fail(Failure.Transport("dns timeout"))
-    if (dns is Outcome.Err) return fail(dns.failure)
+    val dialed = when (dns) {
+        is Outcome.Err -> return fail(dns.failure)
+        is Outcome.Ok -> dns.value.trim().ifEmpty { address }
+    }
     val proved =
         withTimeoutOrNull(PROVE_BUDGET_MS) {
             val tcp = withTimeoutOrNull(TCP_TIMEOUT_MS) { dial.tcp(address) }
                 ?: return@withTimeoutOrNull fail(Failure.Transport("connect timeout"))
             if (tcp is Outcome.Err) return@withTimeoutOrNull fail(tcp.failure)
             dial.prove(address)
-        }
-    return proved ?: fail(Failure.Transport("candidate timeout"))
+        } ?: return fail(Failure.Transport("candidate timeout"))
+    return when (proved) {
+        is Outcome.Ok -> ok(dialed to proved.value)
+        is Outcome.Err -> fail(proved.failure)
+    }
 }
 
 internal class SshCandidateDial(
@@ -211,12 +229,12 @@ internal class SshCandidateDial(
     private val resolved = HashMap<String, String>()
     private val gate = Mutex()
 
-    override suspend fun dns(address: String): Outcome<Unit> {
+    override suspend fun dns(address: String): Outcome<String> {
         val endpoint = endpointOf(address)
         return try {
             val ip = resolveCandidate(address, endpoint.port.toUShort())
             gate.withLock { resolved[address] = ip }
-            ok(Unit)
+            ok(ip)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {

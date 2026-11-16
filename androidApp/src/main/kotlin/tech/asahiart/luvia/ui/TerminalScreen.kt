@@ -97,6 +97,7 @@ import tech.asahiart.luvia.thread.terminalGrid
 import tech.asahiart.luvia.thread.terminalPaneNumber
 import tech.asahiart.luvia.thread.terminalSegmentLabel
 import tech.asahiart.luvia.thread.terminalStatusLine
+import tech.asahiart.luvia.ui.theme.LuviaExtendedColors
 import tech.asahiart.luvia.ui.theme.LuviaTheme
 import tech.asahiart.luvia.ui.theme.composerInk
 import tech.asahiart.luvia.ui.theme.inactivePaneInk
@@ -713,8 +714,10 @@ private fun FailureOffer(
 
 @Composable
 private fun TerminalLines(lines: List<AnnotatedString>, banner: TerminalFailureBanner?) {
-    val wash = LuviaTheme.extended.failureWash
-    val body = LuviaTheme.extended.terminalFg
+    val extended = LuviaTheme.extended
+    val paint = terminalOutlinedLinePaint(extended)
+    val body = extended.terminalFg
+    val defaults = setOf(extended.terminalFg, extended.terminalDim)
     val outlined = banner?.outlinedLines?.toSet().orEmpty()
     var index = 0
     while (index < lines.size) {
@@ -725,9 +728,17 @@ private fun TerminalLines(lines: List<AnnotatedString>, banner: TerminalFailureB
         }
         val start = index
         while (index < lines.size && index in outlined) index++
-        Column(Modifier.fillMaxWidth().background(wash)) {
+        val stroke = paint.stroke
+        val band = if (stroke == null) {
+            Modifier.fillMaxWidth().background(paint.fill)
+        } else {
+            Modifier.fillMaxWidth().background(paint.fill).border(1.dp, stroke)
+        }
+        Column(band) {
             for (lineIndex in start until index) {
-                TerminalLine(lines[lineIndex], body, Modifier.padding(horizontal = 12.dp, vertical = 1.dp))
+                val source = lines[lineIndex]
+                val shown = paint.ink?.let { source.recolorDefaults(defaults, it) } ?: source
+                TerminalLine(shown, paint.ink ?: body, Modifier.padding(horizontal = 12.dp, vertical = 1.dp))
             }
         }
     }
@@ -869,3 +880,28 @@ private fun TerminalChip(
 
 private fun contrastInk(fill: Color): Color =
     if (prefersDarkInk(fill.red, fill.green, fill.blue)) Color(0xFF14201E) else Color(0xFFF7FBF9)
+
+/**
+ * Light failure rows use the Misaka board: `#FFDAD6` at 55%, stroke `#BA1A1A`, ink `#410002`.
+ * Dark keeps the existing wash. The SPEC does not assign a new dark stroke hex.
+ */
+internal data class TerminalOutlinedLinePaint(
+    val fill: Color,
+    val stroke: Color?,
+    val ink: Color?,
+)
+
+internal fun terminalOutlinedLinePaint(extended: LuviaExtendedColors): TerminalOutlinedLinePaint =
+    if (extended.lightTerminalBoard()) {
+        TerminalOutlinedLinePaint(
+            fill = extended.failureFill,
+            stroke = extended.failureStroke,
+            ink = extended.failureInk,
+        )
+    } else {
+        TerminalOutlinedLinePaint(
+            fill = extended.failureWash,
+            stroke = null,
+            ink = null,
+        )
+    }
