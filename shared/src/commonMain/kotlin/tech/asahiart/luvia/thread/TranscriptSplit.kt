@@ -129,51 +129,40 @@ private fun selectionCore(line: String): String =
     stripLeadingPromptMarkers(stripLeadingBox(line.trim()))
 
 /**
- * Once an Ask card is parsed, also drops the trailing TUI prompt that repeats
- * the card title: a question marked with `>`, `›`, or `❯`, plus the cursor bars
- * beside it. A plain question with no prompt marker stays, and
- * [withoutAskSelectionBlock] is unchanged.
+ * Drops the prompt lines the current Ask already shows.
+ * The span is the question the parser joined, and only when that text is this Ask.
+ * A different question, or an Ask with no parsed text, stays in the output.
  */
-public fun withoutParsedAskPrompt(text: String): String {
+public fun withoutParsedAskPrompt(text: String, question: String? = null): String {
     val base = withoutAskSelectionBlock(text)
     if (base.isEmpty()) return base
+    val wanted = question?.let(::promptKey)?.takeIf { it.isNotEmpty() } ?: return base
     val lines = base.lines()
-    var cut = lines.size
-    var started = false
-    for (index in lines.indices.reversed()) {
-        val line = lines[index]
-        if (!started) {
-            if (line.isBlank() || isCursorBarLine(line)) continue
-            if (isMarkedAskPrompt(line)) {
-                started = true
-                cut = index
-                continue
-            }
-            break
-        }
-        if (line.isBlank() || isCursorBarLine(line) || isMarkedAskPrompt(line)) {
-            cut = index
-            continue
-        }
-        break
-    }
-    if (!started) return base
-    return lines.take(cut).joinToString("\n").trim()
+    val hit = findQuestionHit(lines) ?: return base
+    if (promptKey(hit.text) != wanted) return base
+    if ((hit.startIndex..hit.anchorIndex).none { hasPromptMarker(lines[it]) }) return base
+    var start = hit.startIndex
+    while (start > 0 && isFrameOnly(lines[start - 1])) start--
+    var end = hit.anchorIndex
+    while (end + 1 < lines.size && isFrameOnly(lines[end + 1])) end++
+    return lines.filterIndexed { index, _ -> index < start || index > end }
+        .joinToString("\n")
+        .trim()
 }
 
-private fun isCursorBarLine(line: String): Boolean {
-    val trimmed = line.trim()
-    if (trimmed.isEmpty()) return false
-    return stripLeadingBox(trimmed).isEmpty()
+private fun promptKey(raw: String): String =
+    stripTuiChrome(stripLeadingPromptMarkers(raw.trim())).trim()
+
+private fun hasPromptMarker(line: String): Boolean {
+    val after = stripLeadingBox(line.trim())
+    if (after.isEmpty()) return false
+    val marker = after[0]
+    return marker == '>' || marker == '›' || marker == '❯'
 }
 
-private fun isMarkedAskPrompt(line: String): Boolean {
-    val afterBox = stripLeadingBox(line.trim())
-    if (afterBox.isEmpty()) return false
-    val marker = afterBox[0]
-    if (marker != '>' && marker != '›' && marker != '❯') return false
-    val rest = afterBox.drop(1).trimStart()
-    return isSelectionQuestion(rest)
+private fun isFrameOnly(line: String): Boolean {
+    if (line.isBlank()) return true
+    return stripLeadingBox(line.trim()).isEmpty()
 }
 
 private fun isSelectionQuestion(core: String): Boolean {
@@ -284,6 +273,30 @@ private fun isLatinAlnum(ch: Char): Boolean =
     ch in 'A'..'Z' || ch in 'a'..'z' || ch in '0'..'9'
 
 /**
+ * `agent.read` gives one `text` string. It does not say which newlines are hard wraps.
+ * A Latin seam stays tight only while the current token already contains a path separator
+ * or an unclosed backtick or double quote. Other Latin seams keep a space.
+ */
+private fun continuesOpenToken(built: CharSequence): Boolean {
+    var backticks = 0
+    var quotes = 0
+    for (ch in built) {
+        when (ch) {
+            '`' -> backticks++
+            '"' -> quotes++
+        }
+    }
+    if (backticks % 2 == 1 || quotes % 2 == 1) return true
+    var start = built.length
+    while (start > 0 && !built[start - 1].isWhitespace()) start--
+    for (index in start until built.length) {
+        val ch = built[index]
+        if (ch == '/' || ch == '\\') return true
+    }
+    return false
+}
+
+/**
  * Join hard-wrapped pane lines. Spaces already in a fragment stay.
  * One space is inserted only when both sides are Latin letters or digits and the
  * previous fragment does not end in `-` or `_`. CJK seams and `term-` + `probe.txt` stay tight.
@@ -297,7 +310,8 @@ internal fun joinHardWrapped(parts: List<String>): String {
         if (sb.isNotEmpty()) {
             val left = sb[sb.length - 1]
             val right = clean[0]
-            if (left != '-' && left != '_' && isLatinAlnum(left) && isLatinAlnum(right)) sb.append(' ')
+            val latinSeam = left != '-' && left != '_' && isLatinAlnum(left) && isLatinAlnum(right)
+            if (latinSeam && !continuesOpenToken(sb)) sb.append(' ')
         }
         sb.append(clean)
     }
