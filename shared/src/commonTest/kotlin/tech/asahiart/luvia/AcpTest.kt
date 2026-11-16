@@ -28,6 +28,9 @@ import tech.asahiart.luvia.internal.NdjsonFramer
 import tech.asahiart.luvia.internal.uhp.startingReplay
 import tech.asahiart.luvia.thread.AskAction
 import tech.asahiart.luvia.thread.AskTone
+import tech.asahiart.luvia.thread.HandoffEffect
+import tech.asahiart.luvia.thread.HandoffIntent
+import tech.asahiart.luvia.thread.handoffObserved
 import tech.asahiart.luvia.thread.threads
 import tech.asahiart.luvia.thread.toThread
 import tech.asahiart.luvia.internal.UhpRequest
@@ -655,6 +658,129 @@ class AcpTest {
         session.close()
     }
 
+    @Test
+    fun lateOpenDoesNotInstallOverANewerHandoff() = runTest {
+        val gates = kotlinx.coroutines.channels.Channel<kotlinx.coroutines.CompletableDeferred<String?>>(8)
+        val session = openAcpClient(backgroundScope, openReplies = gates)
+        val runtime = sampleRuntime(agent = "pi", cwd = "/tmp/pane", workspaceCwd = "/tmp/work")
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        uhp.setLaunchAcpAgent("codex")
+        uhp.setLaunchAcpCwd("/tmp/work")
+        uhp.launchAcp()
+        val first = withTimeout(2.seconds) { gates.receive() }
+        uhp.launchAcp()
+        val second = withTimeout(2.seconds) { gates.receive() }
+        second.complete("sess-b")
+        withTimeout(2.seconds) {
+            uhp.state.first { it.acp.info?.sessionId == "sess-b" && it.acp.run == AcpRunState.Ready }
+        }
+        assertEquals(FailureHandoff.Drafted, uhp.handoffFailure("AnsiParserTest FAILED", "7", "claude"))
+        val drafted = uhp.state.value.acp
+        val receipt = drafted.sessionGeneration
+        assertEquals(AcpRunState.Starting, drafted.run)
+        assertEquals("请修这个失败：\nAnsiParserTest FAILED", drafted.draft)
+        val intent =
+            HandoffIntent(
+                hostId = runtime.profile.hostId,
+                attempt = 1,
+                originPaneId = "7",
+                navigationEpoch = 4,
+                baselineSessionId = "sess-b",
+                launchGeneration = receipt,
+            )
+        first.complete("sess-a")
+        withTimeout(2.seconds) {
+            repeat(20) {
+                if (uhp.state.value.acp.info?.sessionId != null) return@withTimeout
+                kotlinx.coroutines.delay(20)
+            }
+        }
+        val during = uhp.state.value.acp
+        assertEquals(receipt, during.sessionGeneration)
+        assertEquals(null, during.info?.sessionId)
+        assertEquals(null, during.errorText)
+        assertEquals("请修这个失败：\nAnsiParserTest FAILED", during.draft)
+        assertEquals(
+            HandoffEffect.Ignore,
+            handoffObserved(
+                intent,
+                navigationEpoch = 4,
+                selectedHostId = runtime.profile.hostId,
+                open = during.open,
+                errorText = during.errorText,
+                sessionId = during.info?.sessionId ?: "",
+                snapshotGeneration = during.sessionGeneration,
+            ),
+        )
+        val third = withTimeout(2.seconds) { gates.receive() }
+        third.complete("sess-c")
+        withTimeout(2.seconds) {
+            uhp.state.first { it.acp.info?.sessionId == "sess-c" && it.acp.run == AcpRunState.Ready }
+        }
+        val ready = uhp.state.value.acp
+        assertEquals(receipt, ready.sessionGeneration)
+        assertEquals(
+            HandoffEffect.Adopt,
+            handoffObserved(
+                intent,
+                navigationEpoch = 4,
+                selectedHostId = runtime.profile.hostId,
+                open = ready.open,
+                errorText = ready.errorText,
+                sessionId = ready.info?.sessionId ?: "",
+                snapshotGeneration = ready.sessionGeneration,
+            ),
+        )
+        assertEquals(
+            HandoffEffect.Ignore,
+            handoffObserved(
+                intent,
+                navigationEpoch = 5,
+                selectedHostId = runtime.profile.hostId,
+                open = ready.open,
+                errorText = ready.errorText,
+                sessionId = ready.info?.sessionId ?: "",
+                snapshotGeneration = ready.sessionGeneration,
+            ),
+        )
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun lateOpenErrorDoesNotMarkTheNewerHandoffFailed() = runTest {
+        val gates = kotlinx.coroutines.channels.Channel<kotlinx.coroutines.CompletableDeferred<String?>>(8)
+        val session = openAcpClient(backgroundScope, openReplies = gates)
+        val runtime = sampleRuntime(agent = "pi", cwd = "/tmp/pane", workspaceCwd = "/tmp/work")
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        uhp.setLaunchAcpAgent("codex")
+        uhp.setLaunchAcpCwd("/tmp/work")
+        uhp.launchAcp()
+        val first = withTimeout(2.seconds) { gates.receive() }
+        uhp.launchAcp()
+        val second = withTimeout(2.seconds) { gates.receive() }
+        second.complete("sess-b")
+        withTimeout(2.seconds) { uhp.state.first { it.acp.info?.sessionId == "sess-b" } }
+        assertEquals(FailureHandoff.Drafted, uhp.handoffFailure("AnsiParserTest FAILED", "7", "claude"))
+        val receipt = uhp.state.value.acp.sessionGeneration
+        first.complete(null)
+        withTimeout(2.seconds) {
+            repeat(20) {
+                if (uhp.state.value.acp.errorText != null || uhp.state.value.acp.run != AcpRunState.Starting) {
+                    return@withTimeout
+                }
+                kotlinx.coroutines.delay(20)
+            }
+        }
+        val during = uhp.state.value.acp
+        assertEquals(receipt, during.sessionGeneration)
+        assertEquals(null, during.errorText)
+        assertEquals(AcpRunState.Starting, during.run)
+        uhp.close()
+        session.close()
+    }
 }
 
 private suspend fun openAcpClient(
@@ -666,6 +792,7 @@ private suspend fun openAcpClient(
     thenEvents: List<String> = emptyList(),
     extraMethods: List<String> = emptyList(),
     methods: List<String>? = null,
+    openReplies: kotlinx.coroutines.channels.Channel<kotlinx.coroutines.CompletableDeferred<String?>>? = null,
 ): LuviaSession {
     val advertised =
         methods
@@ -695,6 +822,22 @@ private suspend fun openAcpClient(
                                     request.method == Methods.ACP_SESSION_LIST)
                             ) {
                                 opens += request.params
+                            }
+                            if (request.method == Methods.ACP_SESSION_OPEN && openReplies != null) {
+                                val gate = kotlinx.coroutines.CompletableDeferred<String?>()
+                                openReplies.send(gate)
+                                val sessionId = gate.await()
+                                if (sessionId == null) {
+                                    framer.writeFrame(
+                                        """{"id":"${request.id}","error":{"code":"stale","message":"stale open"}}""",
+                                    )
+                                } else {
+                                    framer.writeFrame(
+                                        """{"id":"${request.id}","result":{"type":"acp_session","session_id":"$sessionId","agent":"codex","agent_name":"Codex","protocol_version":1,"cwd":"/tmp/work"}}""",
+                                    )
+                                }
+                                awaitCancellation()
+                                continue
                             }
                             respondAcp(framer, request, advertised)
                             if (request.method == Methods.ACP_SESSION_OPEN) {

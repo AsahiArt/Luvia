@@ -623,7 +623,7 @@ struct ContentView: View {
     private var acpFixWatch: String {
         guard let intent = fixIntent, let state = model.hostStates[intent.hostId] else { return "" }
         let session = state.acp.info?.sessionId ?? ""
-        return "\(intent.attempt)|\(navigationEpoch)|\(intent.hostId)|\(state.acp.open)|\(state.acp.errorText ?? "")|\(session)"
+        return "\(navigationEpoch)|\(intent.launchGeneration)|\(state.acp.sessionGeneration)|\(state.acp.open)|\(state.acp.errorText ?? "")|\(session)"
     }
 
     private func invalidateHandoffNavigation() {
@@ -632,6 +632,7 @@ struct ContentView: View {
 
     private func armHandoff(pane: String?) {
         guard let host = model.selectedHostID, !host.isEmpty else { return }
+        guard let generation = model.hostUhp()?.launchReceipt()?.generation, generation != 0 else { return }
         fixAttempt += 1
         let baseline = model.hostStates[host]?.acp.info?.sessionId ?? ""
         fixIntent = HandoffIntent(
@@ -639,21 +640,21 @@ struct ContentView: View {
             attempt: fixAttempt,
             originPaneId: pane,
             navigationEpoch: navigationEpoch,
-            baselineSessionId: baseline
+            baselineSessionId: baseline,
+            launchGeneration: generation
         )
     }
 
     private func adoptAwaitingFixAgent() {
         guard let intent = fixIntent, let state = model.hostStates[intent.hostId] else { return }
-        let effect = HandoffIntentKt.handoffEffect(
+        let effect = HandoffIntentKt.handoffObserved(
             intent: intent,
-            eventAttempt: intent.attempt,
             navigationEpoch: navigationEpoch,
             selectedHostId: model.selectedHostID ?? "",
-            snapshotHostId: intent.hostId,
             open: state.acp.open,
             errorText: state.acp.errorText,
-            sessionId: state.acp.info?.sessionId ?? ""
+            sessionId: state.acp.info?.sessionId ?? "",
+            snapshotGeneration: state.acp.sessionGeneration
         )
         switch effect {
         case .showFailure:

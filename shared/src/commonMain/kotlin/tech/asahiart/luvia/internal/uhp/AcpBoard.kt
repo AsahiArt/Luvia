@@ -24,6 +24,8 @@ internal class AcpBoard(private val ctx: UhpContext) {
     private var session: AcpSession? = null
     private var collector: Job? = null
     private var nextItem: Int = 0
+    private var openTicket: Long = 0
+    private var openJob: Job? = null
 
     /** Replay after resume is history, not a live turn. Cleared when the user prompts. */
     private var replaying: Boolean = false
@@ -137,6 +139,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
         stop()
         nextItem = 0
         replaying = false
+        val ticket = ctx.value().acp.sessionGeneration + 1
         ctx.update {
             it.copy(
                 acp =
@@ -151,13 +154,15 @@ internal class AcpBoard(private val ctx: UhpContext) {
                         permission = null,
                         errorText = null,
                         exitMessage = null,
-                        sessionGeneration = it.acp.sessionGeneration + 1,
+                        sessionGeneration = ticket,
                     ),
             )
         }
-        ctx.launch {
-            openAndCollect(client.openAcpSession(agentId, cwd))
-        }
+        openTicket = ticket
+        openJob =
+            ctx.launch {
+                finishOpen(ticket, client.openAcpSession(agentId, cwd))
+            }
     }
 
     /** Resume an ACP history row. Replay starts from an empty transcript. */
@@ -178,20 +183,32 @@ internal class AcpBoard(private val ctx: UhpContext) {
                     ),
             )
         }
-        ctx.launch {
-            openAndCollect(
-                client.openAcpSession(
-                    agentId,
-                    cwd,
-                    mode = AcpOpenMode.Resume,
-                    sessionId = sessionId,
-                    replay = true,
-                ),
-            )
-        }
+        val ticket = ctx.value().acp.sessionGeneration
+        openTicket = ticket
+        openJob =
+            ctx.launch {
+                finishOpen(
+                    ticket,
+                    client.openAcpSession(
+                        agentId,
+                        cwd,
+                        mode = AcpOpenMode.Resume,
+                        sessionId = sessionId,
+                        replay = true,
+                    ),
+                )
+            }
     }
 
-    private suspend fun openAndCollect(opened: Outcome<AcpSession>) {
+    private fun finishOpen(ticket: Long, opened: Outcome<AcpSession>) {
+        if (openTicket != ticket) {
+            if (opened is Outcome.Ok) opened.value.close()
+            return
+        }
+        openAndCollect(opened)
+    }
+
+    private fun openAndCollect(opened: Outcome<AcpSession>) {
         when (opened) {
             is Outcome.Ok -> {
                 session = opened.value
@@ -269,6 +286,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
     }
 
     fun noteLinkLost() {
+        invalidatePendingOpen()
         ctx.update { it.copy(acp = it.acp.copy(sessionGeneration = it.acp.sessionGeneration + 1)) }
     }
 
@@ -333,10 +351,15 @@ internal class AcpBoard(private val ctx: UhpContext) {
     }
 
     private fun stop() {
+        invalidatePendingOpen()
         collector?.cancel()
         collector = null
         session?.close()
         session = null
+    }
+
+    private fun invalidatePendingOpen() {
+        openTicket += 1
     }
 
     private fun applyEvent(event: AcpEvent) {
