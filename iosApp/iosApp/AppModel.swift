@@ -17,10 +17,12 @@ final class AppModel {
     var hostStates: [String: HostUhpState] = [:]
     @ObservationIgnored private nonisolated(unsafe) var statesTask: _Concurrency.Task<Void, Never>?
     @ObservationIgnored var boundUhpHostID: String?
-    private var terminalControl: TerminalControl?
+    private(set) var terminalControl: TerminalControlHandle?
     private var wantsTerminalObserve = false
     private var terminalAcquireEpoch = 0
+    private var terminalAcquireRequest = 0
     private var controlInstalledEpoch: Int64 = -1
+    private var terminalOpener: ((String, TerminalIdentity) async throws -> TerminalAcquireOpen)?
     private var pairingAttempt: Int64 = 0
     private var observingHostID: String?
     private var observingGeneration: String?
@@ -58,12 +60,14 @@ final class AppModel {
         hosts.first { $0.id == selectedHostID }
     }
 
-    init() {
+    init(terminalOpener: ((String, TerminalIdentity) async throws -> TerminalAcquireOpen)? = nil, startCatalog: Bool = true) {
         let store = HostStore(filePath: Self.hostStorePath())
         let vault = DeviceKeyVault(service: "tech.asahiart.luvia.device-keys")
         let scope = HostManagerScope()
         manager = HostManager(store: store, vault: vault, scope: scope)
         uhpRegistry = HostUhpRegistry(manager: manager, scope: scope)
+        self.terminalOpener = terminalOpener
+        guard startCatalog else { return }
         let managerRef = manager
         readyTask = _Concurrency.Task { [weak self] in
             for await ready in managerRef.catalogReady {
@@ -365,14 +369,15 @@ final class AppModel {
     func sendTerminal(_ text: String) async {
         guard controlInputIsCurrent(), let held = terminalControl else { return }
         let epoch = terminalAcquireEpoch
+        let request = terminalAcquireRequest
         do {
             let outcome = try await held.submitText(text: text)
-            guard epoch == terminalAcquireEpoch, terminalControl === held else { return }
-            if case .err(let err) = onEnum(of: outcome) {
-                applyControlFailure(err.failure)
+            guard acquireOutcomeIsCurrent(epoch: epoch, request: request, held: held) else { return }
+            if case .rejected(let failure) = outcome {
+                applyControlFailure(failure)
             }
         } catch {
-            guard epoch == terminalAcquireEpoch, terminalControl === held else { return }
+            guard acquireOutcomeIsCurrent(epoch: epoch, request: request, held: held) else { return }
             terminalStatus = error.localizedDescription
         }
     }
@@ -380,14 +385,15 @@ final class AppModel {
     func sendTerminalKey(_ key: TerminalKey) async {
         guard controlInputIsCurrent(), let held = terminalControl else { return }
         let epoch = terminalAcquireEpoch
+        let request = terminalAcquireRequest
         do {
             let outcome = try await held.sendKey(key: key)
-            guard epoch == terminalAcquireEpoch, terminalControl === held else { return }
-            if case .err(let err) = onEnum(of: outcome) {
-                applyControlFailure(err.failure)
+            guard acquireOutcomeIsCurrent(epoch: epoch, request: request, held: held) else { return }
+            if case .rejected(let failure) = outcome {
+                applyControlFailure(failure)
             }
         } catch {
-            guard epoch == terminalAcquireEpoch, terminalControl === held else { return }
+            guard acquireOutcomeIsCurrent(epoch: epoch, request: request, held: held) else { return }
             terminalStatus = error.localizedDescription
         }
     }
@@ -398,50 +404,41 @@ final class AppModel {
         guard let locator else { return }
         let hostId = host.id
         let identity = locator.identity()
-        let managerRef = manager
+        terminalAcquireRequest += 1
         let epoch = terminalAcquireEpoch
+        let request = terminalAcquireRequest
         let pane = identity.paneId
         let generation = identity.serverGeneration
         let terminal = identity.terminalId
+        let opener = terminalOpener
+        let managerRef = manager
         _Concurrency.Task { [weak self] in
             do {
-                let outcome = try await managerRef.openTerminal(hostId: hostId, identity: identity)
+                let opened: TerminalAcquireOpen
+                if let opener {
+                    opened = try await opener(hostId, identity)
+                } else {
+                    opened = try await Self.openInstalledTerminal(manager: managerRef, hostId: hostId, identity: identity)
+                }
                 await MainActor.run {
                     guard let self else {
-                        if case .ok(let ok) = onEnum(of: outcome), let control = ok.value {
-                            control.close()
-                        }
+                        Self.closeInstalled(opened)
                         return
                     }
-                    let current = epoch == self.terminalAcquireEpoch
-                        && self.wantsTerminalObserve
-                        && self.selectedHostID == hostId
-                        && self.observingPaneID == pane
-                        && self.observingGeneration == generation
-                        && self.observingTerminalID == terminal
-                    guard current else {
-                        if case .ok(let ok) = onEnum(of: outcome), let control = ok.value {
-                            control.close()
-                        }
-                        return
-                    }
-                    switch onEnum(of: outcome) {
-                    case .ok(let ok):
-                        self.terminalControl?.close()
-                        self.terminalControl = ok.value
-                        self.holdsTerminalControl = ok.value != nil
-                        self.controlInstalledEpoch = Int64(epoch)
-                        if self.terminalStatus?.contains("观察仍然有效") == true
-                            || self.terminalStatus?.localizedCaseInsensitiveContains("control") == true {
-                            self.terminalStatus = nil
-                        }
-                    case .err(let err):
-                        self.applyControlFailure(err.failure)
-                    }
+                    self.applyAcquire(
+                        opened,
+                        epoch: epoch,
+                        request: request,
+                        hostId: hostId,
+                        pane: pane,
+                        generation: generation,
+                        terminal: terminal
+                    )
                 }
             } catch {
                 await MainActor.run {
-                    self?.terminalStatus = error.localizedDescription
+                    guard let self, request == self.terminalAcquireRequest, epoch == self.terminalAcquireEpoch else { return }
+                    self.terminalStatus = error.localizedDescription
                 }
             }
         }
@@ -562,12 +559,134 @@ final class AppModel {
 
     func releaseTerminalControl() {
         terminalAcquireEpoch += 1
+        terminalAcquireRequest += 1
         terminalControl?.close()
         terminalControl = nil
         holdsTerminalControl = false
         if terminalStatus?.contains("观察仍然有效") == true
             || terminalStatus?.localizedCaseInsensitiveContains("control") == true {
             terminalStatus = nil
+        }
+    }
+
+    func stageTerminalCaller(
+        host: HostViewState,
+        paneId: String?,
+        opener: @escaping (String, TerminalIdentity) async throws -> TerminalAcquireOpen
+    ) {
+        hosts = [host]
+        selectedHostID = host.id
+        uhp.selectedAgentID = paneId
+        wantsTerminalObserve = true
+        let locator = paneId.flatMap { host.locator(for: $0) } ?? host.terminalLocator
+        let identity = locator?.identity()
+        observingHostID = host.id
+        observingPaneID = identity?.paneId
+        observingGeneration = identity?.serverGeneration
+        observingTerminalID = identity?.terminalId
+        terminalOpener = opener
+    }
+
+    func stageSelectedHost(_ host: HostViewState) {
+        hosts = [host]
+        if selectedHostID == nil {
+            selectedHostID = host.id
+        }
+    }
+
+    private func acquireOutcomeIsCurrent(epoch: Int, request: Int, held: TerminalControlHandle) -> Bool {
+        epoch == terminalAcquireEpoch
+            && request == terminalAcquireRequest
+            && terminalControl === held
+            && controlInputIsCurrent()
+    }
+
+    private func applyAcquire(
+        _ opened: TerminalAcquireOpen,
+        epoch: Int,
+        request: Int,
+        hostId: String,
+        pane: String,
+        generation: String,
+        terminal: String
+    ) {
+        guard acquireStillCurrent(
+            epoch: epoch,
+            request: request,
+            hostId: hostId,
+            pane: pane,
+            generation: generation,
+            terminal: terminal
+        ) else {
+            Self.closeInstalled(opened)
+            return
+        }
+        switch opened {
+        case .installed(let handle):
+            terminalControl?.close()
+            terminalControl = handle
+            holdsTerminalControl = true
+            controlInstalledEpoch = Int64(epoch)
+            if terminalStatus?.contains("观察仍然有效") == true
+                || terminalStatus?.localizedCaseInsensitiveContains("control") == true {
+                terminalStatus = nil
+            }
+        case .vacant:
+            terminalControl?.close()
+            terminalControl = nil
+            holdsTerminalControl = false
+            controlInstalledEpoch = Int64(epoch)
+        case .rejected(let failure):
+            applyControlFailure(failure)
+        }
+    }
+
+    private func acquireStillCurrent(
+        epoch: Int,
+        request: Int,
+        hostId: String,
+        pane: String,
+        generation: String,
+        terminal: String
+    ) -> Bool {
+        let locator = selectedHost.flatMap { current in
+            (uhp.selectedAgentID.flatMap { current.locator(for: $0) }) ?? current.terminalLocator
+        }
+        let identity = locator?.identity()
+        return epoch == terminalAcquireEpoch
+            && request == terminalAcquireRequest
+            && wantsTerminalObserve
+            && selectedHost?.isController == true
+            && selectedHostID == hostId
+            && observingPaneID == pane
+            && observingGeneration == generation
+            && observingTerminalID == terminal
+            && identity?.paneId == pane
+            && identity?.serverGeneration == generation
+            && identity?.terminalId == terminal
+    }
+
+    private static func openInstalledTerminal(
+        manager: HostManager?,
+        hostId: String,
+        identity: TerminalIdentity
+    ) async throws -> TerminalAcquireOpen {
+        guard let manager else { return .vacant }
+        let outcome = try await manager.openTerminal(hostId: hostId, identity: identity)
+        switch onEnum(of: outcome) {
+        case .ok(let ok):
+            if let control = ok.value {
+                return .installed(LiveTerminalHandle(control))
+            }
+            return .vacant
+        case .err(let err):
+            return .rejected(err.failure)
+        }
+    }
+
+    private static func closeInstalled(_ opened: TerminalAcquireOpen) {
+        if case .installed(let handle) = opened {
+            handle.close()
         }
     }
 
@@ -598,6 +717,7 @@ final class AppModel {
 
     private func stopTerminal() {
         terminalAcquireEpoch += 1
+        terminalAcquireRequest += 1
         terminalTask?.cancel()
         terminalTask = nil
         terminalControl?.close()
@@ -1275,6 +1395,51 @@ private final class EmptyKotlinCoroutineContext: NSObject, KotlinCoroutineContex
 
     func plus(context: KotlinCoroutineContext) -> KotlinCoroutineContext {
         context
+    }
+}
+
+protocol TerminalControlHandle: AnyObject {
+    func close()
+    func submitText(text: String) async throws -> TerminalWrite
+    func sendKey(key: TerminalKey) async throws -> TerminalWrite
+}
+
+enum TerminalWrite {
+    case accepted
+    case rejected(Failure)
+}
+
+enum TerminalAcquireOpen {
+    case installed(TerminalControlHandle)
+    case vacant
+    case rejected(Failure)
+}
+
+private final class LiveTerminalHandle: TerminalControlHandle {
+    private let control: TerminalControl
+
+    init(_ control: TerminalControl) {
+        self.control = control
+    }
+
+    func close() {
+        control.close()
+    }
+
+    func submitText(text: String) async throws -> TerminalWrite {
+        let outcome = try await control.submitText(text: text)
+        if case .err(let err) = onEnum(of: outcome) {
+            return .rejected(err.failure)
+        }
+        return .accepted
+    }
+
+    func sendKey(key: TerminalKey) async throws -> TerminalWrite {
+        let outcome = try await control.sendKey(key: key)
+        if case .err(let err) = onEnum(of: outcome) {
+            return .rejected(err.failure)
+        }
+        return .accepted
     }
 }
 
