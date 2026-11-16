@@ -1,5 +1,6 @@
 import Foundation
 import LuviaShared
+@testable import Luvia
 
 /// Production-caller bodies for the acquire race.
 /// `LuviaAcquireTests` invokes each one. This file is not in the shipping app target.
