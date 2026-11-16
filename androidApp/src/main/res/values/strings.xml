@@ -24,6 +24,10 @@
     <string name="role_observer">观察者</string>
     <string name="pair_intro">这台手机会生成设备密钥。在电脑上运行命令。终端会显示六位短码，也可以扫或粘贴 luvia2: 码。</string>
     <string name="handshake">端到端加密握手</string>
+    <string name="pair_help_title">如何配对</string>
+    <string name="pair_help_command">在电脑终端运行本页显示的配对命令。</string>
+    <string name="pair_help_code">在手机上输入电脑显示的六位短码和电脑地址；也可以扫描或粘贴电脑提供的 luvia2: 配对码，这种方式不用另填地址。</string>
+    <string name="pair_help_confirm">核对手机与电脑上的指纹，一致后点「确认配对」；不一致就先不要继续。</string>
     <string name="pair_code_caption">电脑终端显示的配对码</string>
     <string name="pair_code_from_host">%1$s 终端显示的配对码</string>
     <string name="paste_code">粘贴 luvia2: 码</string>
