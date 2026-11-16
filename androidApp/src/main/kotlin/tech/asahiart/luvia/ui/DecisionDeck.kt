@@ -205,7 +205,7 @@ internal fun DecisionDeck(
     dragEnabled: Boolean,
     onAnswer: (AgentThread, AskOption) -> Unit,
     onOpen: (AgentThread) -> Unit,
-    onOpenTerminal: () -> Unit,
+    onOpenTerminal: (AgentThread) -> Unit,
 ) {
     if (pending.isEmpty()) return
     val view = LocalView.current
@@ -473,7 +473,7 @@ internal fun DecisionDeck(
                 counter = counter,
                 onAnswer = { option -> answer(front, option) },
                 onOpen = { if (!pastSlop && !flying) onOpen(front) },
-                onOpenTerminal = { if (!pastSlop && !flying) onOpenTerminal() },
+                onOpenTerminal = { if (!pastSlop && !flying) onOpenTerminal(front) },
             )
         }
     }

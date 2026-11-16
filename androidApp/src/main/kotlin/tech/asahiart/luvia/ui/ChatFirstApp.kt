@@ -254,10 +254,6 @@ fun ChatFirstApp(
 
     fun openThread(thread: AgentThread) {
         val id = thread.hostId
-        if (id != resolvedId) viewModel.switchHostSessionFilter(id)
-        hostId = id
-        threadId = thread.id
-        viewModel.markViewed(thread)
         val workspace = viewModel.workspace(id)
         if (thread.acpHistory) {
             val agentId = thread.acpAgentId
@@ -269,10 +265,18 @@ fun ChatFirstApp(
                 return
             }
         }
-        when (thread.kind) {
-            AgentKind.Acp -> workspace.viewAcp()
-            AgentKind.Pane -> thread.paneId?.let { workspace.openAgent(it) }
+        val accepted = when (thread.kind) {
+            AgentKind.Acp -> {
+                workspace.viewAcp()
+                true
+            }
+            AgentKind.Pane -> thread.paneId?.let { workspace.openAgent(it) } == true
         }
+        if (!accepted) return
+        if (id != resolvedId) viewModel.switchHostSessionFilter(id)
+        hostId = id
+        threadId = thread.id
+        viewModel.markViewed(thread)
         stage = "chat"
     }
 
@@ -281,13 +285,16 @@ fun ChatFirstApp(
         return viewModel.workspace(thread.hostId).timeline(thread).map { it.id }.toSet()
     }
 
-    fun openTerminal(paneId: String?) {
-        val id = selected?.id ?: return
+    fun openTerminal(thread: AgentThread) {
+        val paneId = thread.paneId ?: return
         if (stage != "terminal") {
             terminalReturn = stage
-            seenChatIds = conversationIds(openThread)
+            seenChatIds = conversationIds(thread)
         }
-        viewModel.ensureTerminal(id, paneId)
+        if (thread.hostId != resolvedId) viewModel.switchHostSessionFilter(thread.hostId)
+        hostId = thread.hostId
+        threadId = thread.id
+        viewModel.ensureTerminal(thread.hostId, paneId)
         stage = "terminal"
     }
 
@@ -360,10 +367,10 @@ fun ChatFirstApp(
                         queueIndex = queueIndex,
                         queueTotal = queueTotal,
                         initialDraft = initialDraft,
-                        onSend = { text -> workspace.sendToThread(text) },
+                        onSend = { text -> workspace.sendToThread(thread, text) },
                         onAnswer = { option -> viewModel.answer(thread, option) },
                         onBack = { stage = "sessions" },
-                        onOpenTerminal = { openTerminal(thread.paneId) },
+                        onOpenTerminal = { openTerminal(thread) },
                         terminalPreview = selected?.id?.let { terminalPreviews[it] ?: terminals[it]?.text },
                         sending = state?.agentDetail?.sending == true,
                         isObserver = selected?.isObserver == true,
@@ -405,7 +412,13 @@ fun ChatFirstApp(
                     selected?.id?.let { viewModel.workspace(it).loadAcpAgents() }
                     showNewSession = true
                 },
-                onOpenTerminal = { openTerminal(openThread?.paneId) },
+                onOpenTerminal = {
+                    val id = selected?.id ?: return@SessionListScreen
+                    if (stage != "terminal") terminalReturn = stage
+                    viewModel.ensureTerminal(id, null)
+                    stage = "terminal"
+                },
+                onOpenCardTerminal = ::openTerminal,
                 onRetry = { selected?.id?.let(viewModel::connect) },
                 roster = sessionRoster(inScope),
                 homeDir = homeDir,

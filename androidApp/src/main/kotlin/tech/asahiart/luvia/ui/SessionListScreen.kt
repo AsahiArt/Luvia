@@ -150,6 +150,7 @@ fun SessionListScreen(
     onAnswer: (AgentThread, AskOption) -> Unit,
     onNewSession: () -> Unit,
     onOpenTerminal: () -> Unit,
+    onOpenCardTerminal: (AgentThread) -> Unit = {},
     onRetry: () -> Unit = {},
     roster: SessionRoster = sessionRoster(threads),
     trails: Map<String, TrailThumb> = emptyMap(),
@@ -279,6 +280,7 @@ fun SessionListScreen(
                 onRetry = onRetry,
                 onPair = onPair,
                 onOpenTerminal = onOpenTerminal,
+                onOpenCardTerminal = onOpenCardTerminal,
             )
             HomeTab.Machines -> MachinesBody(
                 padding = padding,
@@ -391,6 +393,7 @@ private fun SessionsBody(
     onRetry: () -> Unit,
     onPair: () -> Unit,
     onOpenTerminal: () -> Unit,
+    onOpenCardTerminal: (AgentThread) -> Unit,
 ) {
     val pathTexts = sessionPathTexts(scopeChoices.paths.map { it.cwd }, homeDir)
     val scopeText = scopeSummary(filter.scope, selected?.name, pathTexts, homeDir)
@@ -470,7 +473,7 @@ private fun SessionsBody(
                             dragEnabled = !cardsLocked,
                             onAnswer = onAnswer,
                             onOpen = onOpenThread,
-                            onOpenTerminal = onOpenTerminal,
+                            onOpenTerminal = onOpenCardTerminal,
                         )
                     }
                 }

@@ -113,7 +113,8 @@ public class HostUhp(
         show(ctx.value().section)
     }
 
-    public fun openAgent(paneId: String) = agents.open(paneId)
+    /** False when another pane still has a send or an unconfirmed result. The open pane stays put. */
+    public fun openAgent(paneId: String): Boolean = agents.open(paneId)
 
     public fun closeAgent() = agents.close()
 
@@ -446,7 +447,14 @@ public class HostUhp(
         val s = state.value
         return when (thread.kind) {
             AgentKind.Acp -> s.acp.timeline(thread.ask)
-            AgentKind.Pane -> s.agentDetail.timeline.render(thread.ask)
+            AgentKind.Pane -> {
+                val detail = s.agentDetail
+                if (!detail.open || detail.paneId != thread.paneId) {
+                    emptyList()
+                } else {
+                    detail.timeline.render(thread.ask)
+                }
+            }
         }
     }
 
@@ -474,9 +482,13 @@ public class HostUhp(
         }
     }
 
-    /** Sends a slash command (or any free text) to the open conversation. */
-    public fun sendToThread(text: String) {
-        val thread = openThread() ?: return
+    /**
+     * Sends to [thread] only when that thread is the open conversation.
+     * A screen that still shows another thread must not deliver text to the previous pane.
+     */
+    public fun sendToThread(thread: AgentThread, text: String): Boolean {
+        val open = openThread() ?: return false
+        if (open.hostId != thread.hostId || open.id != thread.id || open.paneId != thread.paneId) return false
         when (thread.kind) {
             AgentKind.Pane -> agents.prompt(text)
             AgentKind.Acp -> {
@@ -484,6 +496,13 @@ public class HostUhp(
                 acp.prompt()
             }
         }
+        return true
+    }
+
+    /** Sends a slash command (or any free text) to the open conversation. */
+    public fun sendToThread(text: String) {
+        val thread = openThread() ?: return
+        sendToThread(thread, text)
     }
 
     public fun hideAcp() = acp.hide()

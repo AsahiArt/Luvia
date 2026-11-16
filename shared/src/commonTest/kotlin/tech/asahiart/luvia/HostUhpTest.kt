@@ -2,6 +2,7 @@ package tech.asahiart.luvia
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -21,6 +22,7 @@ import tech.asahiart.luvia.internal.UhpRequest
 import tech.asahiart.luvia.internal.decodeUhpRequest
 import tech.asahiart.luvia.internal.parseObject
 import tech.asahiart.luvia.support.ScriptedFactory
+import tech.asahiart.luvia.thread.AgentThread
 import tech.asahiart.luvia.thread.DECISION_QUESTION_FALLBACK
 import tech.asahiart.luvia.thread.threads
 import kotlin.time.Duration.Companion.seconds
@@ -69,6 +71,57 @@ class HostUhpTest {
         assertEquals("7", uhp.state.value.agentDetail.paneId)
         assertTrue(uhp.state.value.agentDetail.errorText!!.contains("still in progress"))
         uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun completedPromptIsOnTheWireThenAnotherPaneIsAccepted() = runTest {
+        val recorded = mutableListOf<String>()
+        val session = openSession(this, recorded = recorded)
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = this)
+        uhp.applyRuntime(runtime)
+        assertEquals(true, uhp.openAgent("7"))
+        advanceUntilIdle()
+        recorded.clear()
+        assertEquals(true, uhp.promptAgent("hello"))
+        advanceUntilIdle()
+        assertEquals(listOf(Methods.AGENT_PROMPT), recorded.filter { it == Methods.AGENT_PROMPT })
+        assertEquals(false, uhp.state.value.agentDetail.sending)
+        assertEquals(null, uhp.state.value.agentDetail.unconfirmed)
+        val open = checkNotNull(uhp.openThread())
+        assertEquals("7", open.paneId)
+        val otherPane = open.copy(id = "pane-8", paneId = "8", title = "other")
+        val otherHost = open.copy(hostId = "other-host", id = "other-thread")
+        assertEquals(false, uhp.sendToThread(otherPane, "do not send"))
+        assertEquals(false, uhp.sendToThread(otherHost, "do not send"))
+        advanceUntilIdle()
+        assertEquals(listOf(Methods.AGENT_PROMPT), recorded.filter { it == Methods.AGENT_PROMPT })
+        assertEquals(true, uhp.openAgent("8"))
+        assertEquals("8", uhp.state.value.agentDetail.paneId)
+        assertEquals(emptyList(), uhp.timeline(open))
+        uhp.close()
+        session.close()
+    }
+
+    @Test
+    fun samePaneIdOnAnotherHostIsNotBlockedByThisSend() = runTest {
+        val session = openSession(backgroundScope, hangPrompt = true)
+        val runtime = sampleRuntime()
+        val busy = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        busy.applyRuntime(runtime)
+        busy.openAgent("7")
+        advanceUntilIdle()
+        busy.promptAgent("hello")
+        advanceUntilIdle()
+        assertEquals(true, busy.state.value.agentDetail.sending)
+        val other = HostUhp(session = { null }, runtime = { runtime }, scope = backgroundScope)
+        other.applyRuntime(runtime)
+        assertEquals(true, other.openAgent("7"))
+        assertEquals("7", other.state.value.agentDetail.paneId)
+        assertEquals("7", busy.state.value.agentDetail.paneId)
+        busy.close()
+        other.close()
         session.close()
     }
 
