@@ -19,6 +19,11 @@ final class AppModel {
     @ObservationIgnored var boundUhpHostID: String?
     private var terminalControl: TerminalControl?
     private var wantsTerminalObserve = false
+    private var terminalAcquireEpoch = 0
+    private var observingHostID: String?
+    private var observingGeneration: String?
+    private var observingTerminalID: String?
+    private var observingPaneID: String?
     @ObservationIgnored private var autoConnectAttempted = Set<String>()
     @ObservationIgnored private var suppressAutoConnect = Set<String>()
     private var preferredStartupHostID: String?
@@ -335,7 +340,7 @@ final class AppModel {
     }
 
     func sendTerminal(_ text: String) async {
-        guard let terminalControl else { return }
+        guard controlInputIsCurrent(), let terminalControl else { return }
         do {
             let outcome = try await terminalControl.submitText(text: text)
             if case .err(let err) = onEnum(of: outcome) {
@@ -347,7 +352,7 @@ final class AppModel {
     }
 
     func sendTerminalKey(_ key: TerminalKey) async {
-        guard let terminalControl else { return }
+        guard controlInputIsCurrent(), let terminalControl else { return }
         do {
             let outcome = try await terminalControl.sendKey(key: key)
             if case .err(let err) = onEnum(of: outcome) {
@@ -365,21 +370,39 @@ final class AppModel {
         let hostId = host.id
         let identity = locator.identity()
         let managerRef = manager
+        let epoch = terminalAcquireEpoch
+        let pane = identity.paneId
+        let generation = identity.serverGeneration
+        let terminal = identity.terminalId
         _Concurrency.Task { [weak self] in
             do {
                 let outcome = try await managerRef.openTerminal(hostId: hostId, identity: identity)
                 await MainActor.run {
+                    guard let self else {
+                        if case .ok(let ok) = onEnum(of: outcome) { ok.value.close() }
+                        return
+                    }
+                    let current = epoch == self.terminalAcquireEpoch
+                        && self.wantsTerminalObserve
+                        && self.selectedHostID == hostId
+                        && self.observingPaneID == pane
+                        && self.observingGeneration == generation
+                        && self.observingTerminalID == terminal
+                    guard current else {
+                        if case .ok(let ok) = onEnum(of: outcome) { ok.value.close() }
+                        return
+                    }
                     switch onEnum(of: outcome) {
                     case .ok(let ok):
-                        self?.terminalControl?.close()
-                        self?.terminalControl = ok.value
-                        self?.holdsTerminalControl = true
-                        if self?.terminalStatus?.contains("观察仍然有效") == true
-                            || self?.terminalStatus?.localizedCaseInsensitiveContains("control") == true {
-                            self?.terminalStatus = nil
+                        self.terminalControl?.close()
+                        self.terminalControl = ok.value
+                        self.holdsTerminalControl = true
+                        if self.terminalStatus?.contains("观察仍然有效") == true
+                            || self.terminalStatus?.localizedCaseInsensitiveContains("control") == true {
+                            self.terminalStatus = nil
                         }
                     case .err(let err):
-                        self?.applyControlFailure(err.failure)
+                        self.applyControlFailure(err.failure)
                     }
                 }
             } catch {
@@ -456,10 +479,21 @@ final class AppModel {
             terminalStatus = "这个窗格没有正在运行的终端。"
             return
         }
-        stopTerminal()
-        terminalStatus = nil
         let hostId = host.id
         let identity = locator.identity()
+        if terminalTask != nil,
+           observingHostID == hostId,
+           observingPaneID == identity.paneId,
+           observingGeneration == identity.serverGeneration,
+           observingTerminalID == identity.terminalId {
+            return
+        }
+        stopTerminal()
+        terminalStatus = nil
+        observingHostID = hostId
+        observingPaneID = identity.paneId
+        observingGeneration = identity.serverGeneration
+        observingTerminalID = identity.terminalId
         let managerRef = manager
         terminalTask = _Concurrency.Task { [weak self] in
             for await update in managerRef.observeTerminal(hostId: hostId, identity: identity) {
@@ -489,6 +523,7 @@ final class AppModel {
     }
 
     func releaseTerminalControl() {
+        terminalAcquireEpoch += 1
         terminalControl?.close()
         terminalControl = nil
         holdsTerminalControl = false
@@ -498,12 +533,24 @@ final class AppModel {
         }
     }
 
+    private func controlInputIsCurrent() -> Bool {
+        holdsTerminalControl
+            && wantsTerminalObserve
+            && selectedHostID != nil
+            && selectedHostID == observingHostID
+    }
+
     private func stopTerminal() {
+        terminalAcquireEpoch += 1
         terminalTask?.cancel()
         terminalTask = nil
         terminalControl?.close()
         terminalControl = nil
         holdsTerminalControl = false
+        observingHostID = nil
+        observingGeneration = nil
+        observingTerminalID = nil
+        observingPaneID = nil
     }
 
     private func applyControlFailure(_ failure: Failure) {

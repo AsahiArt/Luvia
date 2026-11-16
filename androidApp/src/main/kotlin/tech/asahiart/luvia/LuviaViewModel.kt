@@ -45,7 +45,8 @@ class LuviaViewModel(
     private val manager = HostManager(store, vault, viewModelScope)
     private val uhpRegistry = HostUhpRegistry(manager, viewModelScope)
     private val observeJobs = mutableMapOf<String, Job>()
-    private val controls = mutableMapOf<String, SharedTerminalControl>()
+    private val controls = mutableMapOf<String, TerminalAcquire<SharedTerminalControl>>()
+    private val viewEpochs = mutableMapOf<String, Long>()
     private val identities = mutableMapOf<String, TerminalIdentity>()
     private val triedTerminals = mutableMapOf<String, MutableSet<String>>()
     private val suppressAutoConnect = mutableSetOf<String>()
@@ -304,6 +305,7 @@ class LuviaViewModel(
         if (paneId != null) {
             triedTerminals[hostId] = mutableSetOf(identity.terminalId)
         }
+        showControl(hostId, identity)
         startTerminalObserve(hostId, runtime, identity, observer, panes)
     }
 
@@ -352,46 +354,52 @@ class LuviaViewModel(
             val current = map[hostId] ?: return@update map
             map + (hostId to current.copy(control = TerminalControlState.Requesting))
         }
-        viewModelScope.launch {
+        val ticket = controlBinding(hostId, identity)
+        val acquire = controlFor(hostId)
+        acquire.show(ticket)
+        acquire.acquire(viewModelScope, open = {
             when (val result = manager.openTerminal(hostId, identity)) {
-                is Outcome.Ok -> {
-                    controls.remove(hostId)?.close()
-                    controls[hostId] = result.value
-                    _terminals.update { map ->
-                        val current = map[hostId] ?: return@update map
-                        map + (hostId to current.copy(control = TerminalControlState.Controlling))
-                    }
-                }
+                is Outcome.Ok -> result.value
                 is Outcome.Err -> {
-                    val conflict = result.failure as? Failure.ControlConflict
-                    _terminals.update { map ->
-                        val current = map[hostId] ?: return@update map
-                        map + (
-                            hostId to current.copy(
-                                control = if (conflict != null) {
-                                    TerminalControlState.Conflict
-                                } else {
-                                    TerminalControlState.Observing
-                                },
-                                conflictMessage = conflict?.conflictMessage(),
-                            )
-                            )
+                    if (acquire.binding() == ticket) {
+                        val conflict = result.failure as? Failure.ControlConflict
+                        _terminals.update { map ->
+                            val current = map[hostId] ?: return@update map
+                            map + (
+                                hostId to current.copy(
+                                    control = if (conflict != null) {
+                                        TerminalControlState.Conflict
+                                    } else {
+                                        TerminalControlState.Observing
+                                    },
+                                    conflictMessage = conflict?.conflictMessage(),
+                                )
+                                )
+                        }
                     }
+                    null
                 }
             }
-        }
+        }, onInstalled = installed@{
+            if (acquire.binding() != ticket) return@installed
+            _terminals.update { map ->
+                val current = map[hostId] ?: return@update map
+                map + (hostId to current.copy(control = TerminalControlState.Controlling, conflictMessage = null))
+            }
+        })
     }
 
     fun sendTerminalText(hostId: String, text: String) {
-        val control = controls[hostId] ?: return
-        viewModelScope.launch {
-            control.typeLiteral(text)
+        val sent = controlFor(hostId).send { control ->
+            viewModelScope.launch { control.typeLiteral(text) }
         }
+        if (!sent) return
     }
 
     /** Drops exclusive control and leaves observe running. */
     fun releaseControl(hostId: String) {
-        controls.remove(hostId)?.close()
+        viewEpochs[hostId] = (viewEpochs[hostId] ?: 0L) + 1
+        controls[hostId]?.hide()
         _terminals.update { map ->
             val current = map[hostId] ?: return@update map
             map + (hostId to current.copy(control = TerminalControlState.Observing, conflictMessage = null))
@@ -399,9 +407,8 @@ class LuviaViewModel(
     }
 
     fun sendTerminalKey(hostId: String, key: TerminalKey) {
-        val control = controls[hostId] ?: return
-        viewModelScope.launch {
-            control.sendKey(key)
+        controlFor(hostId).send { control ->
+            viewModelScope.launch { control.sendKey(key) }
         }
     }
 
@@ -437,16 +444,34 @@ class LuviaViewModel(
         }
         observeJobs.values.forEach { it.cancel() }
         observeJobs.clear()
-        controls.values.forEach { it.close() }
+        controls.values.forEach { it.hide() }
         controls.clear()
         uhpRegistry.close()
         manager.close()
         super.onCleared()
     }
 
+    private fun controlFor(hostId: String): TerminalAcquire<SharedTerminalControl> =
+        controls.getOrPut(hostId) { TerminalAcquire { it.close() } }
+
+    private fun controlBinding(hostId: String, identity: TerminalIdentity): TerminalBinding {
+        val epoch = viewEpochs[hostId] ?: 0L
+        return TerminalBinding(hostId, identity.serverGeneration, identity.terminalId, identity.paneId, epoch)
+    }
+
+    private fun showControl(hostId: String, identity: TerminalIdentity) {
+        val acquire = controlFor(hostId)
+        val next = controlBinding(hostId, identity)
+        if (acquire.binding() != next) {
+            viewEpochs[hostId] = (viewEpochs[hostId] ?: 0L) + 1
+        }
+        acquire.show(controlBinding(hostId, identity))
+    }
+
     fun stopTerminal(hostId: String) {
         observeJobs.remove(hostId)?.cancel()
-        controls.remove(hostId)?.close()
+        viewEpochs[hostId] = (viewEpochs[hostId] ?: 0L) + 1
+        controls.remove(hostId)?.hide()
         identities.remove(hostId)
         triedTerminals.remove(hostId)
         _terminals.update { it - hostId }
