@@ -1,5 +1,6 @@
 package tech.asahiart.luvia.ui
 
+import android.app.Dialog
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -26,6 +27,7 @@ import org.junit.runners.model.Statement
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
+import org.robolectric.shadows.ShadowDialog
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import tech.asahiart.luvia.HostRole
@@ -85,7 +87,7 @@ class PairingHelpSheetTest {
         composeRule.onNodeWithText("核对手机与电脑上的指纹，一致后点「确认配对」；不一致就先不要继续。").assertIsDisplayed()
         composeRule.onNodeWithText("配对新电脑").assertIsDisplayed()
 
-        composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        pressSheetDialogBack()
         settleSheetFrames()
 
         composeRule.onAllNodesWithText("如何配对").assertCountEquals(0)
@@ -103,6 +105,18 @@ class PairingHelpSheetTest {
  * pairing countdown is on the Compose test clock. Pump both, then the
  * displayed assertions still have to pass.
  */
+/**
+ * ModalBottomSheetDialogWrapper is a ComponentDialog with its own
+ * OnBackPressedDispatcher. PredictiveBackHandler is registered there.
+ * The activity dispatcher never reaches it, so the sheet stayed open.
+ */
+private fun pressSheetDialogBack() {
+    val dialog: Dialog = checkNotNull(ShadowDialog.getLatestDialog()) {
+        "The help sheet did not open a dialog window"
+    }
+    dialog.onBackPressed()
+}
+
 private fun PairingHelpSheetTest.settleSheetFrames() {
     val looper = Shadows.shadowOf(Looper.getMainLooper())
     repeat(30) {
