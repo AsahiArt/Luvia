@@ -617,6 +617,10 @@ struct PairingView: View {
                 case .success:
                     onPaired()
                 case .failure(let failure):
+                    if failure.message == "这次配对已经结束，没有改动其他电脑。"
+                        || failure.message == "配对已保存，这次操作已经结束，没有改动其他电脑。" {
+                        return
+                    }
                     error = failure.message
                 }
             }

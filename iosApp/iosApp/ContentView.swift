@@ -105,6 +105,7 @@ struct ContentView: View {
                     stage = "sessions"
                 },
                 onClose: model.hosts.isEmpty ? nil : {
+                    model.cancelPairingAttempt()
                     userOpenedPairing = false
                     stage = "sessions"
                 }
