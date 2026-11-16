@@ -139,6 +139,21 @@ public fun terminalOwningSession(threads: List<AgentThread>, paneId: String?): A
     }
 }
 
+/** Same pane id on another host is a different session. */
+public fun terminalOwningSessionOnHost(
+    threads: List<AgentThread>,
+    hostId: String?,
+    paneId: String?,
+): AgentThread? {
+    if (hostId.isNullOrBlank() || paneId.isNullOrBlank()) return null
+    return threads.firstOrNull { thread ->
+        thread.hostId == hostId &&
+            thread.kind == AgentKind.Pane &&
+            thread.paneId == paneId &&
+            !thread.acpHistory
+    }
+}
+
 /** Official agent behind a pane foreground or a session id. Null for shells and commands. */
 public fun recognizedTerminalAgent(raw: String?): String? {
     val logo = agentBrandLogo(raw, "") ?: return null

@@ -27,8 +27,8 @@ struct MachinesHome: View {
     var onPair: () -> Void
     var onScan: () -> Void
     var onFocus: (HostViewState, SessionScope, SessionFilter) -> Void
-    /// List owner switches to the session tab and starts the session. Default does nothing.
-    var onCreateSession: (HostViewState, String?) -> Void = { _, _ in }
+    /// List owner switches to the session tab and opens the new-session composer. Required.
+    var onCreateSession: (HostViewState, String?) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme

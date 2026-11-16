@@ -2,6 +2,11 @@ import LuviaShared
 import SwiftUI
 import UIKit
 
+private struct RoutedThread: Identifiable {
+    let thread: AgentThread
+    let id: String
+}
+
 private enum HomeTab: Hashable {
     case sessions
     case machines
@@ -37,6 +42,7 @@ struct SessionListView: View {
     var onAnswer: (AgentThread, AskOption) -> Void
     var onPair: () -> Void
     var onNewSession: () -> Void
+    var onCreateSession: (HostViewState, String?) -> Void
     var onTerminal: (AgentThread) -> Void
     var onSettings: () -> Void
     var showsChrome: Bool = true
@@ -170,6 +176,10 @@ struct SessionListView: View {
             onFocus: { host, scope, status in
                 onFocusFilter(host, scope, status)
                 tab = .sessions
+            },
+            onCreateSession: { host, cwd in
+                tab = .sessions
+                onCreateSession(host, cwd)
             }
         )
     }
@@ -229,13 +239,13 @@ struct SessionListView: View {
     private var sessionScroll: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(Array(shown.enumerated()), id: \.element.id) { index, thread in
-                    sessionRow(thread)
+                ForEach(Array(routedShown.enumerated()), id: \.element.id) { index, row in
+                    sessionRow(row.thread)
                         .contentShape(.interaction, Rectangle())
-                        .onTapGesture { onOpen(thread) }
+                        .onTapGesture { onOpen(row.thread) }
                         .accessibilityElement(children: .combine)
                         .accessibilityAddTraits(.isButton)
-                        .accessibilityAction { onOpen(thread) }
+                        .accessibilityAction { onOpen(row.thread) }
                     if index < shown.count - 1 {
                         Divider().padding(.leading, 84)
                     }
@@ -634,13 +644,16 @@ struct SessionListView: View {
         KotlinLists.array(SessionListKt.searchSessions(threads: threads, query: searching ? query : "") as Any)
     }
 
+    private var routedShown: [RoutedThread] {
+        shown.map { RoutedThread(thread: $0, id: SessionListKt.routeKey(thread: $0)) }
+    }
+
     private var visiblePending: [AgentThread] {
-        let ids = Set(shown.map(\.id))
-        return pending.filter { ids.contains($0.id) }
+        KotlinLists.array(SessionListKt.pendingMatchingShown(pending: pending, shown: shown) as Any)
     }
 
     private func sessionRow(_ thread: AgentThread) -> some View {
-        let trail = SessionListKt.listTrail(thread: thread, thumb: trails[thread.id])
+        let trail = SessionListKt.listTrail(thread: thread, thumb: trails[SessionListKt.routeKey(thread: thread)])
         let dots: [ListTrailDot] = KotlinLists.array(trail.dots as Any)
         let label = trail.label?.trimmingCharacters(in: .whitespacesAndNewlines)
         return HStack(alignment: .top, spacing: 8) {
