@@ -134,18 +134,22 @@ private fun selectionCore(line: String): String =
  * A different question, or an Ask with no parsed text, stays in the output.
  */
 public fun withoutParsedAskPrompt(text: String, question: String? = null): String {
+    if (text.isEmpty()) return text
+    val wanted = question?.let(::promptKey)?.takeIf { it.isNotEmpty() } ?: return text
+    val lines = text.lines()
+    val hit = findQuestionHit(lines) ?: return text
+    if (promptKey(hit.text) != wanted) return text
     val base = withoutAskSelectionBlock(text)
     if (base.isEmpty()) return base
-    val wanted = question?.let(::promptKey)?.takeIf { it.isNotEmpty() } ?: return base
-    val lines = base.lines()
-    val hit = findQuestionHit(lines) ?: return base
-    if (promptKey(hit.text) != wanted) return base
-    if ((hit.startIndex..hit.anchorIndex).none { hasPromptMarker(lines[it]) }) return base
-    var start = hit.startIndex
-    while (start > 0 && isFrameOnly(lines[start - 1])) start--
-    var end = hit.anchorIndex
-    while (end + 1 < lines.size && isFrameOnly(lines[end + 1])) end++
-    return lines.filterIndexed { index, _ -> index < start || index > end }
+    val kept = base.lines()
+    val confirmed = findQuestionHit(kept) ?: return base
+    if (promptKey(confirmed.text) != wanted) return base
+    if ((confirmed.startIndex..confirmed.anchorIndex).none { hasPromptMarker(kept[it]) }) return base
+    var start = confirmed.startIndex
+    while (start > 0 && isFrameOnly(kept[start - 1])) start--
+    var end = confirmed.anchorIndex
+    while (end + 1 < kept.size && isFrameOnly(kept[end + 1])) end++
+    return kept.filterIndexed { index, _ -> index < start || index > end }
         .joinToString("\n")
         .trim()
 }

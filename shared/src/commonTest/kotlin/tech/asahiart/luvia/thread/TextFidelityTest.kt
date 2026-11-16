@@ -18,6 +18,37 @@ class TextFidelityTest {
     }
 
     @Test
+    fun numberedPlanSurvivesNullFallbackAndADifferentAsk() {
+        val raw = "Deployment plan:\n1. Back up DB\n2. Roll traffic\n"
+        val asks = listOf(null, DECISION_QUESTION_FALLBACK, "别的问题？")
+        for (question in asks) {
+            val prose =
+                PaneTimeline()
+                    .ingestTranscript(raw)
+                    .render(Ask(question, emptyList()))
+                    .filterIsInstance<TimelineItem.Output>()
+                    .joinToString("\n") { it.text }
+            assertTrue(prose.contains("Deployment plan:"), question ?: "null")
+            assertTrue(prose.contains("1. Back up DB"), question ?: "null")
+            assertTrue(prose.contains("2. Roll traffic"), question ?: "null")
+        }
+    }
+
+    @Test
+    fun matchingAskStillHidesTheNumberedMenuOnce() {
+        val raw = "Run the tests?\n1. Yes\n2. No\n"
+        val prose =
+            PaneTimeline()
+                .ingestTranscript(raw)
+                .render(Ask("Run the tests?", emptyList()))
+                .filterIsInstance<TimelineItem.Output>()
+                .joinToString("\n") { it.text }
+        assertTrue(prose.contains("Run the tests?"))
+        assertFalse(prose.contains("1. Yes"))
+        assertFalse(prose.contains("2. No"))
+    }
+
+    @Test
     fun repeatedQuestionKeepsTheEarlierCopy() {
         val raw = "说明：\n> 继续迁移吗？\n> 继续迁移吗？\n"
         val prose = PaneTimeline().ingestTranscript(raw).render(Ask("继续迁移吗？", emptyList()))

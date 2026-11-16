@@ -194,6 +194,30 @@ class HostUhpTest {
     }
 
     @Test
+    fun catalogThreadSendsWhenDeviceIdDiffersFromHostId() = runTest {
+        val recorded = mutableListOf<String>()
+        val session = openSession(this, recorded = recorded)
+        val runtime = sampleRuntime()
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = this)
+        uhp.applyRuntime(runtime)
+        assertTrue(runtime.profile.id != runtime.profile.hostId)
+        assertEquals(true, uhp.openAgent("7"))
+        advanceUntilIdle()
+        recorded.clear()
+        val catalog = uhp.state.value.threads(runtime.profile.hostId).first { it.paneId == "7" }
+        assertEquals(runtime.profile.hostId, catalog.hostId)
+        assertEquals(true, uhp.sendToThread(catalog, "hello"))
+        advanceUntilIdle()
+        assertEquals(listOf(Methods.AGENT_PROMPT), recorded.filter { it == Methods.AGENT_PROMPT })
+        assertEquals(false, uhp.sendToThread(catalog.copy(hostId = "other-host"), "no"))
+        assertEquals(false, uhp.sendToThread(catalog.copy(id = "8", paneId = "8"), "no"))
+        advanceUntilIdle()
+        assertEquals(listOf(Methods.AGENT_PROMPT), recorded.filter { it == Methods.AGENT_PROMPT })
+        uhp.close()
+        session.close()
+    }
+
+    @Test
     fun samePaneIdOnAnotherHostIsNotBlockedByThisSend() = runTest {
         val session = openSession(backgroundScope, hangPrompt = true)
         val runtime = sampleRuntime()
