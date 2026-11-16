@@ -37,7 +37,7 @@ struct SessionListView: View {
     var onAnswer: (AgentThread, AskOption) -> Void
     var onPair: () -> Void
     var onNewSession: () -> Void
-    var onTerminal: () -> Void
+    var onTerminal: (AgentThread) -> Void
     var onSettings: () -> Void
     var showsChrome: Bool = true
     var glass: Namespace.ID
@@ -865,7 +865,7 @@ struct SessionListView: View {
                 if options.isEmpty {
                     Button("去终端回答") {
                         guard interactive, !deckPastSlop else { return }
-                        onTerminal()
+                        onTerminal(thread)
                     }
                         .buttonStyle(.borderedProminent)
                         .tint(Self.decide)

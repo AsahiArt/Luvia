@@ -114,7 +114,7 @@ struct ContentView: View {
                     queueIndex: queueIndex(thread),
                     queueTotal: max(pending.count, thread.ask.map { Int($0.total) } ?? 1),
                     onBack: { stage = "sessions" },
-                    onTerminal: { openTerminal(thread.paneId) },
+                    onTerminal: { openTerminal(thread) },
                     showsChrome: stage != "terminal",
                     glass: glass,
                     nextQuestion: nextQuestion(after: thread),
@@ -176,7 +176,7 @@ struct ContentView: View {
                         stage = "pair"
                     },
                     onNewSession: beginNewSession,
-                    onTerminal: { openTerminal(openThread?.paneId) },
+                    onTerminal: { card in openTerminal(card) },
                     onSettings: { showSettings = true },
                     showsChrome: stage != "terminal",
                     glass: glass
@@ -676,6 +676,10 @@ struct ContentView: View {
             return
         }
         #endif
+        if thread.kind != .acp, let pane = thread.paneId {
+            let workspace = model.uhpRegistry.workspace(hostId: thread.hostId)
+            if workspace.openAgent(paneId: pane) != true { return }
+        }
         if let host = model.hosts.first(where: { $0.id == thread.hostId }) {
             if model.selectedHostID != host.id {
                 noteHostSwitch(host.id)
@@ -690,16 +694,18 @@ struct ContentView: View {
             model.hostUhp()?.resumeAcp(agentId: agent, cwd: cwd, sessionId: session)
         } else if thread.kind == .acp {
             model.hostUhp()?.viewAcp()
-        } else if let pane = thread.paneId {
-            model.hostUhp()?.openAgent(paneId: pane)
         }
         threadID = thread.id
         stage = "chat"
     }
 
-    private func openTerminal(_ paneId: String?) {
+    private func openTerminal(_ thread: AgentThread) {
         if stage != "terminal" { terminalReturn = stage }
-        model.openTerminal(paneId: paneId)
+        if let host = model.hosts.first(where: { $0.id == thread.hostId }), model.selectedHostID != host.id {
+            noteHostSwitch(host.id)
+            model.select(host)
+        }
+        model.openTerminal(paneId: thread.paneId)
         stage = "terminal"
     }
 

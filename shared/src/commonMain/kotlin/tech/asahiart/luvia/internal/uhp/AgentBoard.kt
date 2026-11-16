@@ -194,7 +194,7 @@ internal class AgentBoard(private val ctx: UhpContext) {
         }
     }
 
-    fun open(paneId: String) {
+    fun open(paneId: String): Boolean {
         val current = ctx.value()
         val existing = current.agentDetail
         if (existing.paneId != null &&
@@ -209,7 +209,7 @@ internal class AgentBoard(private val ctx: UhpContext) {
                     "An Agent action is still in progress for $name. Wait before opening another Agent."
                 }
             ctx.update { it.copy(agentDetail = it.agentDetail.copy(errorText = message)) }
-            return
+            return false
         }
         val summary = current.agents.firstOrNull { it.paneId == paneId }
         val samePane = existing.paneId == paneId
@@ -235,6 +235,7 @@ internal class AgentBoard(private val ctx: UhpContext) {
             )
         }
         ctx.launch { loadDetail(paneId) }
+        return true
     }
 
     fun close() {
