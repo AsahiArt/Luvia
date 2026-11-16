@@ -303,6 +303,7 @@ fun ChatFirstApp(
         return true
     }
 
+    val notificationActivity = androidx.compose.ui.platform.LocalContext.current as? tech.asahiart.luvia.MainActivity
     LaunchedEffect(launchEventId, launchIntent, allThreads, consumedEventId, pendingEventId) {
         val id = launchIntent?.getStringExtra(StatusNotificationController.EXTRA_HOST_ID) ?: return@LaunchedEffect
         val event = NotificationEvent(launchEventId, id, openBlocked)
@@ -325,6 +326,7 @@ fun ChatFirstApp(
         consumedEventId = result.cursor.consumedEventId
         pendingEventId = result.cursor.pendingEventId
         if (result.showSessions) stage = "sessions"
+        notificationActivity?.recordNotification(event, result)
     }
 
     fun conversationIds(thread: AgentThread?): Set<String> {
