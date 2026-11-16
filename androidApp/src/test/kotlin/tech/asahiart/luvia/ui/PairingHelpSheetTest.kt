@@ -87,11 +87,13 @@ class PairingHelpSheetTest {
         composeRule.onNodeWithText("核对手机与电脑上的指纹，一致后点「确认配对」；不一致就先不要继续。").assertIsDisplayed()
         composeRule.onNodeWithText("配对新电脑").assertIsDisplayed()
 
+        dumpVisibility("before-dismiss")
         pressSheetDialogBack()
         settleSheetFrames()
+        dumpVisibility("after-dismiss")
 
         composeRule.onAllNodesWithText("如何配对").assertCountEquals(0)
-        composeRule.onNodeWithText("已输入短码 123456").assertIsDisplayed()
+        composeRule.onNode(hasContentDescription("已输入短码 123456")).assertIsDisplayed()
         composeRule.onNodeWithText("10.0.0.8").assertIsDisplayed()
         composeRule.onNodeWithText("luvia2:kept").assertIsDisplayed()
         composeRule.onNodeWithText("确认配对").assertIsEnabled()
@@ -110,6 +112,34 @@ class PairingHelpSheetTest {
  * OnBackPressedDispatcher. PredictiveBackHandler is registered there.
  * The activity dispatcher never reaches it, so the sheet stayed open.
  */
+private fun PairingHelpSheetTest.dumpVisibility(label: String) {
+    val dialog = ShadowDialog.getLatestDialog()
+    val decor = composeRule.activity.window.decorView
+    val clock = composeRule.mainClock
+    println(
+        "DIAG $label dialogShowing=${dialog?.isShowing} decor=${decor.width}x${decor.height} " +
+            "shown=${decor.isShown} focused=${decor.hasWindowFocus()} " +
+            "clock=${clock.currentTime} autoAdvance=${clock.autoAdvance}",
+    )
+    for (query in listOf("已输入短码 123456", "10.0.0.8", "luvia2:kept", "确认配对", "核对指纹", "配对新电脑")) {
+        val nodes = composeRule.onAllNodesWithText(query).fetchSemanticsNodes()
+        if (nodes.isEmpty()) {
+            println("DIAG $label node='$query' count=0")
+            continue
+        }
+        nodes.forEachIndexed { index, node ->
+            val root = node.boundsInRoot
+            val window = node.boundsInWindow
+            println(
+                "DIAG $label node='$query'#$index placed=${node.layoutInfo.isPlaced} " +
+                    "root=${root.left},${root.top},${root.right},${root.bottom} " +
+                    "window=${window.left},${window.top},${window.right},${window.bottom} " +
+                    "size=${node.size}",
+            )
+        }
+    }
+}
+
 private fun pressSheetDialogBack() {
     val dialog: Dialog = checkNotNull(ShadowDialog.getLatestDialog()) {
         "The help sheet did not open a dialog window"
