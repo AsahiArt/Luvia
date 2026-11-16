@@ -92,16 +92,16 @@ class CatalogIdentityTest {
 
     @Test
     fun newSessionEntryCarriesTheExactHostAndCwdOrRefuses() {
-        val nilCwd = newSessionEntry(hostId = "host-a", cwd = null, controller = true, live = true)
+        val nilCwd = sessionComposerEntry(hostId = "host-a", cwd = null, controller = true, live = true)
         assertEquals(NewSessionEntry("host-a", null, openComposer = true), nilCwd)
-        val path = newSessionEntry(hostId = "host-b", cwd = "/work/app", controller = true, live = true)
+        val path = sessionComposerEntry(hostId = "host-b", cwd = "/work/app", controller = true, live = true)
         assertEquals(NewSessionEntry("host-b", "/work/app", openComposer = true), path)
-        val blank = newSessionEntry(hostId = "host-b", cwd = "  ", controller = true, live = true)
+        val blank = sessionComposerEntry(hostId = "host-b", cwd = "  ", controller = true, live = true)
         assertEquals(null, blank?.cwd)
         assertEquals(true, blank?.openComposer)
-        assertNull(newSessionEntry(hostId = "host-b", cwd = "/work/app", controller = false, live = true))
-        assertNull(newSessionEntry(hostId = "host-b", cwd = "/work/app", controller = true, live = false))
-        assertNull(newSessionEntry(hostId = " ", cwd = "/work/app", controller = true, live = true))
+        assertNull(sessionComposerEntry(hostId = "host-b", cwd = "/work/app", controller = false, live = true))
+        assertNull(sessionComposerEntry(hostId = "host-b", cwd = "/work/app", controller = true, live = false))
+        assertNull(sessionComposerEntry(hostId = " ", cwd = "/work/app", controller = true, live = true))
     }
 
     private fun pane(host: String, pane: String, title: String, question: String?) = AgentThread(

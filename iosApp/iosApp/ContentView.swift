@@ -426,7 +426,8 @@ struct ContentView: View {
     /// Machines page asks for a composer on an exact host. Observer and offline hosts do not open it.
     /// Showing the composer does not create the remote session.
     private func beginNewSession(on host: HostViewState, cwd raw: String?) {
-        guard let entry = SessionListKt.newSessionEntry(
+        // Kotlin exports this as sessionComposerEntry. A `new…` selector is a Cocoa method family and is not this member.
+        guard let entry = SessionListKt.sessionComposerEntry(
             hostId: host.id,
             cwd: raw,
             controller: host.isController,
