@@ -20,6 +20,7 @@ final class AppModel {
     private var terminalControl: TerminalControl?
     private var wantsTerminalObserve = false
     private var terminalAcquireEpoch = 0
+    private var controlInstalledEpoch: Int64 = -1
     private var pairingAttempt: Int64 = 0
     private var observingHostID: String?
     private var observingGeneration: String?
@@ -362,25 +363,31 @@ final class AppModel {
     }
 
     func sendTerminal(_ text: String) async {
-        guard controlInputIsCurrent(), let terminalControl else { return }
+        guard controlInputIsCurrent(), let held = terminalControl else { return }
+        let epoch = terminalAcquireEpoch
         do {
-            let outcome = try await terminalControl.submitText(text: text)
+            let outcome = try await held.submitText(text: text)
+            guard epoch == terminalAcquireEpoch, terminalControl === held else { return }
             if case .err(let err) = onEnum(of: outcome) {
                 applyControlFailure(err.failure)
             }
         } catch {
+            guard epoch == terminalAcquireEpoch, terminalControl === held else { return }
             terminalStatus = error.localizedDescription
         }
     }
 
     func sendTerminalKey(_ key: TerminalKey) async {
-        guard controlInputIsCurrent(), let terminalControl else { return }
+        guard controlInputIsCurrent(), let held = terminalControl else { return }
+        let epoch = terminalAcquireEpoch
         do {
-            let outcome = try await terminalControl.sendKey(key: key)
+            let outcome = try await held.sendKey(key: key)
+            guard epoch == terminalAcquireEpoch, terminalControl === held else { return }
             if case .err(let err) = onEnum(of: outcome) {
                 applyControlFailure(err.failure)
             }
         } catch {
+            guard epoch == terminalAcquireEpoch, terminalControl === held else { return }
             terminalStatus = error.localizedDescription
         }
     }
@@ -422,7 +429,8 @@ final class AppModel {
                     case .ok(let ok):
                         self.terminalControl?.close()
                         self.terminalControl = ok.value
-                        self.holdsTerminalControl = true
+                        self.holdsTerminalControl = ok.value != nil
+                        self.controlInstalledEpoch = Int64(epoch)
                         if self.terminalStatus?.contains("观察仍然有效") == true
                             || self.terminalStatus?.localizedCaseInsensitiveContains("control") == true {
                             self.terminalStatus = nil
@@ -539,7 +547,11 @@ final class AppModel {
         }
     }
 
-    /// Fullscreen terminal for a pane. Passing nil keeps the current agent pane.
+    func rebindTerminalIfPaneChanged(from previous: String?, to paneId: String?) {
+        guard wantsTerminalObserve, previous != paneId else { return }
+        startTerminal(paneId: paneId)
+    }
+
     func openTerminal(paneId: String?) {
         if let paneId {
             uhp.selectedAgentID = paneId
@@ -560,10 +572,28 @@ final class AppModel {
     }
 
     private func controlInputIsCurrent() -> Bool {
-        holdsTerminalControl
-            && wantsTerminalObserve
-            && selectedHostID != nil
-            && selectedHostID == observingHostID
+        let host = selectedHost
+        let locator = host.flatMap { current in
+            (uhp.selectedAgentID.flatMap { current.locator(for: $0) }) ?? current.terminalLocator
+        }
+        let identity = locator?.identity()
+        return TerminalInputKt.terminalInputCurrent(
+            ticket: TerminalInputTicket(
+                held: holdsTerminalControl,
+                observing: wantsTerminalObserve,
+                controller: host?.isController == true,
+                selectedHostId: selectedHostID,
+                observingHostId: observingHostID,
+                locatorPaneId: identity?.paneId,
+                locatorGeneration: identity?.serverGeneration,
+                locatorTerminalId: identity?.terminalId,
+                observingPaneId: observingPaneID,
+                observingGeneration: observingGeneration,
+                observingTerminalId: observingTerminalID,
+                acquireEpoch: Int64(terminalAcquireEpoch),
+                installedEpoch: controlInstalledEpoch
+            )
+        )
     }
 
     private func stopTerminal() {
@@ -1072,8 +1102,12 @@ extension AppModel {
     }
 
     func openAgent(_ id: String) async {
+        let previous = uhp.selectedAgentID
         uhp.selectedAgentID = id
         hostUhp()?.openAgent(paneId: id)
+        if wantsTerminalObserve, previous != id {
+            startTerminal(paneId: id)
+        }
     }
 
     func closeOpenAgent() {
