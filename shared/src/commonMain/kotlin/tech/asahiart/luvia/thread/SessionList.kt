@@ -260,6 +260,45 @@ public fun sessionRoster(threads: List<AgentThread>): SessionRoster =
         idle = filterSessions(threads, SessionFilter.Idle).size,
     )
 
+/**
+ * Host plus the host-local thread id. Pane ids and the ACP placeholder `acp` are legal
+ * on more than one host, so a bare id is not a catalog key. The wire pane id stays unchanged.
+ */
+public fun routeKey(hostId: String, threadId: String): String = hostId + "\u0000" + threadId
+
+public fun routeKey(thread: AgentThread): String = routeKey(thread.hostId, thread.id)
+
+/** The catalog row for this host and local id. A bare id match on another host is not this row. */
+public fun resolveOpenThread(catalog: List<AgentThread>, hostId: String, threadId: String): AgentThread? {
+    if (hostId.isEmpty() || threadId.isEmpty()) return null
+    return catalog.firstOrNull { it.hostId == hostId && it.id == threadId }
+}
+
+/**
+ * Pending rows that are actually in the shown search result.
+ * Matching only [AgentThread.id] lets host A's decision appear inside a search that hit host B.
+ */
+public fun pendingMatchingShown(pending: List<AgentThread>, shown: List<AgentThread>): List<AgentThread> {
+    val keys = shown.map(::routeKey).toSet()
+    return pending.filter { routeKey(it) in keys }
+}
+
+/**
+ * One request to open the new-session composer for [hostId].
+ * Null when the host cannot start a session (observer or not live). This does not create a remote session.
+ * A missing caller cannot substitute an empty closure: there is no value that means "opened" without a host.
+ */
+public data class NewSessionEntry(
+    val hostId: String,
+    val cwd: String?,
+    val openComposer: Boolean,
+)
+
+public fun newSessionEntry(hostId: String, cwd: String?, controller: Boolean, live: Boolean): NewSessionEntry? {
+    if (!controller || !live || hostId.isBlank()) return null
+    return NewSessionEntry(hostId, cwd?.takeIf { it.isNotBlank() }, openComposer = true)
+}
+
 /** Local title filter. An empty query leaves the list alone. */
 public fun searchSessions(threads: List<AgentThread>, query: String): List<AgentThread> {
     val needle = query.trim()

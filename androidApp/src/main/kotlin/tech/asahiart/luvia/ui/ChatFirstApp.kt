@@ -71,7 +71,8 @@ import tech.asahiart.luvia.thread.unreadChatCount
 import tech.asahiart.luvia.thread.sortSessions
 import tech.asahiart.luvia.thread.terminalFixCandidates
 import tech.asahiart.luvia.thread.terminalFixOpensNewAgent
-import tech.asahiart.luvia.thread.terminalOwningSession
+import tech.asahiart.luvia.thread.resolveOpenThread
+import tech.asahiart.luvia.thread.terminalOwningSessionOnHost
 import tech.asahiart.luvia.thread.threadTrails
 import tech.asahiart.luvia.thread.threads
 
@@ -100,6 +101,11 @@ fun ChatFirstApp(
     var hostId by rememberSaveable { mutableStateOf<String?>(null) }
     var startupApplied by rememberSaveable { mutableStateOf(false) }
     var threadId by rememberSaveable { mutableStateOf<String?>(null) }
+    var routeHostId by rememberSaveable { mutableStateOf<String?>(null) }
+    fun pinThread(thread: AgentThread) {
+        routeHostId = thread.hostId
+        threadId = thread.id
+    }
     var terminalReturn by rememberSaveable { mutableStateOf("sessions") }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showNewSession by rememberSaveable { mutableStateOf(false) }
@@ -156,7 +162,7 @@ fun ChatFirstApp(
         ).size,
         paths = withSelectedPath(openSessionPaths(catalog, selected?.id), filter.scope),
     )
-    val openThread = allThreads.firstOrNull { it.id == threadId }
+    val openThread = resolveOpenThread(catalog, routeHostId.orEmpty(), threadId.orEmpty())
     val openBlocked = launchIntent?.getBooleanExtra(StatusNotificationController.EXTRA_OPEN_BLOCKED, false) == true
     var consumedLaunch by rememberSaveable { mutableStateOf(false) }
 
@@ -222,7 +228,7 @@ fun ChatFirstApp(
         hostId = id
         val thread = if (openBlocked) allThreads.firstOrNull { it.hostId == id && it.needsYou } else null
         if (thread != null) {
-            threadId = thread.id
+            pinThread(thread)
             stage = "chat"
             consumedLaunch = true
         } else if (!openBlocked) {
@@ -245,7 +251,7 @@ fun ChatFirstApp(
         }
         val thread = awaitingAcpThread(hostState, id) ?: return@LaunchedEffect
         viewModel.workspace(id).viewAcp()
-        threadId = thread.id
+        pinThread(thread)
         viewModel.markViewed(thread)
         stage = "chat"
         showNewSession = false
@@ -275,7 +281,7 @@ fun ChatFirstApp(
         if (!accepted) return
         if (id != resolvedId) viewModel.switchHostSessionFilter(id)
         hostId = id
-        threadId = thread.id
+        pinThread(thread)
         viewModel.markViewed(thread)
         stage = "chat"
     }
@@ -293,7 +299,7 @@ fun ChatFirstApp(
         }
         if (thread.hostId != resolvedId) viewModel.switchHostSessionFilter(thread.hostId)
         hostId = thread.hostId
-        threadId = thread.id
+        pinThread(thread)
         viewModel.ensureTerminal(thread.hostId, paneId)
         stage = "terminal"
     }
@@ -348,9 +354,14 @@ fun ChatFirstApp(
                     }
                 } else {
                     val workspace = viewModel.workspace(thread.hostId)
-                    val items = state?.let { workspace.timeline(thread) }.orEmpty()
-                    val pending = allThreads.filter { it.needsYou }
-                    val queueIndex = pending.indexOfFirst { it.id == thread.id }.let { if (it < 0) thread.ask?.index ?: 1 else it + 1 }
+                    val items = if (selected?.id == thread.hostId && thread.hostId == routeHostId) {
+                        workspace.timeline(thread)
+                    } else {
+                        emptyList()
+                    }
+                    val pending = catalog.filter { it.needsYou && it.hostId == thread.hostId }
+                    val queueIndex = pending.indexOfFirst { it.hostId == thread.hostId && it.id == thread.id }
+                        .let { if (it < 0) thread.ask?.index ?: 1 else it + 1 }
                     val queueTotal = pending.size.coerceAtLeast(thread.ask?.total ?: 1)
                     val initialDraft = when (thread.kind) {
                         AgentKind.Acp -> state?.acp?.draft.orEmpty()
@@ -454,7 +465,7 @@ fun ChatFirstApp(
             val id = selected?.id
             val workspace = id?.let { viewModel.workspace(it) }
             val fixPane = id?.let { terminals[it]?.paneId }
-            val fixSession = terminalOwningSession(allThreads, fixPane)
+            val fixSession = terminalOwningSessionOnHost(catalog, id, fixPane)
             // Owning chat session wins; pane title is never the session agent.
             val sessionAgentType = openThread?.agentType ?: fixSession?.agentType
             val sessionDisplayName = openThread?.title ?: fixSession?.title
@@ -485,9 +496,11 @@ fun ChatFirstApp(
                         FailureHandoff.Sent -> true
                         FailureHandoff.Drafted -> {
                             if (terminalFixOpensNewAgent(requested, sessionAgentType)) awaitingAcp = true
-                            ws.openThread()?.let { threadId = it.id }
+                            ws.openThread()?.let { pinThread(it) }
                                 ?: fixPane?.let { pane ->
-                                    threadId = allThreads.firstOrNull { it.paneId == pane }?.id ?: pane
+                                    catalog.firstOrNull {
+                                        it.hostId == id && (it.paneId == pane || it.id == pane)
+                                    }?.let { pinThread(it) }
                                 }
                             viewModel.stopTerminal(id)
                             stage = "chat"

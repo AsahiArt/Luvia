@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var stage = "sessions"
     @State private var terminalReturn = "sessions"
     @State private var threadID: String?
+    @State private var routeHostID = ""
     @State private var filterRevision = 0
     @State private var filtersHighlighted = false
     @State private var highlightTask: _Concurrency.Task<Void, Never>?
@@ -71,7 +72,10 @@ struct ContentView: View {
         }
         .onChange(of: model.pendingOpenAgentID) { _, id in
             guard let id else { return }
-            if let thread = catalog.first(where: { $0.id == id || $0.paneId == id }) {
+            let host = model.selectedHostID ?? ""
+            let thread = SessionListKt.resolveOpenThread(catalog: catalog, hostId: host, threadId: id)
+                ?? catalog.first(where: { $0.hostId == host && $0.paneId == id })
+            if let thread {
                 open(thread)
                 model.pendingOpenAgentID = nil
             }
@@ -176,6 +180,9 @@ struct ContentView: View {
                         stage = "pair"
                     },
                     onNewSession: beginNewSession,
+                    onCreateSession: { host, cwd in
+                        beginNewSession(on: host, cwd: cwd)
+                    },
                     onTerminal: { card in openTerminal(card) },
                     onSettings: { showSettings = true },
                     showsChrome: stage != "terminal",
@@ -324,14 +331,16 @@ struct ContentView: View {
                 SessionListKt.threadTrails(state: state, threads: owned) as Any
             )
             for row in rows {
-                map[row.threadId] = row.thumb
+                map[SessionListKt.routeKey(hostId: host.id, threadId: row.threadId)] = row.thumb
             }
         }
         #if DEBUG
         if usingTerminalFixture {
             let samples: [ThreadTrail] = KotlinLists.array(PlaytestListKt.playtestListTrails() as Any)
-            for row in samples where map[row.threadId] == nil {
-                map[row.threadId] = row.thumb
+            for row in samples {
+                guard let thread = catalog.first(where: { $0.id == row.threadId }) else { continue }
+                let key = SessionListKt.routeKey(thread: thread)
+                if map[key] == nil { map[key] = row.thumb }
             }
         }
         #endif
@@ -339,7 +348,13 @@ struct ContentView: View {
     }
 
     private var openThread: AgentThread? {
-        catalog.first { $0.id == threadID }
+        guard let id = threadID, !routeHostID.isEmpty else { return nil }
+        return SessionListKt.resolveOpenThread(catalog: catalog, hostId: routeHostID, threadId: id)
+    }
+
+    private func remember(_ thread: AgentThread) {
+        routeHostID = thread.hostId
+        threadID = thread.id
     }
 
     private var selectedHome: String? {
@@ -404,6 +419,24 @@ struct ContentView: View {
         } else {
             cwd = ""
         }
+        showNewSession = true
+    }
+
+    /// Machines page asks for a composer on an exact host. Observer and offline hosts do not open it.
+    /// Showing the composer does not create the remote session.
+    private func beginNewSession(on host: HostViewState, cwd raw: String?) {
+        guard let entry = SessionListKt.newSessionEntry(
+            hostId: host.id,
+            cwd: raw,
+            controller: host.isController,
+            live: host.connection == .live
+        ), entry.openComposer else { return }
+        if model.selectedHostID != host.id {
+            noteHostSwitch(host.id)
+        }
+        model.select(host)
+        model.hostUhp()?.loadAcpAgents()
+        cwd = entry.cwd ?? ""
         showNewSession = true
     }
 
@@ -516,11 +549,12 @@ struct ContentView: View {
     }
 
     private func linkedPending() -> AgentThread? {
+        let host = model.selectedHostID
         let byPane = shownPaneID.flatMap { pane in
-            pending.first { $0.paneId == pane || $0.id == pane }
+            pending.first { $0.hostId == host && ($0.paneId == pane || $0.id == pane) }
         }
         let byThread = threadID.flatMap { id in
-            pending.first { $0.id == id }
+            pending.first { $0.hostId == routeHostID && $0.id == id }
         }
         return byPane ?? byThread
     }
@@ -536,7 +570,11 @@ struct ContentView: View {
     }
 
     private var terminalFixSession: AgentThread? {
-        TerminalChromeKt.terminalOwningSession(threads: catalog, paneId: shownPaneID)
+        TerminalChromeKt.terminalOwningSessionOnHost(
+            threads: catalog,
+            hostId: model.selectedHostID,
+            paneId: shownPaneID
+        )
     }
 
     /// Open chat wins. Otherwise the session that owns this pane. Not the decision question.
@@ -583,7 +621,7 @@ struct ContentView: View {
         }
         guard let thread = AgentThreadKt.awaitingAcpThread(state: state, hostId: id) else { return }
         model.hostUhp()?.viewAcp()
-        threadID = thread.id
+        remember(thread)
         stage = "chat"
         awaitingFixAgent = false
     }
@@ -605,9 +643,10 @@ struct ContentView: View {
                     awaitingFixAgent = true
                 }
                 if let opened = model.hostUhp()?.openThread() {
-                    threadID = opened.id
-                } else if let pane {
-                    threadID = catalog.first { $0.paneId == pane }?.id ?? pane
+                    remember(opened)
+                } else if let pane, let host = model.selectedHostID,
+                          let match = catalog.first(where: { $0.hostId == host && ($0.paneId == pane || $0.id == pane) }) {
+                    remember(match)
                 }
                 terminalReturn = "chat"
                 closeTerminal()
@@ -618,8 +657,9 @@ struct ContentView: View {
         }
         #if DEBUG
         if usingTerminalFixture {
-            if openThread == nil {
-                threadID = PlaytestChatKt.PLAYTEST_DIFF_ID
+            if openThread == nil,
+               let sample = catalog.first(where: { $0.id == PlaytestChatKt.PLAYTEST_DIFF_ID }) {
+                remember(sample)
             }
             terminalReturn = "chat"
             closeTerminal()
@@ -638,18 +678,19 @@ struct ContentView: View {
             return []
         }
         #endif
+        guard thread.hostId == routeHostID, thread.hostId == model.selectedHostID else { return [] }
         return KotlinLists.array(model.hostUhp()?.timeline(thread: thread) as Any)
     }
 
     private func nextQuestion(after thread: AgentThread) -> String? {
-        guard let index = pending.firstIndex(where: { $0.id == thread.id }) else { return nil }
+        guard let index = pending.firstIndex(where: { $0.hostId == thread.hostId && $0.id == thread.id }) else { return nil }
         let next = index + 1
         guard pending.indices.contains(next) else { return nil }
         return pending[next].ask?.question
     }
 
     private func nextAgentName(after thread: AgentThread) -> String? {
-        guard let index = pending.firstIndex(where: { $0.id == thread.id }) else { return nil }
+        guard let index = pending.firstIndex(where: { $0.hostId == thread.hostId && $0.id == thread.id }) else { return nil }
         let next = index + 1
         guard pending.indices.contains(next) else { return nil }
         let agent = pending[next].agentType?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -659,7 +700,7 @@ struct ContentView: View {
     }
 
     private func queueIndex(_ thread: AgentThread) -> Int {
-        if let index = pending.firstIndex(where: { $0.id == thread.id }) {
+        if let index = pending.firstIndex(where: { $0.hostId == thread.hostId && $0.id == thread.id }) {
             return index + 1
         }
         if let ask = thread.ask {
@@ -671,7 +712,7 @@ struct ContentView: View {
     private func open(_ thread: AgentThread) {
         #if DEBUG
         if PlaytestChatKt.isPlaytestThread(id: thread.id) {
-            threadID = thread.id
+            remember(thread)
             stage = "chat"
             return
         }
@@ -695,7 +736,7 @@ struct ContentView: View {
         } else if thread.kind == .acp {
             model.hostUhp()?.viewAcp()
         }
-        threadID = thread.id
+        remember(thread)
         stage = "chat"
     }
 
