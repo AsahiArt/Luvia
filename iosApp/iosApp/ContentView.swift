@@ -203,9 +203,9 @@ struct ContentView: View {
             raw = KotlinLists.array(state.threads(hostId: id) as Any)
         }
         #if DEBUG
-        // Live host: real sessions only. Fixtures only when the selected host is not live
-        // (same gate as terminal fixtures), so DEBUG cannot masquerade as a real session.
-        if !hostIsLive {
+        // Fixtures only when no host is paired (same gate as terminal fixtures).
+        // A paired host, even offline or with an invalid pairing, shows its cache only.
+        if usingTerminalFixture {
             let samples: [AgentThread] = KotlinLists.array(PlaytestChatKt.playtestThreads() as Any)
             let now = Int64(Date().timeIntervalSince1970 * 1000)
             let listSamples: [AgentThread] = KotlinLists.array(
@@ -236,7 +236,7 @@ struct ContentView: View {
             }
         }
         #if DEBUG
-        if !hostIsLive {
+        if usingTerminalFixture {
             let samples: [ThreadTrail] = KotlinLists.array(PlaytestListKt.playtestListTrails() as Any)
             for row in samples where map[row.threadId] == nil {
                 map[row.threadId] = row.thumb
@@ -250,17 +250,12 @@ struct ContentView: View {
         allThreads.first { $0.id == threadID }
     }
 
-    #if DEBUG
-    private var hostIsLive: Bool {
-        model.selectedHost?.connection == .live
-    }
-    #endif
-
-    /// Sample panes and a failed capture, only when this build is DEBUG and
-    /// the selected host is not live. Release never reads the fixture.
+    /// Sample sessions, panes, and a failed capture, only when this build is DEBUG
+    /// and the catalog has loaded with no paired host. Release never reads the fixture.
+    /// An empty host list before the catalog emits is not "unpaired".
     private var usingTerminalFixture: Bool {
         #if DEBUG
-        return !hostIsLive
+        return model.hostsReady && model.hosts.isEmpty
         #else
         return false
         #endif
@@ -311,13 +306,7 @@ struct ContentView: View {
     }
 
     private var decisionCount: Int {
-        #if DEBUG
-        if hostIsLive {
-            let real = pending.filter { !isPlaytestSample($0.id) }
-            if !real.isEmpty { return real.count }
-        }
-        #endif
-        return pending.count
+        pending.count
     }
 
     private var canHandFix: Bool {
@@ -328,20 +317,17 @@ struct ContentView: View {
         return false
     }
 
-    /// The decision tied to this terminal, else the first real waiting session.
-    /// Debug builds with no live host use the TokenStore sample so the capsule can be shot.
+    /// The decision tied to this terminal, else the first waiting session.
+    /// With no paired host, a debug build uses the TokenStore sample so the capsule can be shot.
     private var waitingThread: AgentThread? {
         if let linked = linkedPending() { return linked }
         #if DEBUG
-        let real = pending.filter { !isPlaytestSample($0.id) }
-        if hostIsLive, let first = real.first { return first }
-        if let sample = pending.first(where: { $0.id == PlaytestChatKt.PLAYTEST_DECIDE_ID }) {
+        if usingTerminalFixture,
+           let sample = pending.first(where: { $0.id == PlaytestChatKt.PLAYTEST_DECIDE_ID }) {
             return sample
         }
-        return real.first ?? pending.first
-        #else
-        return pending.first
         #endif
+        return pending.first
     }
 
     private var waitingTitle: String? {
@@ -367,21 +353,8 @@ struct ContentView: View {
         let byThread = threadID.flatMap { id in
             pending.first { $0.id == id }
         }
-        let match = byPane ?? byThread
-        #if DEBUG
-        if hostIsLive, let match, isPlaytestSample(match.id) { return nil }
-        #endif
-        return match
+        return byPane ?? byThread
     }
-
-    #if DEBUG
-    private func isPlaytestSample(_ id: String) -> Bool {
-        if PlaytestChatKt.isPlaytestThread(id: id) { return true }
-        if PlaytestListKt.isPlaytestListThread(id: id) { return true }
-        if PlaytestTerminalKt.isPlaytestPane(id: id) { return true }
-        return false
-    }
-    #endif
 
     private func selectPane(_ id: String) {
         #if DEBUG
