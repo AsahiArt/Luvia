@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasClickAction
@@ -13,9 +14,11 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import java.time.Duration
+import kotlin.math.abs
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -78,6 +81,7 @@ class SessionScopeSummaryTest {
         }
         settle()
         assertSummarySharesTheTitleRow("全部 · 1 会话")
+        val allSummaryRight = summaryContainerRight("全部 · 1 会话")
         composeRule.onNodeWithText("0 运行").assertIsDisplayed()
         composeRule.onNodeWithText("0 等你").assertIsDisplayed()
 
@@ -94,6 +98,31 @@ class SessionScopeSummaryTest {
         composeRule.onNode(hasContentDescription(path)).assertIsDisplayed()
         composeRule.onAllNodesWithText("only").assertCountEquals(0)
         assertSummarySharesTheTitleRow(summary)
+        val pathSummaryRight = summaryContainerRight(summary)
+        assertTrue(
+            "all-scope and path-scope summary containers share one right edge: all=$allSummaryRight path=$pathSummaryRight",
+            abs(allSummaryRight - pathSummaryRight) <= 1f,
+        )
+    }
+
+    private fun summaryContainerRight(summary: String): Float {
+        val cluster = composeRule.onNode(hasContentDescription(summary)).fetchSemanticsNode()
+        val parent = checkNotNull(cluster.parent) { "summary has no parent" }
+        val parentRight = parent.boundsInRoot.right
+        val clusterRight = cluster.boundsInRoot.right
+        val rootRight = composeRule.onRoot().fetchSemanticsNode().boundsInRoot.right
+        val inset = with(composeRule.density) { 16.dp.toPx() }
+        val parentGap = abs(clusterRight - parentRight)
+        val insetGap = abs(rootRight - clusterRight - inset)
+        assertTrue(
+            "summary container right $clusterRight equals its parent right $parentRight",
+            parentGap <= 1f,
+        )
+        assertTrue(
+            "summary container right $clusterRight is the root right $rootRight minus 16dp ($inset)",
+            insetGap <= 1f,
+        )
+        return clusterRight
     }
 
     private fun assertSummarySharesTheTitleRow(summary: String) {

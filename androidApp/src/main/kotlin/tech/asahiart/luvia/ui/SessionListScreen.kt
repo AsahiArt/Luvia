@@ -84,6 +84,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -939,16 +940,25 @@ private fun SessionTitleSummary(
     collapsed: Boolean,
 ) {
     val summary = stringResource(R.string.scope_summary, scopeLabel, roster.agents)
+    // The expanded title slot already stops 8.dp short of the window.
+    // Padding sits outside this tag so the tag's right edge is the 16.dp inset.
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(end = 8.dp)
+            .testTag("session-title-summary"),
+    ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
         Text(stringResource(R.string.sessions_title), maxLines = 1, softWrap = false)
         if (!collapsed) {
-            Spacer(Modifier.width(12.dp).weight(1f))
+            Spacer(Modifier.width(12.dp))
             Column(
-                Modifier.weight(2f, fill = false).semantics { contentDescription = summary },
+                Modifier.weight(1f).semantics { contentDescription = summary },
                 horizontalAlignment = Alignment.End,
             ) {
                 Text(
                     summary,
+                    modifier = Modifier.fillMaxWidth(),
                     maxLines = 1,
                     softWrap = false,
                     overflow = TextOverflow.Ellipsis,
@@ -957,7 +967,11 @@ private fun SessionTitleSummary(
                     fontFamily = if (monospace) FontFamily.Monospace else null,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     StatDot(
                         MaterialTheme.colorScheme.primary,
                         stringResource(R.string.stats_running, roster.running),
@@ -970,6 +984,7 @@ private fun SessionTitleSummary(
                 }
             }
         }
+    }
     }
 }
 
