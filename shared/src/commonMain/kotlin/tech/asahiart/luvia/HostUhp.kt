@@ -477,6 +477,7 @@ public class HostUhp(
 
     /** Answers [thread]'s Ask from outside its conversation (Now). */
     public fun answer(thread: AgentThread, option: AskOption) {
+        if (!state.value.canMutate) return
         val paneId = thread.paneId
         if (thread.kind == AgentKind.Pane && paneId != null && !agents.target(paneId)) return
         answer(option)
