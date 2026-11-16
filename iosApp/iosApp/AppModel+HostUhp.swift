@@ -27,7 +27,9 @@ extension AppModel {
         uhp.snapshot = state
         uhp.localError = nil
         if state.agentDetail.open, let paneId = state.agentDetail.summary?.paneId {
+            let previous = uhp.selectedAgentID
             uhp.selectedAgentID = paneId
+            rebindTerminalIfPaneChanged(from: previous, to: paneId)
         }
         if pendingPresentAcp, state.acp.open {
             viewAcp()
