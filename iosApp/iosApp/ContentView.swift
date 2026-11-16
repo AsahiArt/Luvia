@@ -630,9 +630,9 @@ struct ContentView: View {
         navigationEpoch += 1
     }
 
-    private func armHandoff(pane: String?) {
+    private func armHandoff(pane: String?, generation: KotlinLong?) {
         guard let host = model.selectedHostID, !host.isEmpty else { return }
-        guard let generation = model.hostUhp()?.launchReceipt()?.generation, generation != 0 else { return }
+        guard let generation, generation != 0 else { return }
         fixAttempt += 1
         let baseline = model.hostStates[host]?.acp.info?.sessionId ?? ""
         fixIntent = HandoffIntent(
@@ -675,8 +675,8 @@ struct ContentView: View {
     private func handFix(_ excerpt: String, _ choice: TerminalFixChoice?) -> Bool {
         let pane = shownPaneID
         let requested = choice?.agentType
-        if let outcome = model.hostUhp()?.handoffFailure(excerpt: excerpt, paneId: pane, agentType: requested) {
-            switch outcome {
+        if let result = model.hostUhp()?.handoffLaunch(excerpt: excerpt, paneId: pane, agentType: requested) {
+            switch result.outcome {
             case .sent:
                 return true
             case .drafted:
@@ -692,7 +692,7 @@ struct ContentView: View {
                     agentType: requested,
                     sessionAgentType: terminalSessionAgentType
                 ) {
-                    armHandoff(pane: pane)
+                    armHandoff(pane: pane, generation: result.receipt?.generation)
                 }
                 return true
             default:
