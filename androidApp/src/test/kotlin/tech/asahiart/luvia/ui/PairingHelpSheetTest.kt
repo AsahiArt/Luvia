@@ -1,7 +1,9 @@
 package tech.asahiart.luvia.ui
 
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import java.time.Duration
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -23,6 +25,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.model.Statement
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import tech.asahiart.luvia.HostRole
@@ -72,8 +75,7 @@ class PairingHelpSheetTest {
         composeRule.onNodeWithText("确认配对").assertIsEnabled()
 
         composeRule.onNodeWithText("?").performClick()
-        composeRule.mainClock.advanceTimeBy(400)
-        composeRule.waitForIdle()
+        settleSheetFrames()
 
         composeRule.onNodeWithText("如何配对").assertIsDisplayed()
         composeRule.onNodeWithText("在电脑终端运行本页显示的配对命令。").assertIsDisplayed()
@@ -84,8 +86,7 @@ class PairingHelpSheetTest {
         composeRule.onNodeWithText("配对新电脑").assertIsDisplayed()
 
         composeRule.activity.onBackPressedDispatcher.onBackPressed()
-        composeRule.mainClock.advanceTimeBy(400)
-        composeRule.waitForIdle()
+        settleSheetFrames()
 
         composeRule.onAllNodesWithText("如何配对").assertCountEquals(0)
         composeRule.onNodeWithText("已输入短码 123456").assertIsDisplayed()
@@ -95,6 +96,20 @@ class PairingHelpSheetTest {
         composeRule.onNodeWithText("核对指纹").assertIsDisplayed()
         composeRule.onNodeWithText("配对新电脑").assertIsDisplayed()
     }
+}
+
+/**
+ * The help sheet is a dialog. Its frames run on the main looper, while the
+ * pairing countdown is on the Compose test clock. Pump both, then the
+ * displayed assertions still have to pass.
+ */
+private fun PairingHelpSheetTest.settleSheetFrames() {
+    val looper = Shadows.shadowOf(Looper.getMainLooper())
+    repeat(30) {
+        looper.idleFor(Duration.ofMillis(16))
+        composeRule.mainClock.advanceTimeByFrame()
+    }
+    composeRule.waitForIdle()
 }
 
 public class PublicActivityRule : TestRule {
