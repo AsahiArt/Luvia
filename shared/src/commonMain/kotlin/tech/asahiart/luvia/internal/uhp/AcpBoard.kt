@@ -123,18 +123,18 @@ internal class AcpBoard(private val ctx: UhpContext) {
         }
     }
 
-    fun launch() {
-        val client = ctx.session() ?: return
+    fun launch(): tech.asahiart.luvia.thread.LaunchReceipt? {
+        val client = ctx.session() ?: return null
         val state = ctx.value()
-        if (!state.canMutate || !client.supports(UhpMethods.ACP_SESSION_OPEN)) return
-        val agentId = state.acp.launchAgentId ?: return
+        if (!state.canMutate || !client.supports(UhpMethods.ACP_SESSION_OPEN)) return null
+        val agentId = state.acp.launchAgentId ?: return null
         val cwd =
             state.acp.launchCwd.ifBlank {
                 state.layout.workspaces.firstOrNull()?.cwd.orEmpty()
             }
         if (cwd.isBlank()) {
             ctx.update { it.copy(acp = it.acp.copy(errorText = "Choose a directory")) }
-            return
+            return null
         }
         stop()
         nextItem = 0
@@ -163,6 +163,7 @@ internal class AcpBoard(private val ctx: UhpContext) {
             ctx.launch {
                 finishOpen(ticket, client.openAcpSession(agentId, cwd))
             }
+        return tech.asahiart.luvia.thread.LaunchReceipt(ticket)
     }
 
     /** Resume an ACP history row. Replay starts from an empty transcript. */

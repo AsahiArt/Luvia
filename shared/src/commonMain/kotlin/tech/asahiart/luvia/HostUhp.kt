@@ -38,6 +38,11 @@ import tech.asahiart.luvia.thread.timeline
 import tech.asahiart.luvia.thread.toThread
 
 /** Where 「交给 claude 修」 went. [Drafted] is parked in the conversation composer. */
+public data class HandoffLaunch(
+    val outcome: FailureHandoff,
+    val receipt: tech.asahiart.luvia.thread.LaunchReceipt? = null,
+)
+
 public enum class FailureHandoff {
     Sent,
     Drafted,
@@ -165,12 +170,19 @@ public class HostUhp(
         excerpt: String,
         paneId: String?,
         agentType: String? = null,
-    ): FailureHandoff {
+    ): FailureHandoff = handoffLaunch(excerpt, paneId, agentType).outcome
+
+    /** The launch that this handoff accepted, captured before the open can leave Starting. */
+    public fun handoffLaunch(
+        excerpt: String,
+        paneId: String?,
+        agentType: String? = null,
+    ): HandoffLaunch {
         val requested = agentType?.trim()?.takeIf { it.isNotEmpty() }
         if (terminalFixOpensNewAgent(requested, sessionAgentType(paneId))) {
             return draftFixOnNewAcp(excerpt, requested!!, paneId)
         }
-        return handoffFailureOnSession(excerpt, paneId)
+        return HandoffLaunch(handoffFailureOnSession(excerpt, paneId), null)
     }
 
     private fun sessionAgentType(paneId: String?): String? {
@@ -184,31 +196,36 @@ public class HostUhp(
     /**
      * #47 new ACP session for a different agent, then the fix text in that composer.
      * An ACP draft that already has text is left alone. Working, Starting, or
-     * AwaitingPermission is left alone and is not stopped. The draft is written only
-     * after launch is Starting as [agentType]; otherwise only the launch fields just
-     * prepared are put back.
+     * AwaitingPermission is left alone and is not stopped. The receipt is the generation
+     * captured when this launch is accepted. The draft is written when that generation
+     * is still the slot, including when the open has already reached Ready.
      */
-    private fun draftFixOnNewAcp(excerpt: String, agentType: String, paneId: String?): FailureHandoff {
+    private fun draftFixOnNewAcp(excerpt: String, agentType: String, paneId: String?): HandoffLaunch {
         val body = excerpt.trim()
-        if (body.isEmpty()) return FailureHandoff.Refused
+        if (body.isEmpty()) return HandoffLaunch(FailureHandoff.Refused, null)
         val before = state.value.acp
-        if (before.draft.isNotBlank()) return FailureHandoff.Refused
+        if (before.draft.isNotBlank()) return HandoffLaunch(FailureHandoff.Refused, null)
         if (before.run == AcpRunState.Working ||
             before.run == AcpRunState.Starting ||
             before.run == AcpRunState.AwaitingPermission
         ) {
-            return FailureHandoff.Refused
+            return HandoffLaunch(FailureHandoff.Refused, null)
         }
         setLaunchAcpAgent(agentType)
         setLaunchAcpCwd(failureHandoffCwd(paneId))
-        launchAcp()
+        val receipt = launchAcp()
         val launched = state.value.acp
-        if (launched.run != AcpRunState.Starting || launched.launchAgentId != agentType) {
+        val accepted =
+            receipt != null &&
+                launched.sessionGeneration == receipt.generation &&
+                launched.launchAgentId == agentType &&
+                (launched.run == AcpRunState.Starting || launched.run == AcpRunState.Ready)
+        if (!accepted) {
             restorePreparedAcpLaunch(before)
-            return FailureHandoff.Refused
+            return HandoffLaunch(FailureHandoff.Refused, null)
         }
         setAcpDraft(FIX_LEAD + body)
-        return FailureHandoff.Drafted
+        return HandoffLaunch(FailureHandoff.Drafted, receipt)
     }
 
     /** Puts back agent, directory, and launch error from a start that did not take. Does not close the session. */
@@ -422,9 +439,12 @@ public class HostUhp(
 
     public fun setLaunchAcpCwd(cwd: String) = acp.setLaunchCwd(cwd)
 
-    public fun launchAcp() = acp.launch()
+    public fun launchAcp(): tech.asahiart.luvia.thread.LaunchReceipt? = acp.launch()
 
-    /** Generation written by the launch that is currently Starting, for a handoff receipt. */
+    /**
+     * Generation of a launch that is still Starting.
+     * A handoff arms from [handoffLaunch]'s receipt, which stays valid after the open leaves Starting.
+     */
     public fun launchReceipt(): tech.asahiart.luvia.thread.LaunchReceipt? {
         val generation = state.value.acp.sessionGeneration
         if (state.value.acp.run != AcpRunState.Starting || generation == 0L) return null

@@ -669,16 +669,21 @@ class AcpTest {
         uhp.setLaunchAcpCwd("/tmp/work")
         uhp.launchAcp()
         val first = withTimeout(2.seconds) { gates.receive() }
+        val refused = uhp.handoffLaunch("AnsiParserTest FAILED", "7", "claude")
+        assertEquals(FailureHandoff.Refused, refused.outcome)
+        assertNull(refused.receipt)
         uhp.launchAcp()
         val second = withTimeout(2.seconds) { gates.receive() }
         second.complete("sess-b")
         withTimeout(2.seconds) {
             uhp.state.first { it.acp.info?.sessionId == "sess-b" && it.acp.run == AcpRunState.Ready }
         }
-        assertEquals(FailureHandoff.Drafted, uhp.handoffFailure("AnsiParserTest FAILED", "7", "claude"))
+        val launched = uhp.handoffLaunch("AnsiParserTest FAILED", "7", "claude")
+        assertEquals(FailureHandoff.Drafted, launched.outcome)
+        val receipt = checkNotNull(launched.receipt).generation
         val drafted = uhp.state.value.acp
-        val receipt = drafted.sessionGeneration
         assertEquals(AcpRunState.Starting, drafted.run)
+        assertEquals(receipt, drafted.sessionGeneration)
         assertEquals("请修这个失败：\nAnsiParserTest FAILED", drafted.draft)
         val intent =
             HandoffIntent(
@@ -720,6 +725,7 @@ class AcpTest {
         }
         val ready = uhp.state.value.acp
         assertEquals(receipt, ready.sessionGeneration)
+        assertNull(uhp.launchReceipt())
         assertEquals(
             HandoffEffect.Adopt,
             handoffObserved(
@@ -763,8 +769,9 @@ class AcpTest {
         val second = withTimeout(2.seconds) { gates.receive() }
         second.complete("sess-b")
         withTimeout(2.seconds) { uhp.state.first { it.acp.info?.sessionId == "sess-b" } }
-        assertEquals(FailureHandoff.Drafted, uhp.handoffFailure("AnsiParserTest FAILED", "7", "claude"))
-        val receipt = uhp.state.value.acp.sessionGeneration
+        val launched = uhp.handoffLaunch("AnsiParserTest FAILED", "7", "claude")
+        assertEquals(FailureHandoff.Drafted, launched.outcome)
+        val receipt = checkNotNull(launched.receipt).generation
         first.complete(null)
         withTimeout(2.seconds) {
             repeat(20) {
@@ -778,6 +785,63 @@ class AcpTest {
         assertEquals(receipt, during.sessionGeneration)
         assertEquals(null, during.errorText)
         assertEquals(AcpRunState.Starting, during.run)
+        assertEquals("请修这个失败：\nAnsiParserTest FAILED", during.draft)
+        val intent =
+            HandoffIntent(
+                hostId = runtime.profile.hostId,
+                attempt = 1,
+                originPaneId = "7",
+                navigationEpoch = 4,
+                baselineSessionId = "sess-b",
+                launchGeneration = receipt,
+            )
+        assertEquals(
+            HandoffEffect.Ignore,
+            handoffObserved(
+                intent,
+                navigationEpoch = 4,
+                selectedHostId = runtime.profile.hostId,
+                open = during.open,
+                errorText = during.errorText,
+                sessionId = during.info?.sessionId ?: "",
+                snapshotGeneration = during.sessionGeneration,
+            ),
+        )
+        val third = withTimeout(2.seconds) { gates.receive() }
+        third.complete("sess-c")
+        withTimeout(2.seconds) {
+            uhp.state.first { it.acp.info?.sessionId == "sess-c" && it.acp.run == AcpRunState.Ready }
+        }
+        val ready = uhp.state.value.acp
+        assertEquals(receipt, ready.sessionGeneration)
+        assertEquals("sess-c", ready.info?.sessionId)
+        assertEquals(null, ready.errorText)
+        assertEquals("请修这个失败：\nAnsiParserTest FAILED", ready.draft)
+        assertNull(uhp.launchReceipt())
+        assertEquals(
+            HandoffEffect.Adopt,
+            handoffObserved(
+                intent,
+                navigationEpoch = 4,
+                selectedHostId = runtime.profile.hostId,
+                open = ready.open,
+                errorText = ready.errorText,
+                sessionId = ready.info?.sessionId ?: "",
+                snapshotGeneration = ready.sessionGeneration,
+            ),
+        )
+        assertEquals(
+            HandoffEffect.Ignore,
+            handoffObserved(
+                intent,
+                navigationEpoch = 4,
+                selectedHostId = runtime.profile.hostId,
+                open = ready.open,
+                errorText = ready.errorText,
+                sessionId = ready.info?.sessionId ?: "",
+                snapshotGeneration = receipt - 1,
+            ),
+        )
         uhp.close()
         session.close()
     }
