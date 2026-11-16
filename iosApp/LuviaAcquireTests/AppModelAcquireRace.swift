@@ -63,7 +63,7 @@ enum AppModelAcquireRace {
         opens.finish(at: 1, .installed(newer))
         try await until { holds(model, newer) }
         opens.finish(at: 0, .rejected(Failure.ControlConflict(message: "held")))
-        await Task.yield()
+        await _Concurrency.Task.yield()
         try check(holds(model, newer), "newer control remains after the older conflict")
         try check(newer.closed == false, "older conflict does not close the newer control")
         try check(model.holdsTerminalControl, "newer control stays held")
@@ -80,7 +80,7 @@ enum AppModelAcquireRace {
         model.stageSelectedHost(host)
         let handle = RecordingTerminalControl()
         opens.finish(at: 0, .installed(handle))
-        await Task.yield()
+        await _Concurrency.Task.yield()
         try check(handle.closed, "role loss closes the handle from the open")
         try check(model.terminalControl == nil, "role loss does not install")
         try check(model.holdsTerminalControl == false, "role loss does not hold control")
@@ -99,7 +99,7 @@ enum AppModelAcquireRace {
         model.stageSelectedHost(host)
         let handle = RecordingTerminalControl()
         opens.finish(at: 0, .installed(handle))
-        await Task.yield()
+        await _Concurrency.Task.yield()
         try check(handle.closed, "locator change closes the late handle")
         try check(model.terminalControl == nil, "locator change does not install")
     }
@@ -113,7 +113,7 @@ enum AppModelAcquireRace {
         model.rebindTerminalIfPaneChanged(from: "7", to: "8")
         let handle = RecordingTerminalControl()
         opens.finish(at: 0, .installed(handle))
-        await Task.yield()
+        await _Concurrency.Task.yield()
         try check(handle.closed, "rebind closes the late handle")
         try check(model.terminalControl == nil, "rebind does not keep the late handle")
     }
@@ -122,13 +122,13 @@ enum AppModelAcquireRace {
     static func sameIdentityRefreshKeepsTheInstalledControl() async throws {
         let opens = DeferredTerminalOpens()
         let model = caller(opens)
-        model.startTerminal(paneId: "7")
+        model.openTerminal(paneId: "7")
         model.requestTerminalControl()
         try await until { opens.pending >= 1 }
         let held = RecordingTerminalControl()
         opens.finish(at: 0, .installed(held))
         try await until { holds(model, held) }
-        model.startTerminal(paneId: "7")
+        model.openTerminal(paneId: "7")
         try check(holds(model, held), "same identity refresh keeps the installed control")
         try check(held.closed == false, "same identity refresh does not close it")
     }
@@ -142,7 +142,7 @@ enum AppModelAcquireRace {
         let older = RecordingTerminalControl()
         opens.finish(at: 0, .installed(older))
         try await until { holds(model, older) }
-        let send = Task { await model.sendTerminal("ls") }
+        let send = _Concurrency.Task { await model.sendTerminal("ls") }
         try await until { older.waitingForSubmit }
         model.requestTerminalControl()
         try await until { opens.pending >= 1 }
@@ -168,7 +168,7 @@ enum AppModelAcquireRace {
         model.requestTerminalControl()
         try await until { opens.pending >= 1 }
         opens.finish(at: 0, .rejected(Failure.ControlConflict(message: "held")))
-        await Task.yield()
+        await _Concurrency.Task.yield()
         try check(held.closed, "the current conflict still drops that held control")
         try check(model.terminalControl == nil, "the current conflict leaves no handle")
     }
@@ -204,7 +204,7 @@ enum AppModelAcquireRace {
     private static func until(_ ready: () -> Bool) async throws {
         for _ in 0..<40 {
             if ready() { return }
-            await Task.yield()
+            await _Concurrency.Task.yield()
         }
         try check(false, "production caller did not reach the deferred open")
     }
