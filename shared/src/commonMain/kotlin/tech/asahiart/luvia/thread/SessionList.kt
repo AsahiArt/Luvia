@@ -287,6 +287,12 @@ public fun pendingMatchingShown(pending: List<AgentThread>, shown: List<AgentThr
  * One request to open the new-session composer for [hostId].
  * Null when the host cannot start a session (observer or not live). This does not create a remote session.
  * A missing caller cannot substitute an empty closure: there is no value that means "opened" without a host.
+ *
+ * The Kotlin name is not `newSessionEntry`. Kotlin/Native's ObjC exporter runs that name through
+ * `handleSpecialNames(prefix = "do")` because a selector starting with `new` plus an uppercase letter
+ * is a Cocoa method family (`getMangledName` in the header generator). Swift then has no member
+ * `newSessionEntry` on `SessionListKt`. This name is outside that family, so the exported member
+ * matches the Kotlin name.
  */
 public data class NewSessionEntry(
     val hostId: String,
@@ -294,7 +300,7 @@ public data class NewSessionEntry(
     val openComposer: Boolean,
 )
 
-public fun newSessionEntry(hostId: String, cwd: String?, controller: Boolean, live: Boolean): NewSessionEntry? {
+public fun sessionComposerEntry(hostId: String, cwd: String?, controller: Boolean, live: Boolean): NewSessionEntry? {
     if (!controller || !live || hostId.isBlank()) return null
     return NewSessionEntry(hostId, cwd?.takeIf { it.isNotBlank() }, openComposer = true)
 }
