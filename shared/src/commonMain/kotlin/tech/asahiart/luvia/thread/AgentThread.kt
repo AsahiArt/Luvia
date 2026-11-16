@@ -160,7 +160,7 @@ public fun decisionQuestionText(permissionTitle: String?, transcript: String?): 
     return lastAgentQuestion(transcript) ?: DECISION_QUESTION_FALLBACK
 }
 
-private data class QuestionHit(val text: String, val anchorIndex: Int)
+internal data class QuestionHit(val text: String, val startIndex: Int, val anchorIndex: Int)
 
 internal fun lastAgentQuestion(transcript: String?): String? {
     val clean = transcript?.let(::stripAnsi) ?: return null
@@ -168,7 +168,7 @@ internal fun lastAgentQuestion(transcript: String?): String? {
 }
 
 /** The current question and the line index of its last wrapped row. Options belong under that line. */
-private fun findQuestionHit(lines: List<String>): QuestionHit? {
+internal fun findQuestionHit(lines: List<String>): QuestionHit? {
     var index = lines.lastIndex
     while (index >= 0) {
         val raw = lines[index]
@@ -209,7 +209,7 @@ private fun findQuestionHit(lines: List<String>): QuestionHit? {
             }
             val text = stripTuiChrome(joinHardWrapped(parts)).trim()
             if (text.isEmpty()) return null
-            return QuestionHit(text, index)
+            return QuestionHit(text, up + 1, index)
         }
         if (isSkippableToolNoise(raw)) {
             index--
@@ -231,7 +231,9 @@ private fun isBareOrPromptOnly(line: String): Boolean {
     if (withoutBox.isEmpty() || withoutBox.all { it == '?' || it == '？' }) return true
     val stripped = stripLeadingPromptMarkers(withoutBox)
     if (stripped == withoutBox) return false
-    return !isAgentQuestion(trimmed)
+    if (isAgentQuestion(trimmed)) return false
+    val marker = withoutBox.first()
+    return marker == '?' || marker == '？'
 }
 
 /**
