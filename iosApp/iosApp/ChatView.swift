@@ -55,7 +55,7 @@ struct ChatView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             if model.selectedHost?.pairingRevoked == true {
-                pairingLostBanner
+                PairingRevokedBanner(onPair: onPairAgain)
             } else if hostOffline, let host = model.selectedHost {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(connectionLabel(host.connection)).font(.headline)
@@ -291,38 +291,6 @@ struct ChatView: View {
         colorScheme == .dark ? Color(hex: "FFB4AB") : Color(hex: "BA1A1A")
     }
 
-    private var errorContainer: Color {
-        colorScheme == .dark ? Color(hex: "93000A") : Color(hex: "FFDAD6")
-    }
-
-    private var onErrorContainer: Color {
-        colorScheme == .dark ? Color(hex: "FFDAD6") : Color(hex: "410002")
-    }
-
-    private var pairingLostBanner: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(FailureMessagesKt.PROVE_REJECTED_ZH)
-                .font(.body)
-                .foregroundStyle(onErrorContainer)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-            Button(action: onPairAgain) {
-                Text("重新配对")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .frame(height: 40)
-                    .background(Color.blue, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-        }
-        .padding(16)
-        .background(errorContainer, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-    }
-
     private func decision(_ ask: Ask) -> some View {
         let options: [AskOption] = KotlinLists.array(ask.options as Any)
         let recommended = SessionListKt.recommendedOption(ask: ask)
@@ -358,9 +326,11 @@ struct ChatView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                Text(ask.question ?? "有一个决定在等你")
-                    .font(.title2.weight(.bold))
-                    .fixedSize(horizontal: false, vertical: true)
+                if let question = SessionListKt.decisionQuestionText(thread: thread) {
+                    Text(question)
+                        .font(.title2.weight(.bold))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                     let picked = optionID(option) == (selectedOptionID ?? recommended.map(optionID))
                     let suggested = option.recommended || optionID(option) == recommended.map(optionID)

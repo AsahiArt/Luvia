@@ -90,6 +90,7 @@ import tech.asahiart.luvia.thread.diffModulePath
 import tech.asahiart.luvia.thread.highlightCode
 import tech.asahiart.luvia.thread.proseSpans
 import tech.asahiart.luvia.thread.proseWithoutTrail
+import tech.asahiart.luvia.thread.decisionQuestionText
 import tech.asahiart.luvia.thread.recommendedOption
 import tech.asahiart.luvia.thread.structuredDiffFiles
 import tech.asahiart.luvia.thread.testBarCells
@@ -172,30 +173,10 @@ fun ChatScreen(
             )
         }
         if (chrome.showPairAgain) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 8.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.errorContainer)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(
-                    localizeUiMessage(tech.asahiart.luvia.PROVE_REJECTED_EN),
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Button(
-                    onClick = onPairAgain,
-                    modifier = Modifier.align(Alignment.End).height(40.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
-                    shape = RoundedCornerShape(20.dp),
-                ) {
-                    Text(stringResource(R.string.pair_again))
-                }
-            }
+            PairingRevokedBanner(
+                onPairAgain = onPairAgain,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp),
+            )
         } else if (offline && connection != null) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(connection.chromeLabel(), style = MaterialTheme.typography.titleMedium)
@@ -868,12 +849,14 @@ private fun DecisionCard(
                     )
                 }
             }
-            Text(
-                ask.question ?: stringResource(R.string.decision_waiting),
-                modifier = Modifier.padding(top = 10.dp),
-                style = MaterialTheme.typography.headlineSmall,
-                color = onCard,
-            )
+            decisionQuestionText(ask.question)?.let { question ->
+                Text(
+                    question,
+                    modifier = Modifier.padding(top = 10.dp),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = onCard,
+                )
+            }
             ask.options.forEach { option ->
                 val picked = option == selected
                 Row(

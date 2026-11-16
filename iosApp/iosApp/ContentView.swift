@@ -539,6 +539,17 @@ private struct SettingsForm: View {
             if let host = model.selectedHost {
                 Section(host.pairingRevoked ? (host.failureMessage ?? FailureMessagesKt.PROVE_REJECTED_ZH) : connectionLabel(host.connection)) {
                     TextField("名称", text: $name)
+                    if let route = host.route {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(host.address.isEmpty ? host.addresses.first ?? "" : host.address)
+                                .font(.body)
+                                .lineLimit(1)
+                            RouteChip(route: route)
+                                .transition(.opacity)
+                            Spacer(minLength: 0)
+                        }
+                        .animation(.easeInOut(duration: 0.2), value: route)
+                    }
                     TextField("地址", text: $addresses, axis: .vertical)
                     TextField("SSH 端口", text: $port)
                     TextField("用户", text: $user)

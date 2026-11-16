@@ -144,4 +144,13 @@
     <string name="open_terminal">打开终端</string>
     <string name="settings_placeholder">连接、唤醒和取消配对。</string>
     <string name="machines_placeholder">已配对的电脑。点一台查看它的会话。</string>
+    <string name="route_lan">局域网</string>
+    <string name="route_tailnet">Tailnet</string>
+    <string name="route_unknown">未知</string>
+    <string name="route_lan_cd">经局域网连接</string>
+    <string name="route_tailnet_cd">经 Tailnet 连接</string>
+    <string name="route_unknown_cd">目的地址类别未知</string>
+    <string name="offline_cached">离线，显示的是缓存</string>
+    <string name="decision_locked_revoked">配对已失效，重新配对后才能作答</string>
+    <string name="decision_locked_offline">离线，连上后才能作答</string>
 </resources>

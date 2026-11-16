@@ -567,6 +567,7 @@ class SessionListTest {
         assertEquals(listOf(ToolTrailKind.Read, ToolTrailKind.Run), trails["run"]?.kinds)
         assertEquals(listOf(ListTrailTone.Pending, ListTrailTone.Ok), trails["run"]?.tones)
         assertNull(trails["idle"])
+        assertEquals(blocked, decisionQuestionText(threads.getValue("wait")))
         assertNull(trails["wait"])
         val runTrail = listTrail(threads.getValue("run"), trails["run"])
         assertTrue(runTrail.label!!.contains("gradlew"))
@@ -587,6 +588,32 @@ class SessionListTest {
         val openTrail = threadTrails(openWins, openWins.threads("h")).first { it.threadId == "run" }
         assertEquals("allTests · 96/128", openTrail.thumb.label)
         assertEquals(listOf(ListTrailTone.Failed), openTrail.thumb.tones)
+    }
+
+    @Test
+    fun offlineOrInvalidCardKeepsCachedQuestionNotSessionName() {
+        val question = "Fork this session into current directory? [y/N]"
+        val cached = HostUhpState(
+            agents = listOf(
+                AgentSummary(paneId = "p", name = "tailnet-i", status = AgentStatus.Blocked, agent = "claude"),
+            ),
+            panePreviews = mapOf(
+                "p" to StoredPanePreview("working\n$question", AgentStatus.Blocked),
+            ),
+        ).threads("h").single()
+        assertEquals("tailnet-i", cached.title)
+        assertEquals(question, decisionQuestionText(cached))
+        assertEquals(question, decisionQuestionText(cached.ask?.question))
+
+        val missing = HostUhpState(
+            agents = listOf(
+                AgentSummary(paneId = "p", name = "tailnet-i", status = AgentStatus.Blocked, agent = "claude"),
+            ),
+        ).threads("h").single()
+        assertEquals("tailnet-i", missing.title)
+        assertNull(missing.ask?.question)
+        assertNull(decisionQuestionText(missing))
+        assertNull(decisionQuestionText(missing.ask?.question))
     }
 
     @Test
