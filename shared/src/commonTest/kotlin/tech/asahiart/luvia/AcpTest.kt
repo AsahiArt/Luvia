@@ -417,6 +417,34 @@ class AcpTest {
     }
 
     @Test
+    fun catalogAcpThreadSendsOnceWhenDeviceIdDiffersFromHostId() = runTest {
+        val session = openAcpClient(backgroundScope, streamEvents = listOf(AGENT_HELLO))
+        val runtime = sampleRuntime(agent = "pi", cwd = "/tmp/pane", workspaceCwd = "/tmp/work")
+        val uhp = HostUhp(session = { session }, runtime = { runtime }, scope = backgroundScope)
+        uhp.applyRuntime(runtime)
+        assertTrue(runtime.profile.id != runtime.profile.hostId)
+        uhp.setLaunchAcpAgent("codex")
+        uhp.setLaunchAcpCwd("/tmp/work")
+        uhp.launchAcp()
+        withTimeout(2.seconds) {
+            uhp.state.first { state -> state.acp.info?.sessionId == "sess_1" }
+        }
+        val catalog =
+            uhp.state.value.threads(runtime.profile.hostId).first { thread -> thread.kind == AgentKind.Acp }
+        assertEquals(runtime.profile.hostId, catalog.hostId)
+        assertEquals(true, uhp.sendToThread(catalog, "from catalog"))
+        fun sentCount() =
+            uhp.state.value.acp.transcript.count { item ->
+                item is AcpTranscriptItem.Message && item.text == "from catalog"
+            }
+        assertEquals(1, sentCount())
+        assertEquals(false, uhp.sendToThread(catalog.copy(hostId = "other-host"), "no"))
+        assertEquals(1, sentCount())
+        uhp.close()
+        session.close()
+    }
+
+    @Test
     fun newAcpFixRefusesWhileAwaitingPermissionAndKeepsThatRequest() = runTest {
         val opens = mutableListOf<JsonObject>()
         val session = openAcpClient(backgroundScope, opens = opens, streamEvents = listOf(PERMISSION))

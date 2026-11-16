@@ -56,7 +56,7 @@ public class HostUhp(
     private val stateFlow: MutableStateFlow<HostUhpState> = MutableStateFlow(HostUhpState())
     private val ctx: UhpContext = UhpContext(session, runtime, stateFlow, uhpScope)
     private val agents: AgentBoard = AgentBoard(ctx)
-    private val hostId: String get() = runtime()?.profile?.id.orEmpty()
+    private val hostId: String get() = runtime()?.profile?.hostId.orEmpty()
     private val review: ReviewBoard = ReviewBoard(ctx)
     private val tasks: TaskBoard = TaskBoard(ctx)
     private val files: FilesBoard = FilesBoard(ctx)

@@ -614,8 +614,8 @@ struct ChatView: View {
         #endif
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        _ = model.hostUhp()?.sendToThread(thread: thread, text: trimmed)
-        if trimmed == draft.trimmingCharacters(in: .whitespacesAndNewlines) {
+        let accepted = model.hostUhp()?.sendToThread(thread: thread, text: trimmed) == true
+        if accepted, trimmed == draft.trimmingCharacters(in: .whitespacesAndNewlines) {
             draft = ""
         }
     }
