@@ -380,8 +380,8 @@ class LuviaViewModel(
                     null
                 }
             }
-        }, onInstalled = {
-            if (acquire.binding() != ticket) return@onInstalled
+        }, onInstalled = installed@{
+            if (acquire.binding() != ticket) return@installed
             _terminals.update { map ->
                 val current = map[hostId] ?: return@update map
                 map + (hostId to current.copy(control = TerminalControlState.Controlling, conflictMessage = null))
