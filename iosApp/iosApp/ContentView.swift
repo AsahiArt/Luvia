@@ -630,7 +630,7 @@ struct ContentView: View {
         navigationEpoch += 1
     }
 
-    private func armHandoff(pane: String?, generation: KotlinLong?) {
+    private func armHandoff(pane: String?, generation: Int64?) {
         guard let host = model.selectedHostID, !host.isEmpty else { return }
         guard let generation, generation != 0 else { return }
         fixAttempt += 1
