@@ -431,7 +431,7 @@ public class HostUhp(
         return tech.asahiart.luvia.thread.LaunchReceipt(generation)
     }
 
-    public fun resumeAcp(agentId: String, cwd: String, sessionId: String) =
+    public fun resumeAcp(agentId: String, cwd: String, sessionId: String): tech.asahiart.luvia.thread.LaunchReceipt? =
         acp.resume(agentId, cwd, sessionId)
 
     public fun setAcpDraft(text: String) = acp.setDraft(text)
