@@ -1,10 +1,10 @@
 import Foundation
 import LuviaShared
 
-/// Calls the production `AppModel` acquire and send methods.
-/// `make ios-build` compiles this file with the iosApp target and does not execute it.
-/// The iosApp scheme has no test action, so this is not a runtime result.
-/// ChatView keeps a rejected composer draft inside the view. That path is not an acquire caller and is not invoked here.
+/// Production-caller bodies for the acquire race.
+/// `LuviaAcquireTests` invokes each one. This file is not in the shipping app target.
+/// Linux has no `xcodebuild`, so this file is uncompiled and unexecuted here.
+/// ChatView draft retention and the MF6 handoff caller are not these cases.
 
 final class RecordingTerminalControl: TerminalControlHandle, @unchecked Sendable {
     private(set) var closed = false

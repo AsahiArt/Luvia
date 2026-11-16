@@ -50,7 +50,7 @@ endif
 	mobile android android-build android-install android-release android-device \
 	android-emulator \
 	ios ios-build ios-device ios-sim ios-open ios-compile ios-test ios-framework \
-	ios-sync-shared \
+	ios-sync-shared ios-acquire-xctest \
 	host host-dev host-test \
 	shared-test test test-rust test-kotlin test-android \
 	check-transport-android check-transport-ios \
@@ -61,6 +61,8 @@ help: ## List targets
 	@echo
 	@echo "  ANDROID_SERIAL=...     pin one adb serial (else every physical phone)"
 	@echo "  IOS_UDID=...           pin one iPhone, or a Simulator with make ios-sim"
+	@echo "  make ios-test          Kotlin shared tests, not the iOS XCTest bundle"
+	@echo "  make ios-acquire-xctest  physical iPhone only; requires IOS_UDID"
 	@echo "  make android-emulator  x86_64 ABI and an AVD"
 	@echo "  make ios-sim           Simulator only"
 
@@ -295,10 +297,37 @@ ios-sim: ## Install and launch on the iOS Simulator only
 ios-open: ## Open the iOS project in Xcode
 	open "$(IOS_PROJECT)"
 
+ios-acquire-xctest: ios-sync-shared ## Device-only XCTest for LuviaAcquireTests. Requires IOS_UDID. Not the Simulator and not make ios-test.
+	@set -euo pipefail; \
+	if [ -z "$(IOS_UDID)" ]; then \
+	  echo "ios-acquire-xctest needs IOS_UDID for one physical iPhone. It does not start a Simulator." >&2; \
+	  exit 1; \
+	fi; \
+	pick="$$(IOS_UDID="$(IOS_UDID)" python3 "$(IOS_PICK)")"; \
+	case "$$pick" in \
+	  device\ *) ;; \
+	  *) echo "ios-acquire-xctest refused $$pick. Pass a physical device IOS_UDID, not a Simulator." >&2; exit 1 ;; \
+	esac; \
+	echo "ios-acquire-xctest installs the shipping app $(IOS_BUNDLE_ID) (Luvia.app) on $(IOS_UDID)."; \
+	echo "The embedded widget is $(IOS_BUNDLE_ID).widgets. The test bundle is $(IOS_BUNDLE_ID).LuviaAcquireTests and is injected into that app."; \
+	echo "This uses the shipping app container. It does not create a second app and does not wipe that container."; \
+	xcodebuild \
+	  -project "$(IOS_PROJECT)" \
+	  -scheme "$(IOS_SCHEME)" \
+	  -configuration "$(IOS_CONFIGURATION)" \
+	  -sdk iphoneos \
+	  -destination "id=$(IOS_UDID)" \
+	  -derivedDataPath "$(IOS_DERIVED)" \
+	  -only-testing:LuviaAcquireTests \
+	  test
+
 else
 
 ios ios-build ios-device ios-sim ios-open ios-sync-shared:
 	@echo "iOS targets require macOS / Xcode." >&2; exit 1
+
+ios-acquire-xctest: ## Device-only XCTest for LuviaAcquireTests. Requires IOS_UDID. Not the Simulator and not make ios-test.
+	@echo "ios-acquire-xctest requires macOS, Xcode, and a physical iPhone in IOS_UDID. It is not make ios-test and does not use the Simulator." >&2; exit 1
 
 endif
 

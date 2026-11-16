@@ -12,6 +12,9 @@
 		A5FDE99C97409C96AC62E130 /* LuviaActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A965C69D7DFD94DF39D554E5 /* LuviaActivityAttributes.swift */; };
 		D421F6566ADB40A22629E982 /* LuviaWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 591FB5B3B7C1BB7CB4A87ACF /* LuviaWidgets.swift */; };
 		FE323EFB41884B407A2A72D8 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6CD859CF5F19ADD9A0BE2282 /* Foundation.framework */; };
+		C0FFEE01A1C0A1C0A1C0A109 /* AppModelAcquireRace.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE01A1C0A1C0A1C0A107 /* AppModelAcquireRace.swift */; };
+		C0FFEE01A1C0A1C0A1C0A10A /* AppModelAcquireRaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0FFEE01A1C0A1C0A1C0A108 /* AppModelAcquireRaceTests.swift */; };
+		C0FFEE01A1C0A1C0A1C0A113 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C0FFEE01A1C0A1C0A1C0A112 /* XCTest.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -44,6 +47,10 @@
 		6CD859CF5F19ADD9A0BE2282 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		A965C69D7DFD94DF39D554E5 /* LuviaActivityAttributes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LuviaActivityAttributes.swift; sourceTree = "<group>"; };
 		DF512E6F8C0C7FE4E2C2365B /* Luvia.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Luvia.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0FFEE01A1C0A1C0A1C0A102 /* LuviaAcquireTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LuviaAcquireTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0FFEE01A1C0A1C0A1C0A107 /* AppModelAcquireRace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelAcquireRace.swift; sourceTree = "<group>"; };
+		C0FFEE01A1C0A1C0A1C0A108 /* AppModelAcquireRaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModelAcquireRaceTests.swift; sourceTree = "<group>"; };
+		C0FFEE01A1C0A1C0A1C0A112 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -88,6 +95,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0FFEE01A1C0A1C0A1C0A104 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C0FFEE01A1C0A1C0A1C0A113 /* XCTest.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -99,6 +114,15 @@
 			path = LuviaWidgets;
 			sourceTree = "<group>";
 		};
+		C0FFEE01A1C0A1C0A1C0A10B /* LuviaAcquireTests */ = {
+			isa = PBXGroup;
+			children = (
+				C0FFEE01A1C0A1C0A1C0A107 /* AppModelAcquireRace.swift */,
+				C0FFEE01A1C0A1C0A1C0A108 /* AppModelAcquireRaceTests.swift */,
+			);
+			path = LuviaAcquireTests;
+			sourceTree = "<group>";
+		};
 		7074C1A8F12284BCB2606EDE = {
 			isa = PBXGroup;
 			children = (
@@ -107,6 +131,7 @@
 				D1B59B3F24E9B14E5F408BBF /* Products */,
 				F89EBBE87AED25CF70D449BA /* Shared */,
 				63CAC1E2E80FF960A3924836 /* LuviaWidgets */,
+				C0FFEE01A1C0A1C0A1C0A10B /* LuviaAcquireTests */,
 				8E13A5787993440A970AD1D6 /* Frameworks */,
 			);
 			sourceTree = "<group>";
@@ -124,6 +149,7 @@
 			children = (
 				DF512E6F8C0C7FE4E2C2365B /* Luvia.app */,
 				60F8349F6B36F3E628113B8C /* LuviaWidgets.appex */,
+				C0FFEE01A1C0A1C0A1C0A102 /* LuviaAcquireTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -132,6 +158,7 @@
 			isa = PBXGroup;
 			children = (
 				6CD859CF5F19ADD9A0BE2282 /* Foundation.framework */,
+				C0FFEE01A1C0A1C0A1C0A112 /* XCTest.framework */,
 			);
 			name = iOS;
 			sourceTree = "<group>";
@@ -187,6 +214,24 @@
 			productReference = 60F8349F6B36F3E628113B8C /* LuviaWidgets.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		C0FFEE01A1C0A1C0A1C0A101 /* LuviaAcquireTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C0FFEE01A1C0A1C0A1C0A110 /* Build configuration list for PBXNativeTarget "LuviaAcquireTests" */;
+			buildPhases = (
+				C0FFEE01A1C0A1C0A1C0A103 /* Sources */,
+				C0FFEE01A1C0A1C0A1C0A104 /* Frameworks */,
+				C0FFEE01A1C0A1C0A1C0A105 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C0FFEE01A1C0A1C0A1C0A10D /* PBXTargetDependency */,
+			);
+			name = LuviaAcquireTests;
+			productName = LuviaAcquireTests;
+			productReference = C0FFEE01A1C0A1C0A1C0A102 /* LuviaAcquireTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -199,6 +244,10 @@
 				TargetAttributes = {
 					0A157F5F93677EA722753D37 = {
 						CreatedOnToolsVersion = 16.2;
+					};
+					C0FFEE01A1C0A1C0A1C0A101 = {
+						CreatedOnToolsVersion = 16.2;
+						TestTargetID = 0A157F5F93677EA722753D37;
 					};
 				};
 			};
@@ -218,6 +267,7 @@
 			targets = (
 				0A157F5F93677EA722753D37 /* iosApp */,
 				BB77068955E94E05958B49EE /* LuviaWidgets */,
+				C0FFEE01A1C0A1C0A1C0A101 /* LuviaAcquireTests */,
 			);
 		};
 /* End PBXProject section */
@@ -231,6 +281,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		5C51F2629E686A972EC3B90B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C0FFEE01A1C0A1C0A1C0A105 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -279,6 +336,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0FFEE01A1C0A1C0A1C0A103 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C0FFEE01A1C0A1C0A1C0A109 /* AppModelAcquireRace.swift in Sources */,
+				C0FFEE01A1C0A1C0A1C0A10A /* AppModelAcquireRaceTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -287,6 +353,18 @@
 			name = LuviaWidgets;
 			target = BB77068955E94E05958B49EE /* LuviaWidgets */;
 			targetProxy = BB952737A7F4CBA26B735167 /* PBXContainerItemProxy */;
+		};
+		C0FFEE01A1C0A1C0A1C0A10C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F7FD4A14BBB71D188ECFE6BA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0A157F5F93677EA722753D37;
+			remoteInfo = iosApp;
+		};
+		C0FFEE01A1C0A1C0A1C0A10D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0A157F5F93677EA722753D37 /* iosApp */;
+			targetProxy = C0FFEE01A1C0A1C0A1C0A10C /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -516,12 +594,75 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER)";
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
+		};
+		C0FFEE01A1C0A1C0A1C0A10E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 645122AAE68B7D3BFF4B543D /* Configuration */;
+			baseConfigurationReferenceRelativePath = Config.xcconfig;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = MT2QLSNS7F;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(BUILT_PRODUCTS_DIR)/Luvia.app/Frameworks",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					"LuviaShared",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER).LuviaAcquireTests";
+				PRODUCT_NAME = LuviaAcquireTests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Luvia.app/Luvia";
+			};
+			name = Debug;
+		};
+		C0FFEE01A1C0A1C0A1C0A10F /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 645122AAE68B7D3BFF4B543D /* Configuration */;
+			baseConfigurationReferenceRelativePath = Config.xcconfig;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = MT2QLSNS7F;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(BUILT_PRODUCTS_DIR)/Luvia.app/Frameworks",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					"LuviaShared",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER).LuviaAcquireTests";
+				PRODUCT_NAME = LuviaAcquireTests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Luvia.app/Luvia";
+			};
+			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
@@ -549,6 +690,15 @@
 			buildConfigurations = (
 				B24EC041C50E170C0BAA1F3E /* Debug */,
 				436D54CFB937FB1EF0F5F150 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C0FFEE01A1C0A1C0A1C0A110 /* Build configuration list for PBXNativeTarget "LuviaAcquireTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C0FFEE01A1C0A1C0A1C0A10E /* Debug */,
+				C0FFEE01A1C0A1C0A1C0A10F /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
